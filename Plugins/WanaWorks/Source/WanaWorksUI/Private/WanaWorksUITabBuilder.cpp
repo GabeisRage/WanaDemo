@@ -18,10 +18,13 @@
 
 namespace
 {
-TSharedRef<SWidget> MakeFixedWidthButton(const FText& ButtonText, TFunction<void(void)> OnPressed)
+TSharedRef<SWidget> MakeSection(const FSlateFontInfo& SectionHeaderFont, const FText& Title, const TSharedRef<SWidget>& Content);
+constexpr float WanaAISubsectionSpacing = 10.0f;
+
+TSharedRef<SWidget> MakeFixedWidthButton(const FText& ButtonText, TFunction<void(void)> OnPressed, float WidthOverride = 156.0f)
 {
     return SNew(SBox)
-        .WidthOverride(156.0f)
+        .WidthOverride(WidthOverride)
         .HeightOverride(30.0f)
         [
             SNew(SButton)
@@ -37,7 +40,76 @@ TSharedRef<SWidget> MakeFixedWidthButton(const FText& ButtonText, TFunction<void
 
                 return FReply::Handled();
             })
-            ];
+        ];
+}
+
+TSharedRef<SWidget> MakeCharacterEnhancementSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
+{
+    return MakeSection(
+        SectionHeaderFont,
+        LOCTEXT("WanaWorksCharacterEnhancementSection", "Character Enhancement"),
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        [
+            SNew(STextBlock)
+            .AutoWrapText(true)
+            .Text(LOCTEXT("WanaWorksCharacterEnhancementHelp", "Apply a beginner-friendly WanaAI starter preset to the currently selected actor without replacing its existing setup."))
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+        [
+            SNew(STextBlock)
+            .Text(LOCTEXT("WanaWorksCharacterEnhancementPresetLabel", "Starter Preset"))
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            SNew(SBox)
+            .WidthOverride(220.0f)
+            [
+                SNew(SComboBox<TSharedPtr<FString>>)
+                .OptionsSource(Args.EnhancementPresetOptions)
+                .InitiallySelectedItem(Args.GetSelectedEnhancementPresetOption ? Args.GetSelectedEnhancementPresetOption() : nullptr)
+                .OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
+                {
+                    return SNew(STextBlock)
+                        .Text(Item.IsValid() ? FText::FromString(*Item) : FText::GetEmpty());
+                })
+                .OnSelectionChanged_Lambda([OnEnhancementPresetOptionSelected = Args.OnEnhancementPresetOptionSelected](TSharedPtr<FString> SelectedItem, ESelectInfo::Type)
+                {
+                    if (OnEnhancementPresetOptionSelected)
+                    {
+                        OnEnhancementPresetOptionSelected(SelectedItem);
+                    }
+                })
+                [
+                    SNew(STextBlock)
+                    .Text_Lambda([GetSelectedEnhancementPresetOption = Args.GetSelectedEnhancementPresetOption]()
+                    {
+                        const TSharedPtr<FString> SelectedOption = GetSelectedEnhancementPresetOption ? GetSelectedEnhancementPresetOption() : nullptr;
+                        return SelectedOption.IsValid() ? FText::FromString(*SelectedOption) : LOCTEXT("WanaWorksCharacterEnhancementDefault", "Identity Only");
+                    })
+                ]
+            ]
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 10.0f, 0.0f, 0.0f)
+        [
+            MakeFixedWidthButton(
+                LOCTEXT("WanaWorksApplyCharacterEnhancementButton", "Apply WanaAI Enhancement"),
+                [OnApplyCharacterEnhancement = Args.OnApplyCharacterEnhancement]()
+                {
+                    if (OnApplyCharacterEnhancement)
+                    {
+                        OnApplyCharacterEnhancement();
+                    }
+                },
+                220.0f)
+        ]);
 }
 
 TSharedRef<SWidget> MakeCommandButton(const FWanaWorksUITabBuilderArgs& Args, const FWanaCommandDefinition& Definition)
@@ -325,7 +397,13 @@ TSharedRef<SWidget> MakeWanaAISection(const FWanaWorksUITabBuilderArgs& Args, co
         SNew(SVerticalBox)
         + SVerticalBox::Slot()
         .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
+        [
+            MakeCharacterEnhancementSection(Args, SectionHeaderFont)
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
         [
             MakeWrappedButtonSection(
                 Args,
@@ -337,7 +415,7 @@ TSharedRef<SWidget> MakeWanaAISection(const FWanaWorksUITabBuilderArgs& Args, co
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
         [
             MakeWrappedButtonSection(
                 Args,
@@ -350,12 +428,13 @@ TSharedRef<SWidget> MakeWanaAISection(const FWanaWorksUITabBuilderArgs& Args, co
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
         [
             MakeIdentitySection(Args, SectionHeaderFont)
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
         [
             MakeWaySection(Args, SectionHeaderFont)
         ]);

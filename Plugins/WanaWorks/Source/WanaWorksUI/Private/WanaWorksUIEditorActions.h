@@ -46,4 +46,5 @@ namespace WanaWorksUIEditorActions
     FWanaCommandResponse ExecuteApplyRelationshipStateCommand(const FString& RelationshipStateText);
     FWanaCommandResponse ExecuteEnsureIdentityComponentCommand();
     FWanaCommandResponse ExecuteApplyIdentityCommand(const FString& FactionTagText, EWAYRelationshipState DefaultRelationshipState);
+    FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& PresetLabel);
 }

@@ -21,14 +21,17 @@ private:
     void HandleCommandTextChanged(const FText& NewText);
     void HandleIdentityFactionTagTextChanged(const FText& NewText);
     void HandleIdentitySeedStateOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleEnhancementPresetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleRelationshipStateOptionSelected(TSharedPtr<FString> SelectedOption);
     void EnsureIdentityComponent();
     void ExecuteCommandText(const FString& InCommandText);
     void ApplyIdentity();
+    void ApplyCharacterEnhancement();
     void ApplySelectedRelationshipState();
     void RunCommand();
     void ClearLog();
     void AppendLogLine(const FString& Line);
+    TSharedPtr<FString> GetSelectedEnhancementPresetOption() const;
     TSharedPtr<FString> GetSelectedIdentitySeedStateOption();
     TSharedPtr<FString> GetSelectedRelationshipStateOption() const;
 
@@ -45,8 +48,10 @@ private:
     FString CommandText;
     FString LogOutput;
     FString IdentityFactionTagText;
+    FString SelectedEnhancementPresetLabel;
     EWAYRelationshipState SelectedIdentitySeedState = EWAYRelationshipState::Neutral;
     EWAYRelationshipState SelectedRelationshipState = EWAYRelationshipState::Neutral;
+    TArray<TSharedPtr<FString>> EnhancementPresetOptions;
     TArray<TSharedPtr<FString>> RelationshipStateOptions;
     TWeakObjectPtr<AActor> CachedIdentityActor;
     bool bIdentityStateInitialized = false;

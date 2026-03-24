@@ -234,6 +234,51 @@ FString MakeReputationTagsSummary(const TArray<FName>& ReputationTags)
         : TEXT("(none)");
 }
 
+FString JoinOrNone(const TArray<FString>& Entries)
+{
+    return Entries.Num() > 0 ? FString::Join(Entries, TEXT(", ")) : TEXT("(none)");
+}
+
+bool TryResolveCharacterEnhancementPreset(
+    const FString& PresetLabel,
+    bool& bOutNeedsIdentity,
+    bool& bOutNeedsRelationship,
+    bool& bOutNeedsWAI,
+    FString& OutResolvedPresetLabel)
+{
+    const FString NormalizedPreset = PresetLabel.TrimStartAndEnd().ToLower();
+
+    bOutNeedsIdentity = false;
+    bOutNeedsRelationship = false;
+    bOutNeedsWAI = false;
+
+    if (NormalizedPreset == TEXT("identity only"))
+    {
+        bOutNeedsIdentity = true;
+        OutResolvedPresetLabel = TEXT("Identity Only");
+        return true;
+    }
+
+    if (NormalizedPreset == TEXT("relationship starter"))
+    {
+        bOutNeedsIdentity = true;
+        bOutNeedsRelationship = true;
+        OutResolvedPresetLabel = TEXT("Relationship Starter");
+        return true;
+    }
+
+    if (NormalizedPreset == TEXT("full wanaai starter"))
+    {
+        bOutNeedsIdentity = true;
+        bOutNeedsRelationship = true;
+        bOutNeedsWAI = true;
+        OutResolvedPresetLabel = TEXT("Full WanaAI Starter");
+        return true;
+    }
+
+    return false;
+}
+
 void AppendRelationshipProfileLines(FWanaCommandResponse& Response, const AActor* SelectedActor, const FWAYRelationshipProfile& Profile)
 {
     const EWAYReactionState ReactionState = UWAYPlayerProfileComponent::ResolveReactionForRelationshipState(Profile.RelationshipState);
@@ -879,6 +924,133 @@ FWanaCommandResponse ExecuteApplyIdentityCommand(const FString& FactionTagText, 
     Response.StatusMessage = TEXT("Status: Applied identity values.");
     Response.OutputLines.Add(TEXT("Applied identity values to the selected actor."));
     AppendIdentityLines(Response, Snapshot);
+    return Response;
+}
+
+FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& PresetLabel)
+{
+    AActor* SelectedActor = GetFirstSelectedActorMutable();
+
+    if (!SelectedActor)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: No actors selected."), TEXT("No actors selected."));
+    }
+
+    bool bNeedsIdentity = false;
+    bool bNeedsRelationship = false;
+    bool bNeedsWAI = false;
+    FString ResolvedPresetLabel;
+
+    if (!TryResolveCharacterEnhancementPreset(PresetLabel, bNeedsIdentity, bNeedsRelationship, bNeedsWAI, ResolvedPresetLabel))
+    {
+        return MakeEditorFailureResponse(
+            TEXT("Status: Invalid enhancement preset."),
+            TEXT("Use one of: Identity Only, Relationship Starter, Full WanaAI Starter."));
+    }
+
+    const bool bHadIdentity = SelectedActor->FindComponentByClass<UWanaIdentityComponent>() != nullptr;
+    const bool bHadRelationship = SelectedActor->FindComponentByClass<UWAYPlayerProfileComponent>() != nullptr;
+    const bool bHadWAI = SelectedActor->FindComponentByClass<UWAIPersonalityComponent>() != nullptr;
+
+    TArray<FString> AddedComponents;
+    TArray<FString> ExistingComponents;
+    TArray<FString> CompatibilityNotes;
+
+    if (bNeedsIdentity && bHadIdentity)
+    {
+        ExistingComponents.Add(TEXT("UWanaIdentityComponent"));
+    }
+
+    if (bNeedsRelationship && bHadRelationship)
+    {
+        ExistingComponents.Add(TEXT("UWAYPlayerProfileComponent"));
+    }
+
+    if (bNeedsWAI && bHadWAI)
+    {
+        ExistingComponents.Add(TEXT("UWAIPersonalityComponent"));
+    }
+
+    if ((!bNeedsIdentity || bHadIdentity) &&
+        (!bNeedsRelationship || bHadRelationship) &&
+        (!bNeedsWAI || bHadWAI))
+    {
+        FWanaCommandResponse Response;
+        Response.bSucceeded = true;
+        Response.StatusMessage = TEXT("Status: WanaAI enhancement already applied.");
+        Response.OutputLines.Add(FString::Printf(TEXT("Selected Actor: %s"), *SelectedActor->GetActorNameOrLabel()));
+        Response.OutputLines.Add(FString::Printf(TEXT("Preset Used: %s"), *ResolvedPresetLabel));
+        Response.OutputLines.Add(TEXT("Components Added: (none)"));
+        Response.OutputLines.Add(FString::Printf(TEXT("Already Present: %s"), *JoinOrNone(ExistingComponents)));
+        Response.OutputLines.Add(TEXT("Compatibility Notes: Existing setup preserved. No duplicate components were added."));
+
+        if (bNeedsWAI)
+        {
+            Response.OutputLines.Add(TEXT("Compatibility Notes: Full WanaAI Starter uses UWAIPersonalityComponent as the current WAI starter component."));
+        }
+
+        return Response;
+    }
+
+    FScopedTransaction Transaction(LOCTEXT("WanaWorksApplyCharacterEnhancementTransaction", "Apply WanaAI Character Enhancement"));
+    SelectedActor->Modify();
+
+    if (bNeedsIdentity && !bHadIdentity)
+    {
+        if (!FindOrAddIdentityComponent(SelectedActor))
+        {
+            Transaction.Cancel();
+            return MakeEditorFailureResponse(TEXT("Status: Could not add identity component."), TEXT("Failed to create UWanaIdentityComponent."));
+        }
+
+        AddedComponents.Add(TEXT("UWanaIdentityComponent"));
+    }
+
+    if (bNeedsRelationship && !bHadRelationship)
+    {
+        if (!FindOrAddPreferenceComponent(SelectedActor))
+        {
+            Transaction.Cancel();
+            return MakeEditorFailureResponse(TEXT("Status: Could not add WAY component."), TEXT("Failed to create UWAYPlayerProfileComponent."));
+        }
+
+        AddedComponents.Add(TEXT("UWAYPlayerProfileComponent"));
+    }
+
+    if (bNeedsWAI && !bHadWAI)
+    {
+        if (!FindOrAddMemoryComponent(SelectedActor))
+        {
+            Transaction.Cancel();
+            return MakeEditorFailureResponse(TEXT("Status: Could not add WAI component."), TEXT("Failed to create UWAIPersonalityComponent."));
+        }
+
+        AddedComponents.Add(TEXT("UWAIPersonalityComponent"));
+    }
+
+    SelectedActor->MarkPackageDirty();
+
+    CompatibilityNotes.Add(TEXT("Existing setup preserved. No existing components were replaced."));
+    CompatibilityNotes.Add(TEXT("This enhancement only adds missing starter components for the selected actor."));
+
+    if (bNeedsWAI)
+    {
+        CompatibilityNotes.Add(TEXT("Full WanaAI Starter uses UWAIPersonalityComponent as the current WAI starter component."));
+    }
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = true;
+    Response.StatusMessage = FString::Printf(TEXT("Status: Applied %s preset."), *ResolvedPresetLabel);
+    Response.OutputLines.Add(FString::Printf(TEXT("Selected Actor: %s"), *SelectedActor->GetActorNameOrLabel()));
+    Response.OutputLines.Add(FString::Printf(TEXT("Preset Used: %s"), *ResolvedPresetLabel));
+    Response.OutputLines.Add(FString::Printf(TEXT("Components Added: %s"), *JoinOrNone(AddedComponents)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Already Present: %s"), *JoinOrNone(ExistingComponents)));
+
+    for (const FString& CompatibilityNote : CompatibilityNotes)
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Compatibility Notes: %s"), *CompatibilityNote));
+    }
+
     return Response;
 }
 }

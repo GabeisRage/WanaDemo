@@ -12,6 +12,11 @@
 
 namespace
 {
+const TCHAR* GetCharacterEnhancementPresetLabel(const FString& PresetLabel)
+{
+    return PresetLabel.IsEmpty() ? TEXT("Identity Only") : *PresetLabel;
+}
+
 const TCHAR* GetRelationshipStateLabel(EWAYRelationshipState RelationshipState)
 {
     switch (RelationshipState)
@@ -78,8 +83,15 @@ void FWanaWorksUIModule::StartupModule()
     CommandText.Reset();
     LogOutput = TEXT("Wana Works Initialized");
     IdentityFactionTagText.Reset();
+    SelectedEnhancementPresetLabel = TEXT("Identity Only");
     SelectedIdentitySeedState = EWAYRelationshipState::Neutral;
     SelectedRelationshipState = EWAYRelationshipState::Neutral;
+    EnhancementPresetOptions =
+    {
+        MakeShared<FString>(TEXT("Identity Only")),
+        MakeShared<FString>(TEXT("Relationship Starter")),
+        MakeShared<FString>(TEXT("Full WanaAI Starter"))
+    };
     RelationshipStateOptions =
     {
         MakeShared<FString>(TEXT("Acquaintance")),
@@ -128,6 +140,14 @@ void FWanaWorksUIModule::HandleIdentitySeedStateOptionSelected(TSharedPtr<FStrin
     if (TryParseRelationshipStateLabel(*SelectedOption, ParsedRelationshipState))
     {
         SelectedIdentitySeedState = ParsedRelationshipState;
+    }
+}
+
+void FWanaWorksUIModule::HandleEnhancementPresetOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    if (SelectedOption.IsValid())
+    {
+        SelectedEnhancementPresetLabel = *SelectedOption;
     }
 }
 
@@ -197,6 +217,13 @@ void FWanaWorksUIModule::EnsureIdentityComponent()
 void FWanaWorksUIModule::ApplyIdentity()
 {
     const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteApplyIdentityCommand(IdentityFactionTagText, SelectedIdentitySeedState);
+    RefreshIdentityEditorState(true);
+    ApplyResponse(Response);
+}
+
+void FWanaWorksUIModule::ApplyCharacterEnhancement()
+{
+    const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteApplyCharacterEnhancementCommand(SelectedEnhancementPresetLabel);
     RefreshIdentityEditorState(true);
     ApplyResponse(Response);
 }
@@ -292,6 +319,21 @@ void FWanaWorksUIModule::AppendLogLine(const FString& Line)
     }
 
     LogOutput.Append(Line);
+}
+
+TSharedPtr<FString> FWanaWorksUIModule::GetSelectedEnhancementPresetOption() const
+{
+    const FString SelectedLabel = GetCharacterEnhancementPresetLabel(SelectedEnhancementPresetLabel);
+
+    for (const TSharedPtr<FString>& Option : EnhancementPresetOptions)
+    {
+        if (Option.IsValid() && Option->Equals(SelectedLabel))
+        {
+            return Option;
+        }
+    }
+
+    return EnhancementPresetOptions.Num() > 0 ? EnhancementPresetOptions[0] : nullptr;
 }
 
 TSharedPtr<FString> FWanaWorksUIModule::GetSelectedRelationshipStateOption() const
@@ -402,17 +444,21 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetRelationshipSummaryText = [this]() { return GetRelationshipSummaryText(); };
     BuilderArgs.GetIdentitySummaryText = [this]() { return GetIdentitySummaryText(); };
     BuilderArgs.GetIdentityFactionTagText = [this]() { return GetIdentityFactionTagText(); };
+    BuilderArgs.EnhancementPresetOptions = &EnhancementPresetOptions;
     BuilderArgs.RelationshipStateOptions = &RelationshipStateOptions;
+    BuilderArgs.GetSelectedEnhancementPresetOption = [this]() { return GetSelectedEnhancementPresetOption(); };
     BuilderArgs.GetSelectedIdentitySeedStateOption = [this]() { return GetSelectedIdentitySeedStateOption(); };
     BuilderArgs.GetSelectedRelationshipStateOption = [this]() { return GetSelectedRelationshipStateOption(); };
     BuilderArgs.OnCommandTextChanged = [this](const FText& NewText) { HandleCommandTextChanged(NewText); };
     BuilderArgs.OnIdentityFactionTagTextChanged = [this](const FText& NewText) { HandleIdentityFactionTagTextChanged(NewText); };
+    BuilderArgs.OnEnhancementPresetOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleEnhancementPresetOptionSelected(SelectedOption); };
     BuilderArgs.OnIdentitySeedStateOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleIdentitySeedStateOptionSelected(SelectedOption); };
     BuilderArgs.OnRelationshipStateOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleRelationshipStateOptionSelected(SelectedOption); };
     BuilderArgs.OnRunCommand = [this]() { RunCommand(); };
     BuilderArgs.OnClearLog = [this]() { ClearLog(); };
     BuilderArgs.OnEnsureIdentityComponent = [this]() { EnsureIdentityComponent(); };
     BuilderArgs.OnApplyIdentity = [this]() { ApplyIdentity(); };
+    BuilderArgs.OnApplyCharacterEnhancement = [this]() { ApplyCharacterEnhancement(); };
     BuilderArgs.OnApplyRelationshipState = [this]() { ApplySelectedRelationshipState(); };
     BuilderArgs.OnExecuteCommandText = [this](const FString& InCommandText) { ExecuteCommandText(InCommandText); };
 
