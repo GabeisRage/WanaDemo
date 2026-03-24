@@ -1,0 +1,29 @@
+using UnrealBuildTool;
+
+public class WanaWorksUI : ModuleRules
+{
+    public WanaWorksUI(ReadOnlyTargetRules Target) : base(Target)
+    {
+        PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+
+        PublicDependencyModuleNames.AddRange(new[]
+        {
+            "Core"
+        });
+
+        PrivateDependencyModuleNames.AddRange(new[]
+        {
+            "CoreUObject",
+            "Engine",
+            "InputCore",
+            "UnrealEd",
+            "WanaWorksCore",
+            "WanaWorksRender",
+            "WanaWorksWAI",
+            "WanaWorksWIT",
+            "WanaWorksWAY",
+            "Slate",
+            "SlateCore"
+        });
+    }
+}
