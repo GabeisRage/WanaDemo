@@ -17,6 +17,16 @@ struct FWanaSelectedActorIdentitySnapshot
     FString ReputationTagsSummary;
 };
 
+struct FWanaSelectedCharacterEnhancementSnapshot
+{
+    bool bHasSelectedActor = false;
+    bool bHasIdentityComponent = false;
+    bool bHasWAIComponent = false;
+    bool bHasWAYComponent = false;
+    TWeakObjectPtr<AActor> SelectedActor;
+    FString SelectedActorLabel;
+};
+
 struct FWanaSelectedRelationshipContextSnapshot
 {
     bool bHasObserverActor = false;
@@ -32,6 +42,7 @@ struct FWanaSelectedRelationshipContextSnapshot
 namespace WanaWorksUIEditorActions
 {
     bool GetSelectedActorIdentitySnapshot(FWanaSelectedActorIdentitySnapshot& OutSnapshot);
+    bool GetSelectedCharacterEnhancementSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot);
     bool GetSelectedRelationshipContextSnapshot(FWanaSelectedRelationshipContextSnapshot& OutSnapshot);
     FWanaCommandResponse ExecuteWeatherPresetCommand(const FString& PresetName);
     FWanaCommandResponse ExecuteSpawnCubeCommand();
@@ -47,4 +58,6 @@ namespace WanaWorksUIEditorActions
     FWanaCommandResponse ExecuteEnsureIdentityComponentCommand();
     FWanaCommandResponse ExecuteApplyIdentityCommand(const FString& FactionTagText, EWAYRelationshipState DefaultRelationshipState);
     FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& PresetLabel);
+    FWanaCommandResponse ExecuteEvaluateLiveTargetCommand();
+    FWanaCommandResponse ExecuteApplyStarterAndTestTargetCommand(const FString& PresetLabel);
 }

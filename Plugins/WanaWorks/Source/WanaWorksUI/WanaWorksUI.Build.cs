@@ -17,6 +17,7 @@ public class WanaWorksUI : ModuleRules
             "Engine",
             "InputCore",
             "UnrealEd",
+            "WorkspaceMenuStructure",
             "WanaWorksCore",
             "WanaWorksRender",
             "WanaWorksWAI",

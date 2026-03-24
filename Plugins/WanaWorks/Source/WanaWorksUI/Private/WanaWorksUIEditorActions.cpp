@@ -313,6 +313,42 @@ void AppendIdentityLines(FWanaCommandResponse& Response, const FWanaSelectedActo
         Response.OutputLines.Add(FString::Printf(TEXT("Reputation Tags: %s"), *Snapshot.ReputationTagsSummary));
     }
 }
+
+FString MakeIdentitySeedSummary(const AActor* TargetActor)
+{
+    if (!TargetActor)
+    {
+        return TEXT("Missing (no target actor was available).");
+    }
+
+    const UWanaIdentityComponent* IdentityComponent = TargetActor->FindComponentByClass<UWanaIdentityComponent>();
+
+    if (!IdentityComponent)
+    {
+        return TEXT("Missing on target. Neutral defaults were used.");
+    }
+
+    const FWAYRelationshipSeed& Seed = IdentityComponent->DefaultRelationshipSeed;
+    return FString::Printf(
+        TEXT("State=%s Trust=%.2f Fear=%.2f Respect=%.2f Attachment=%.2f Hostility=%.2f"),
+        *GetRelationshipStateDisplayLabel(Seed.RelationshipState),
+        Seed.Trust,
+        Seed.Fear,
+        Seed.Respect,
+        Seed.Attachment,
+        Seed.Hostility);
+}
+
+void AppendLinesWithPrefix(FWanaCommandResponse& Response, const FWanaCommandResponse& SourceResponse, const FString& Prefix)
+{
+    for (const FString& OutputLine : SourceResponse.OutputLines)
+    {
+        if (OutputLine.StartsWith(Prefix))
+        {
+            Response.OutputLines.Add(OutputLine);
+        }
+    }
+}
 }
 
 namespace WanaWorksUIEditorActions
@@ -344,6 +380,26 @@ bool GetSelectedActorIdentitySnapshot(FWanaSelectedActorIdentitySnapshot& OutSna
         OutSnapshot.ReputationTagsSummary = TEXT("(none)");
     }
 
+    return true;
+}
+
+bool GetSelectedCharacterEnhancementSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot)
+{
+    OutSnapshot = FWanaSelectedCharacterEnhancementSnapshot();
+
+    const AActor* SelectedActor = GetFirstSelectedActor();
+
+    if (!SelectedActor)
+    {
+        return false;
+    }
+
+    OutSnapshot.bHasSelectedActor = true;
+    OutSnapshot.SelectedActor = const_cast<AActor*>(SelectedActor);
+    OutSnapshot.SelectedActorLabel = SelectedActor->GetActorNameOrLabel();
+    OutSnapshot.bHasIdentityComponent = SelectedActor->FindComponentByClass<UWanaIdentityComponent>() != nullptr;
+    OutSnapshot.bHasWAIComponent = SelectedActor->FindComponentByClass<UWAIPersonalityComponent>() != nullptr;
+    OutSnapshot.bHasWAYComponent = SelectedActor->FindComponentByClass<UWAYPlayerProfileComponent>() != nullptr;
     return true;
 }
 
@@ -1051,6 +1107,148 @@ FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& Pres
         Response.OutputLines.Add(FString::Printf(TEXT("Compatibility Notes: %s"), *CompatibilityNote));
     }
 
+    return Response;
+}
+
+FWanaCommandResponse ExecuteEvaluateLiveTargetCommand()
+{
+    FWanaSelectedRelationshipContextSnapshot RelationshipContext;
+
+    if (!GetSelectedRelationshipContextSnapshot(RelationshipContext))
+    {
+        return MakeEditorFailureResponse(TEXT("Status: No actors selected."), TEXT("No actors selected."));
+    }
+
+    AActor* ObserverActor = RelationshipContext.ObserverActor.Get();
+    AActor* TargetActor = RelationshipContext.TargetActor.Get();
+
+    if (!ObserverActor || !TargetActor)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: Observer or target is missing."), TEXT("Select an observer actor and, optionally, a second actor as the target."));
+    }
+
+    UWAYPlayerProfileComponent* ProfileComponent = ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>();
+    FWAYRelationshipProfile ExistingProfile;
+    const bool bHadRelationshipProfile = ProfileComponent && ProfileComponent->GetRelationshipProfileForTarget(TargetActor, ExistingProfile);
+    const bool bNeedsWayComponent = ProfileComponent == nullptr;
+    const bool bNeedsTransaction = bNeedsWayComponent || !bHadRelationshipProfile;
+
+    TUniquePtr<FScopedTransaction> Transaction;
+
+    if (bNeedsTransaction)
+    {
+        Transaction = MakeUnique<FScopedTransaction>(LOCTEXT("WanaWorksEvaluateLiveTargetTransaction", "Evaluate WanaAI Live Target"));
+        ObserverActor->Modify();
+    }
+
+    if (!ProfileComponent)
+    {
+        ProfileComponent = FindOrAddPreferenceComponent(ObserverActor);
+    }
+
+    if (!ProfileComponent)
+    {
+        if (Transaction)
+        {
+            Transaction->Cancel();
+        }
+
+        return MakeEditorFailureResponse(TEXT("Status: Could not prepare observer WAY component."), TEXT("Failed to create or find UWAYPlayerProfileComponent for the observer."));
+    }
+
+    ProfileComponent->SetFlags(RF_Transactional);
+
+    if (bNeedsTransaction)
+    {
+        ProfileComponent->Modify();
+    }
+
+    const FWAYTargetEvaluation Evaluation = ProfileComponent->EvaluateTarget(TargetActor);
+
+    if (bNeedsTransaction)
+    {
+        ObserverActor->MarkPackageDirty();
+    }
+
+    TArray<FString> ReadinessNotes;
+
+    if (bNeedsWayComponent)
+    {
+        ReadinessNotes.Add(TEXT("Observer was missing UWAYPlayerProfileComponent, so it was added automatically for the live test."));
+    }
+
+    if (!bHadRelationshipProfile)
+    {
+        ReadinessNotes.Add(TEXT("A relationship profile was created for this observer-target pair during evaluation."));
+    }
+
+    if (RelationshipContext.bTargetFallsBackToObserver)
+    {
+        ReadinessNotes.Add(TEXT("Target Source: Observer fallback (select a second actor to test a separate target)."));
+    }
+    else
+    {
+        ReadinessNotes.Add(TEXT("Target Source: Secondary selected actor."));
+    }
+
+    if (!TargetActor->FindComponentByClass<UWanaIdentityComponent>())
+    {
+        ReadinessNotes.Add(TEXT("Target has no UWanaIdentityComponent, so neutral seed defaults were used."));
+    }
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = true;
+    Response.StatusMessage = TEXT("Status: Live target evaluation complete.");
+    Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), *ObserverActor->GetActorNameOrLabel()));
+    Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), *TargetActor->GetActorNameOrLabel()));
+    Response.OutputLines.Add(FString::Printf(TEXT("Identity Seed: %s"), *MakeIdentitySeedSummary(TargetActor)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Relationship State: %s"), *GetRelationshipStateDisplayLabel(Evaluation.RelationshipProfile.RelationshipState)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Reaction State: %s"), *GetReactionStateDisplayLabel(Evaluation.ReactionState)));
+
+    for (const FString& ReadinessNote : ReadinessNotes)
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Readiness Notes: %s"), *ReadinessNote));
+    }
+
+    return Response;
+}
+
+FWanaCommandResponse ExecuteApplyStarterAndTestTargetCommand(const FString& PresetLabel)
+{
+    const FWanaCommandResponse EnhancementResponse = ExecuteApplyCharacterEnhancementCommand(PresetLabel);
+
+    if (!EnhancementResponse.bSucceeded)
+    {
+        return EnhancementResponse;
+    }
+
+    const FWanaCommandResponse EvaluationResponse = ExecuteEvaluateLiveTargetCommand();
+
+    if (!EvaluationResponse.bSucceeded)
+    {
+        FWanaCommandResponse Response = EvaluationResponse;
+        Response.OutputLines.Insert(TEXT("Guided Workflow: Starter preset was applied before the live test stopped."), 0);
+        AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Preset Used:"));
+        AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Components Added:"));
+        AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Already Present:"));
+        AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Compatibility Notes:"));
+        return Response;
+    }
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = true;
+    Response.StatusMessage = TEXT("Status: Applied starter and evaluated target.");
+    Response.OutputLines.Add(TEXT("Guided Workflow: Applied the selected starter preset and immediately evaluated the current target."));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Observer:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Target:"));
+    AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Preset Used:"));
+    AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Components Added:"));
+    AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Already Present:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Identity Seed:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Relationship State:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Reaction State:"));
+    AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Compatibility Notes:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Readiness Notes:"));
     return Response;
 }
 }
