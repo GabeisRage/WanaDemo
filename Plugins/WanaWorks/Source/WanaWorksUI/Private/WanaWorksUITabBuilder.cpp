@@ -18,8 +18,25 @@
 
 namespace
 {
-TSharedRef<SWidget> MakeSection(const FSlateFontInfo& SectionHeaderFont, const FText& Title, const TSharedRef<SWidget>& Content);
+TSharedRef<SWidget> MakeSection(
+    const FSlateFontInfo& SectionHeaderFont,
+    const FText& Title,
+    const TSharedRef<SWidget>& Content,
+    const TOptional<FText>& Description = TOptional<FText>(),
+    const TOptional<FText>& StatusText = TOptional<FText>(),
+    bool bProminent = false);
 constexpr float WanaAISubsectionSpacing = 10.0f;
+
+TSharedRef<SWidget> MakeStatusBadge(const FText& StatusText)
+{
+    return SNew(SBorder)
+        .Padding(FMargin(8.0f, 3.0f))
+        [
+            SNew(STextBlock)
+            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+            .Text(StatusText)
+        ];
+}
 
 TSharedRef<SWidget> MakeFixedWidthButton(const FText& ButtonText, TFunction<void(void)> OnPressed, float WidthOverride = 156.0f)
 {
@@ -51,11 +68,49 @@ TSharedRef<SWidget> MakeCharacterEnhancementSection(const FWanaWorksUITabBuilder
         SNew(SVerticalBox)
         + SVerticalBox::Slot()
         .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        .Padding(0.0f, 0.0f, 0.0f, 6.0f)
         [
             SNew(STextBlock)
-            .AutoWrapText(true)
-            .Text(LOCTEXT("WanaWorksCharacterEnhancementHelp", "Apply a beginner-friendly WanaAI starter preset to the currently selected actor without replacing its existing setup."))
+            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+            .Text(LOCTEXT("WanaWorksCharacterEnhancementSummaryLabel", "Selected Actor Summary"))
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        [
+            SNew(SBorder)
+            .Padding(10.0f)
+            [
+                SNew(STextBlock)
+                .AutoWrapText(true)
+                .Text_Lambda([GetCharacterEnhancementSummaryText = Args.GetCharacterEnhancementSummaryText]()
+                {
+                    return GetCharacterEnhancementSummaryText ? GetCharacterEnhancementSummaryText() : FText::GetEmpty();
+                })
+            ]
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+        [
+            SNew(STextBlock)
+            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+            .Text(LOCTEXT("WanaWorksCharacterEnhancementChainLabel", "Live System Chain"))
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        [
+            SNew(SBorder)
+            .Padding(10.0f)
+            [
+                SNew(STextBlock)
+                .AutoWrapText(true)
+                .Text_Lambda([GetCharacterEnhancementChainText = Args.GetCharacterEnhancementChainText]()
+                {
+                    return GetCharacterEnhancementChainText ? GetCharacterEnhancementChainText() : FText::GetEmpty();
+                })
+            ]
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
@@ -109,7 +164,82 @@ TSharedRef<SWidget> MakeCharacterEnhancementSection(const FWanaWorksUITabBuilder
                     }
                 },
                 220.0f)
+        ],
+        LOCTEXT("WanaWorksCharacterEnhancementDescription", "Quickly applies WanaAI systems to the selected character without rebuilding existing logic. Use this for the fastest setup."),
+        LOCTEXT("WanaWorksReadyStatus", "READY"),
+        true);
+}
+
+TSharedRef<SWidget> MakeGuidedWorkflowSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
+{
+    return MakeSection(
+        SectionHeaderFont,
+        LOCTEXT("WanaWorksGuidedWorkflowSection", "Guided Start"),
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        [
+            SNew(STextBlock)
+            .AutoWrapText(true)
+            .Text_Lambda([GetGuidedWorkflowSummaryText = Args.GetGuidedWorkflowSummaryText]()
+            {
+                return GetGuidedWorkflowSummaryText ? GetGuidedWorkflowSummaryText() : FText::GetEmpty();
+            })
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            MakeFixedWidthButton(
+                LOCTEXT("WanaWorksApplyStarterAndTestButton", "Apply Starter + Test Target"),
+                [OnApplyStarterAndTestTarget = Args.OnApplyStarterAndTestTarget]()
+                {
+                    if (OnApplyStarterAndTestTarget)
+                    {
+                        OnApplyStarterAndTestTarget();
+                    }
+                },
+                220.0f)
         ]);
+}
+
+TSharedRef<SWidget> MakeLiveTestSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
+{
+    return MakeSection(
+        SectionHeaderFont,
+        LOCTEXT("WanaWorksLiveTestSection", "Live Test"),
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        [
+            SNew(SBorder)
+            .Padding(10.0f)
+            [
+                SNew(STextBlock)
+                .AutoWrapText(true)
+                .Text_Lambda([GetLiveTestSummaryText = Args.GetLiveTestSummaryText]()
+                {
+                    return GetLiveTestSummaryText ? GetLiveTestSummaryText() : FText::GetEmpty();
+                })
+            ]
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            MakeFixedWidthButton(
+                LOCTEXT("WanaWorksEvaluateTargetButton", "Evaluate Target"),
+                [OnEvaluateLiveTarget = Args.OnEvaluateLiveTarget]()
+                {
+                    if (OnEvaluateLiveTarget)
+                    {
+                        OnEvaluateLiveTarget();
+                    }
+                },
+                180.0f)
+        ],
+        LOCTEXT("WanaWorksLiveTestDescription", "Quickly test how the selected enhanced actor evaluates another actor."),
+        LOCTEXT("WanaWorksLiveStatus", "LIVE"));
 }
 
 TSharedRef<SWidget> MakeCommandButton(const FWanaWorksUITabBuilderArgs& Args, const FWanaCommandDefinition& Definition)
@@ -125,34 +255,73 @@ TSharedRef<SWidget> MakeCommandButton(const FWanaWorksUITabBuilderArgs& Args, co
         });
 }
 
-TSharedRef<SWidget> MakeSection(const FSlateFontInfo& SectionHeaderFont, const FText& Title, const TSharedRef<SWidget>& Content)
+TSharedRef<SWidget> MakeSection(
+    const FSlateFontInfo& SectionHeaderFont,
+    const FText& Title,
+    const TSharedRef<SWidget>& Content,
+    const TOptional<FText>& Description,
+    const TOptional<FText>& StatusText,
+    bool bProminent)
 {
-    return SNew(SBorder)
-        .Padding(FMargin(14.0f, 12.0f))
+    const FSlateFontInfo DescriptionFont = FCoreStyle::GetDefaultFontStyle("Regular", 9);
+    TSharedRef<SVerticalBox> SectionLayout = SNew(SVerticalBox);
+
+    SectionLayout->AddSlot()
+    .AutoHeight()
+    [
+        SNew(SHorizontalBox)
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        .VAlign(VAlign_Center)
         [
-            SNew(SVerticalBox)
-            + SVerticalBox::Slot()
-            .AutoHeight()
-            [
-                SNew(STextBlock)
-                .Font(SectionHeaderFont)
-                .Text(Title)
-            ]
-            + SVerticalBox::Slot()
-            .AutoHeight()
-            .Padding(0.0f, 8.0f, 0.0f, 10.0f)
-            [
-                SNew(SSeparator)
-            ]
-            + SVerticalBox::Slot()
-            .AutoHeight()
-            [
-                Content
-            ]
+            SNew(STextBlock)
+            .Font(SectionHeaderFont)
+            .Text(Title)
+        ]
+        + SHorizontalBox::Slot()
+        .AutoWidth()
+        .VAlign(VAlign_Center)
+        [
+            StatusText.IsSet()
+                ? StaticCastSharedRef<SWidget>(MakeStatusBadge(StatusText.GetValue()))
+                : StaticCastSharedRef<SWidget>(SNew(SSpacer).Size(FVector2D::ZeroVector))
+        ]
+    ];
+
+    if (Description.IsSet())
+    {
+        SectionLayout->AddSlot()
+        .AutoHeight()
+        .Padding(0.0f, 4.0f, 0.0f, 0.0f)
+        [
+            SNew(STextBlock)
+            .Font(DescriptionFont)
+            .AutoWrapText(true)
+            .Text(Description.GetValue())
+        ];
+    }
+
+    SectionLayout->AddSlot()
+    .AutoHeight()
+    .Padding(0.0f, 8.0f, 0.0f, 10.0f)
+    [
+        SNew(SSeparator)
+    ];
+
+    SectionLayout->AddSlot()
+    .AutoHeight()
+    [
+        Content
+    ];
+
+    return SNew(SBorder)
+        .Padding(bProminent ? FMargin(16.0f, 14.0f) : FMargin(14.0f, 12.0f))
+        [
+            SectionLayout
         ];
 }
 
-TSharedRef<SWidget> MakeWrappedButtonSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont, const FText& Title, std::initializer_list<const TCHAR*> CommandIds)
+TSharedRef<SWidget> MakeWrappedButtonSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont, const FText& Title, std::initializer_list<const TCHAR*> CommandIds, const TOptional<FText>& Description = TOptional<FText>())
 {
     TSharedRef<SWrapBox> WrapBox = SNew(SWrapBox);
 
@@ -168,7 +337,7 @@ TSharedRef<SWidget> MakeWrappedButtonSection(const FWanaWorksUITabBuilderArgs& A
         }
     }
 
-    return MakeSection(SectionHeaderFont, Title, WrapBox);
+    return MakeSection(SectionHeaderFont, Title, WrapBox, Description);
 }
 
 TSharedRef<SWidget> MakeWaySection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
@@ -267,7 +436,8 @@ TSharedRef<SWidget> MakeWaySection(const FWanaWorksUITabBuilderArgs& Args, const
                         }
                     })
             ]
-        ]);
+        ],
+        LOCTEXT("WanaWorksWAYDescription", "Controls how an AI interprets and relates to another actor over time."));
 }
 
 TSharedRef<SWidget> MakeIdentitySection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
@@ -386,7 +556,8 @@ TSharedRef<SWidget> MakeIdentitySection(const FWanaWorksUITabBuilderArgs& Args, 
                         }
                     })
             ]
-        ]);
+        ],
+        LOCTEXT("WanaWorksIdentityDescription", "Defines how this actor is recognized by other systems, including faction and relationship seed data."));
 }
 
 TSharedRef<SWidget> MakeWanaAISection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
@@ -397,9 +568,21 @@ TSharedRef<SWidget> MakeWanaAISection(const FWanaWorksUITabBuilderArgs& Args, co
         SNew(SVerticalBox)
         + SVerticalBox::Slot()
         .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
+        .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing + 4.0f)
         [
             MakeCharacterEnhancementSection(Args, SectionHeaderFont)
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
+        [
+            MakeGuidedWorkflowSection(Args, SectionHeaderFont)
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
+        [
+            MakeLiveTestSection(Args, SectionHeaderFont)
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
@@ -411,7 +594,8 @@ TSharedRef<SWidget> MakeWanaAISection(const FWanaWorksUITabBuilderArgs& Args, co
                 LOCTEXT("WanaWorksWITSection", "WIT"),
                 {
                     TEXT("classify_selected")
-                })
+                },
+                LOCTEXT("WanaWorksWITDescription", "Helps AI understand the environment, movement space, boundaries, and world context."))
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
@@ -424,7 +608,8 @@ TSharedRef<SWidget> MakeWanaAISection(const FWanaWorksUITabBuilderArgs& Args, co
                 {
                     TEXT("add_memory_test"),
                     TEXT("show_memory")
-                })
+                },
+                LOCTEXT("WanaWorksWAIDescription", "Controls the AI's internal memory, personality, and emotional state."))
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
@@ -437,7 +622,9 @@ TSharedRef<SWidget> MakeWanaAISection(const FWanaWorksUITabBuilderArgs& Args, co
         .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
         [
             MakeWaySection(Args, SectionHeaderFont)
-        ]);
+        ],
+        TOptional<FText>(),
+        LOCTEXT("WanaWorksActiveStatus", "ACTIVE"));
 }
 
 TSharedRef<SWidget> MakeAdvancedCommandSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)

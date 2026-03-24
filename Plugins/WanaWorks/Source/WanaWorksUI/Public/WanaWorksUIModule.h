@@ -27,6 +27,8 @@ private:
     void ExecuteCommandText(const FString& InCommandText);
     void ApplyIdentity();
     void ApplyCharacterEnhancement();
+    void ApplyStarterAndTestTarget();
+    void EvaluateLiveTarget();
     void ApplySelectedRelationshipState();
     void RunCommand();
     void ClearLog();
@@ -38,6 +40,10 @@ private:
     FText GetStatusText() const;
     FText GetCommandText() const;
     FText GetLogText() const;
+    FText GetCharacterEnhancementSummaryText() const;
+    FText GetCharacterEnhancementChainText() const;
+    FText GetGuidedWorkflowSummaryText() const;
+    FText GetLiveTestSummaryText() const;
     FText GetRelationshipSummaryText() const;
     FText GetIdentitySummaryText();
     FText GetIdentityFactionTagText();

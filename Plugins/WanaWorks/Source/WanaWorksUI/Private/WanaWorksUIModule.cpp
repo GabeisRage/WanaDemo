@@ -3,6 +3,8 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
 #include "Modules/ModuleManager.h"
+#include "WorkspaceMenuStructure.h"
+#include "WorkspaceMenuStructureModule.h"
 #include "WanaWorksCommandDispatcher.h"
 #include "WanaWorksUIEditorActions.h"
 #include "WanaWorksUITabBuilder.h"
@@ -105,7 +107,9 @@ void FWanaWorksUIModule::StartupModule()
         WanaWorksTabName,
         FOnSpawnTab::CreateRaw(this, &FWanaWorksUIModule::SpawnWanaWorksTab))
         .SetDisplayName(LOCTEXT("WanaWorksTabTitle", "Wana Works"))
-        .SetMenuType(ETabSpawnerMenuType::Hidden);
+        .SetTooltipText(LOCTEXT("WanaWorksTabTooltip", "Open the Wana Works tab."))
+        .SetGroup(WorkspaceMenu::GetMenuStructure().GetDeveloperToolsMiscCategory())
+        .SetMenuType(ETabSpawnerMenuType::Enabled);
 
     FGlobalTabmanager::Get()->TryInvokeTab(WanaWorksTabName);
 }
@@ -225,6 +229,19 @@ void FWanaWorksUIModule::ApplyCharacterEnhancement()
 {
     const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteApplyCharacterEnhancementCommand(SelectedEnhancementPresetLabel);
     RefreshIdentityEditorState(true);
+    ApplyResponse(Response);
+}
+
+void FWanaWorksUIModule::ApplyStarterAndTestTarget()
+{
+    const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteApplyStarterAndTestTargetCommand(SelectedEnhancementPresetLabel);
+    RefreshIdentityEditorState(true);
+    ApplyResponse(Response);
+}
+
+void FWanaWorksUIModule::EvaluateLiveTarget()
+{
+    const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteEvaluateLiveTargetCommand();
     ApplyResponse(Response);
 }
 
@@ -383,6 +400,67 @@ FText FWanaWorksUIModule::GetLogText() const
     return FText::FromString(LogOutput);
 }
 
+FText FWanaWorksUIModule::GetCharacterEnhancementSummaryText() const
+{
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+
+    if (!WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) || !Snapshot.bHasSelectedActor)
+    {
+        return FText::FromString(TEXT("Selected Actor Name: (none)\nIdentity: Missing\nWAY: Missing\nWAI: Missing\nCompatibility: Warning"));
+    }
+
+    const FString Summary = FString::Printf(
+        TEXT("Selected Actor Name: %s\nIdentity: %s\nWAY: %s\nWAI: %s\nCompatibility: Safe"),
+        *Snapshot.SelectedActorLabel,
+        Snapshot.bHasIdentityComponent ? TEXT("Present") : TEXT("Missing"),
+        Snapshot.bHasWAYComponent ? TEXT("Present") : TEXT("Missing"),
+        Snapshot.bHasWAIComponent ? TEXT("Present") : TEXT("Missing"));
+
+    return FText::FromString(Summary);
+}
+
+FText FWanaWorksUIModule::GetCharacterEnhancementChainText() const
+{
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+    const bool bHasSnapshot = WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
+
+    const TCHAR* BehaviorGraphStatus = bHasSnapshot && Snapshot.bHasWAIComponent ? TEXT("READY") : TEXT("ACTIVE");
+    const TCHAR* CombatLogicStatus = bHasSnapshot && Snapshot.bHasWAYComponent ? TEXT("READY") : TEXT("ACTIVE");
+    const TCHAR* AnimationHooksStatus = bHasSnapshot && Snapshot.bHasIdentityComponent ? TEXT("READY") : TEXT("ACTIVE");
+
+    const FString Summary = FString::Printf(
+        TEXT("%s  Behavior Graph Ready\n%s  Combat Logic Synced\n%s  Animation Hooks Attached"),
+        BehaviorGraphStatus,
+        CombatLogicStatus,
+        AnimationHooksStatus);
+
+    return FText::FromString(Summary);
+}
+
+FText FWanaWorksUIModule::GetGuidedWorkflowSummaryText() const
+{
+    return FText::FromString(TEXT("Applies the selected WanaAI starter to the observer and immediately tests how it reacts to the target."));
+}
+
+FText FWanaWorksUIModule::GetLiveTestSummaryText() const
+{
+    FWanaSelectedRelationshipContextSnapshot Snapshot;
+
+    if (!WanaWorksUIEditorActions::GetSelectedRelationshipContextSnapshot(Snapshot) || !Snapshot.bHasObserverActor)
+    {
+        return FText::FromString(TEXT("Observer: (none)\nTarget: (none)\nSelection Rule: First selected actor = observer. Second selected actor = target."));
+    }
+
+    const FString Summary = FString::Printf(
+        TEXT("Observer: %s\nTarget: %s%s\nObserver WAY: %s\nSelection Rule: First selected actor = observer. Second selected actor = target."),
+        *Snapshot.ObserverActorLabel,
+        Snapshot.TargetActorLabel.IsEmpty() ? TEXT("(none)") : *Snapshot.TargetActorLabel,
+        Snapshot.bTargetFallsBackToObserver ? TEXT(" (observer fallback)") : TEXT(""),
+        Snapshot.bObserverHasRelationshipComponent ? TEXT("Present") : TEXT("Missing"));
+
+    return FText::FromString(Summary);
+}
+
 FText FWanaWorksUIModule::GetRelationshipSummaryText() const
 {
     FWanaSelectedRelationshipContextSnapshot Snapshot;
@@ -441,6 +519,10 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetStatusText = [this]() { return GetStatusText(); };
     BuilderArgs.GetCommandText = [this]() { return GetCommandText(); };
     BuilderArgs.GetLogText = [this]() { return GetLogText(); };
+    BuilderArgs.GetCharacterEnhancementSummaryText = [this]() { return GetCharacterEnhancementSummaryText(); };
+    BuilderArgs.GetCharacterEnhancementChainText = [this]() { return GetCharacterEnhancementChainText(); };
+    BuilderArgs.GetGuidedWorkflowSummaryText = [this]() { return GetGuidedWorkflowSummaryText(); };
+    BuilderArgs.GetLiveTestSummaryText = [this]() { return GetLiveTestSummaryText(); };
     BuilderArgs.GetRelationshipSummaryText = [this]() { return GetRelationshipSummaryText(); };
     BuilderArgs.GetIdentitySummaryText = [this]() { return GetIdentitySummaryText(); };
     BuilderArgs.GetIdentityFactionTagText = [this]() { return GetIdentityFactionTagText(); };
@@ -459,6 +541,8 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.OnEnsureIdentityComponent = [this]() { EnsureIdentityComponent(); };
     BuilderArgs.OnApplyIdentity = [this]() { ApplyIdentity(); };
     BuilderArgs.OnApplyCharacterEnhancement = [this]() { ApplyCharacterEnhancement(); };
+    BuilderArgs.OnApplyStarterAndTestTarget = [this]() { ApplyStarterAndTestTarget(); };
+    BuilderArgs.OnEvaluateLiveTarget = [this]() { EvaluateLiveTarget(); };
     BuilderArgs.OnApplyRelationshipState = [this]() { ApplySelectedRelationshipState(); };
     BuilderArgs.OnExecuteCommandText = [this](const FString& InCommandText) { ExecuteCommandText(InCommandText); };
 

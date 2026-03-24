@@ -9,6 +9,10 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<FText(void)> GetStatusText;
     TFunction<FText(void)> GetCommandText;
     TFunction<FText(void)> GetLogText;
+    TFunction<FText(void)> GetCharacterEnhancementSummaryText;
+    TFunction<FText(void)> GetCharacterEnhancementChainText;
+    TFunction<FText(void)> GetGuidedWorkflowSummaryText;
+    TFunction<FText(void)> GetLiveTestSummaryText;
     TFunction<FText(void)> GetRelationshipSummaryText;
     TFunction<FText(void)> GetIdentitySummaryText;
     TFunction<FText(void)> GetIdentityFactionTagText;
@@ -27,6 +31,8 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<void(void)> OnEnsureIdentityComponent;
     TFunction<void(void)> OnApplyIdentity;
     TFunction<void(void)> OnApplyCharacterEnhancement;
+    TFunction<void(void)> OnApplyStarterAndTestTarget;
+    TFunction<void(void)> OnEvaluateLiveTarget;
     TFunction<void(void)> OnApplyRelationshipState;
     TFunction<void(const FString&)> OnExecuteCommandText;
 };
