@@ -53,6 +53,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Wana Works|WAY", meta = (DisplayName = "Evaluate And Get Reaction", Keywords = "WAY reaction evaluate observer target AI"))
     EWAYReactionState EvaluateAndGetReaction(AActor* TargetActor);
 
+    UFUNCTION(BlueprintCallable, Category = "Wana Works|WAY", meta = (DisplayName = "Evaluate And React", Keywords = "WAY reaction evaluate react observer target AI"))
+    EWAYReactionState EvaluateAndReact(AActor* TargetActor);
+
     UFUNCTION(BlueprintCallable, Category = "Wana Works|WAY")
     void SetRelationshipStateForTarget(AActor* TargetActor, EWAYRelationshipState NewRelationshipState);
 

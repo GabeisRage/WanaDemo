@@ -91,6 +91,11 @@ EWAYReactionState UWAYPlayerProfileComponent::EvaluateAndGetReaction(AActor* Tar
     return EvaluateTarget(TargetActor).ReactionState;
 }
 
+EWAYReactionState UWAYPlayerProfileComponent::EvaluateAndReact(AActor* TargetActor)
+{
+    return EvaluateTarget(TargetActor).ReactionState;
+}
+
 void UWAYPlayerProfileComponent::SetRelationshipStateForTarget(AActor* TargetActor, EWAYRelationshipState NewRelationshipState)
 {
     if (!TargetActor)
