@@ -13,6 +13,7 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<FText(void)> GetCharacterEnhancementChainText;
     TFunction<FText(void)> GetGuidedWorkflowSummaryText;
     TFunction<FText(void)> GetLiveTestSummaryText;
+    TFunction<FText(void)> GetTestSandboxSummaryText;
     TFunction<FText(void)> GetRelationshipSummaryText;
     TFunction<FText(void)> GetIdentitySummaryText;
     TFunction<FText(void)> GetIdentityFactionTagText;
@@ -33,6 +34,11 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<void(void)> OnApplyCharacterEnhancement;
     TFunction<void(void)> OnApplyStarterAndTestTarget;
     TFunction<void(void)> OnEvaluateLiveTarget;
+    TFunction<void(void)> OnUseSelectedAsSandboxObserver;
+    TFunction<void(void)> OnUseSelectedAsSandboxTarget;
+    TFunction<void(void)> OnEvaluateSandboxPair;
+    TFunction<void(void)> OnFocusSandboxObserver;
+    TFunction<void(void)> OnFocusSandboxTarget;
     TFunction<void(void)> OnApplyRelationshipState;
     TFunction<void(const FString&)> OnExecuteCommandText;
 };

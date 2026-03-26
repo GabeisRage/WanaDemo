@@ -7,6 +7,7 @@
 class AActor;
 class SDockTab;
 class FSpawnTabArgs;
+class UObject;
 struct FWanaCommandResponse;
 
 class WANAWORKSUI_API FWanaWorksUIModule : public IModuleInterface
@@ -18,6 +19,8 @@ public:
 private:
     void ApplyResponse(const FWanaCommandResponse& Response, const FString& EchoedCommand = FString());
     void RefreshIdentityEditorState(bool bForceRefresh = false);
+    void RefreshReactiveUI(bool bForceRefresh = false);
+    void HandleEditorSelectionChanged(UObject* NewSelection);
     void HandleCommandTextChanged(const FText& NewText);
     void HandleIdentityFactionTagTextChanged(const FText& NewText);
     void HandleIdentitySeedStateOptionSelected(TSharedPtr<FString> SelectedOption);
@@ -29,6 +32,11 @@ private:
     void ApplyCharacterEnhancement();
     void ApplyStarterAndTestTarget();
     void EvaluateLiveTarget();
+    void UseSelectedActorAsSandboxObserver();
+    void UseSelectedActorAsSandboxTarget();
+    void EvaluateSandboxPair();
+    void FocusSandboxObserver();
+    void FocusSandboxTarget();
     void ApplySelectedRelationshipState();
     void RunCommand();
     void ClearLog();
@@ -44,6 +52,7 @@ private:
     FText GetCharacterEnhancementChainText() const;
     FText GetGuidedWorkflowSummaryText() const;
     FText GetLiveTestSummaryText() const;
+    FText GetTestSandboxSummaryText() const;
     FText GetRelationshipSummaryText() const;
     FText GetIdentitySummaryText();
     FText GetIdentityFactionTagText();
@@ -60,6 +69,11 @@ private:
     TArray<TSharedPtr<FString>> EnhancementPresetOptions;
     TArray<TSharedPtr<FString>> RelationshipStateOptions;
     TWeakObjectPtr<AActor> CachedIdentityActor;
+    TWeakObjectPtr<AActor> SandboxObserverActor;
+    TWeakObjectPtr<AActor> SandboxTargetActor;
+    TWeakPtr<SDockTab> WanaWorksTab;
+    FDelegateHandle SelectionChangedHandle;
+    FDelegateHandle SelectObjectHandle;
     bool bIdentityStateInitialized = false;
 
     static const FName WanaWorksTabName;

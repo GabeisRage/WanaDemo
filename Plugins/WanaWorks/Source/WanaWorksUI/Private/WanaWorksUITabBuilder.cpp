@@ -26,15 +26,120 @@ TSharedRef<SWidget> MakeSection(
     const TOptional<FText>& StatusText = TOptional<FText>(),
     bool bProminent = false);
 constexpr float WanaAISubsectionSpacing = 10.0f;
+const FLinearColor SecondaryTextColor(0.78f, 0.82f, 0.88f, 1.0f);
+const FLinearColor InfoPanelColor(0.08f, 0.11f, 0.15f, 0.75f);
+
+FString NormalizeStatusLabel(const FString& StatusLabel)
+{
+    return StatusLabel.TrimStartAndEnd().ToUpper();
+}
+
+FString GetStatusLabelFromMessage(const FText& StatusText)
+{
+    const FString LowerStatus = StatusText.ToString().TrimStartAndEnd().ToLower();
+
+    if (LowerStatus.Contains(TEXT("warning")) ||
+        LowerStatus.Contains(TEXT("no actors")) ||
+        LowerStatus.Contains(TEXT("missing")) ||
+        LowerStatus.Contains(TEXT("could not")) ||
+        LowerStatus.Contains(TEXT("failed")) ||
+        LowerStatus.Contains(TEXT("invalid")))
+    {
+        return TEXT("WARNING");
+    }
+
+    if (LowerStatus.Contains(TEXT("already")) ||
+        LowerStatus.Contains(TEXT("preserved")) ||
+        LowerStatus.Contains(TEXT("safe")))
+    {
+        return TEXT("SAFE");
+    }
+
+    if (LowerStatus.Contains(TEXT("live")) || LowerStatus.Contains(TEXT("evaluat")))
+    {
+        return TEXT("LIVE");
+    }
+
+    if (LowerStatus.Contains(TEXT("ready")) ||
+        LowerStatus.Contains(TEXT("applied")) ||
+        LowerStatus.Contains(TEXT("ensured")) ||
+        LowerStatus.Contains(TEXT("complete")) ||
+        LowerStatus.Contains(TEXT("initialized")))
+    {
+        return TEXT("READY");
+    }
+
+    return TEXT("ACTIVE");
+}
+
+FLinearColor GetStatusBadgeColor(const FString& StatusLabel)
+{
+    const FString NormalizedStatus = NormalizeStatusLabel(StatusLabel);
+
+    if (NormalizedStatus == TEXT("READY"))
+    {
+        return FLinearColor(0.19f, 0.45f, 0.25f, 0.9f);
+    }
+
+    if (NormalizedStatus == TEXT("LIVE"))
+    {
+        return FLinearColor(0.11f, 0.43f, 0.52f, 0.9f);
+    }
+
+    if (NormalizedStatus == TEXT("SAFE"))
+    {
+        return FLinearColor(0.13f, 0.36f, 0.40f, 0.9f);
+    }
+
+    if (NormalizedStatus == TEXT("WARNING"))
+    {
+        return FLinearColor(0.56f, 0.28f, 0.12f, 0.92f);
+    }
+
+    return FLinearColor(0.20f, 0.26f, 0.45f, 0.9f);
+}
 
 TSharedRef<SWidget> MakeStatusBadge(const FText& StatusText)
 {
+    const FString NormalizedStatus = NormalizeStatusLabel(StatusText.ToString());
+
     return SNew(SBorder)
         .Padding(FMargin(8.0f, 3.0f))
+        .BorderBackgroundColor(GetStatusBadgeColor(NormalizedStatus))
         [
             SNew(STextBlock)
             .Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
-            .Text(StatusText)
+            .ColorAndOpacity(FLinearColor::White)
+            .Text(FText::FromString(NormalizedStatus))
+        ];
+}
+
+TSharedRef<SWidget> MakeReadOnlyInfoPanel(const FText& Title, TFunction<FText(void)> GetBodyText)
+{
+    return SNew(SVerticalBox)
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+        [
+            SNew(STextBlock)
+            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+            .ColorAndOpacity(SecondaryTextColor)
+            .Text(Title)
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            SNew(SBorder)
+            .Padding(10.0f)
+            .BorderBackgroundColor(InfoPanelColor)
+            [
+                SNew(STextBlock)
+                .AutoWrapText(true)
+                .Text_Lambda([GetBodyText]()
+                {
+                    return GetBodyText ? GetBodyText() : FText::GetEmpty();
+                })
+            ]
         ];
 }
 
@@ -68,49 +173,25 @@ TSharedRef<SWidget> MakeCharacterEnhancementSection(const FWanaWorksUITabBuilder
         SNew(SVerticalBox)
         + SVerticalBox::Slot()
         .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 6.0f)
-        [
-            SNew(STextBlock)
-            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-            .Text(LOCTEXT("WanaWorksCharacterEnhancementSummaryLabel", "Selected Actor Summary"))
-        ]
-        + SVerticalBox::Slot()
-        .AutoHeight()
         .Padding(0.0f, 0.0f, 0.0f, 10.0f)
         [
-            SNew(SBorder)
-            .Padding(10.0f)
-            [
-                SNew(STextBlock)
-                .AutoWrapText(true)
-                .Text_Lambda([GetCharacterEnhancementSummaryText = Args.GetCharacterEnhancementSummaryText]()
+            MakeReadOnlyInfoPanel(
+                LOCTEXT("WanaWorksCharacterEnhancementSummaryLabel", "Selected Actor Summary"),
+                [GetCharacterEnhancementSummaryText = Args.GetCharacterEnhancementSummaryText]()
                 {
                     return GetCharacterEnhancementSummaryText ? GetCharacterEnhancementSummaryText() : FText::GetEmpty();
                 })
-            ]
-        ]
-        + SVerticalBox::Slot()
-        .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 6.0f)
-        [
-            SNew(STextBlock)
-            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-            .Text(LOCTEXT("WanaWorksCharacterEnhancementChainLabel", "Live System Chain"))
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
         .Padding(0.0f, 0.0f, 0.0f, 10.0f)
         [
-            SNew(SBorder)
-            .Padding(10.0f)
-            [
-                SNew(STextBlock)
-                .AutoWrapText(true)
-                .Text_Lambda([GetCharacterEnhancementChainText = Args.GetCharacterEnhancementChainText]()
+            MakeReadOnlyInfoPanel(
+                LOCTEXT("WanaWorksCharacterEnhancementChainLabel", "Live System Chain"),
+                [GetCharacterEnhancementChainText = Args.GetCharacterEnhancementChainText]()
                 {
                     return GetCharacterEnhancementChainText ? GetCharacterEnhancementChainText() : FText::GetEmpty();
                 })
-            ]
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
@@ -213,16 +294,12 @@ TSharedRef<SWidget> MakeLiveTestSection(const FWanaWorksUITabBuilderArgs& Args, 
         .AutoHeight()
         .Padding(0.0f, 0.0f, 0.0f, 10.0f)
         [
-            SNew(SBorder)
-            .Padding(10.0f)
-            [
-                SNew(STextBlock)
-                .AutoWrapText(true)
-                .Text_Lambda([GetLiveTestSummaryText = Args.GetLiveTestSummaryText]()
+            MakeReadOnlyInfoPanel(
+                LOCTEXT("WanaWorksLiveTestOverviewLabel", "Observer And Target Overview"),
+                [GetLiveTestSummaryText = Args.GetLiveTestSummaryText]()
                 {
                     return GetLiveTestSummaryText ? GetLiveTestSummaryText() : FText::GetEmpty();
                 })
-            ]
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
@@ -240,6 +317,102 @@ TSharedRef<SWidget> MakeLiveTestSection(const FWanaWorksUITabBuilderArgs& Args, 
         ],
         LOCTEXT("WanaWorksLiveTestDescription", "Quickly test how the selected enhanced actor evaluates another actor."),
         LOCTEXT("WanaWorksLiveStatus", "LIVE"));
+}
+
+TSharedRef<SWidget> MakeTestSandboxSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
+{
+    return MakeSection(
+        SectionHeaderFont,
+        LOCTEXT("WanaWorksTestSandboxSection", "Test Sandbox"),
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        [
+            MakeReadOnlyInfoPanel(
+                LOCTEXT("WanaWorksSandboxSummaryLabel", "Sandbox Pair"),
+                [GetTestSandboxSummaryText = Args.GetTestSandboxSummaryText]()
+                {
+                    return GetTestSandboxSummaryText ? GetTestSandboxSummaryText() : FText::GetEmpty();
+                })
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            SNew(SWrapBox)
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                MakeFixedWidthButton(
+                    LOCTEXT("WanaWorksUseSelectedObserverButton", "Use Selected as Observer"),
+                    [OnUseSelectedAsSandboxObserver = Args.OnUseSelectedAsSandboxObserver]()
+                    {
+                        if (OnUseSelectedAsSandboxObserver)
+                        {
+                            OnUseSelectedAsSandboxObserver();
+                        }
+                    },
+                    180.0f)
+            ]
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                MakeFixedWidthButton(
+                    LOCTEXT("WanaWorksUseSelectedTargetButton", "Use Selected as Target"),
+                    [OnUseSelectedAsSandboxTarget = Args.OnUseSelectedAsSandboxTarget]()
+                    {
+                        if (OnUseSelectedAsSandboxTarget)
+                        {
+                            OnUseSelectedAsSandboxTarget();
+                        }
+                    },
+                    180.0f)
+            ]
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                MakeFixedWidthButton(
+                    LOCTEXT("WanaWorksEvaluateSandboxPairButton", "Evaluate Current Pair"),
+                    [OnEvaluateSandboxPair = Args.OnEvaluateSandboxPair]()
+                    {
+                        if (OnEvaluateSandboxPair)
+                        {
+                            OnEvaluateSandboxPair();
+                        }
+                    },
+                    180.0f)
+            ]
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                MakeFixedWidthButton(
+                    LOCTEXT("WanaWorksFocusObserverButton", "Focus Observer"),
+                    [OnFocusSandboxObserver = Args.OnFocusSandboxObserver]()
+                    {
+                        if (OnFocusSandboxObserver)
+                        {
+                            OnFocusSandboxObserver();
+                        }
+                    },
+                    160.0f)
+            ]
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                MakeFixedWidthButton(
+                    LOCTEXT("WanaWorksFocusTargetButton", "Focus Target"),
+                    [OnFocusSandboxTarget = Args.OnFocusSandboxTarget]()
+                    {
+                        if (OnFocusSandboxTarget)
+                        {
+                            OnFocusSandboxTarget();
+                        }
+                    },
+                    160.0f)
+            ]
+        ],
+        LOCTEXT("WanaWorksTestSandboxDescription", "Quickly set up and test observer/target interactions without rebuilding your scene."),
+        LOCTEXT("WanaWorksSandboxStatus", "ACTIVE"));
 }
 
 TSharedRef<SWidget> MakeCommandButton(const FWanaWorksUITabBuilderArgs& Args, const FWanaCommandDefinition& Definition)
@@ -264,6 +437,7 @@ TSharedRef<SWidget> MakeSection(
     bool bProminent)
 {
     const FSlateFontInfo DescriptionFont = FCoreStyle::GetDefaultFontStyle("Regular", 9);
+    const FSlateFontInfo EffectiveHeaderFont = bProminent ? FCoreStyle::GetDefaultFontStyle("Bold", 12) : SectionHeaderFont;
     TSharedRef<SVerticalBox> SectionLayout = SNew(SVerticalBox);
 
     SectionLayout->AddSlot()
@@ -275,7 +449,7 @@ TSharedRef<SWidget> MakeSection(
         .VAlign(VAlign_Center)
         [
             SNew(STextBlock)
-            .Font(SectionHeaderFont)
+            .Font(EffectiveHeaderFont)
             .Text(Title)
         ]
         + SHorizontalBox::Slot()
@@ -297,6 +471,7 @@ TSharedRef<SWidget> MakeSection(
             SNew(STextBlock)
             .Font(DescriptionFont)
             .AutoWrapText(true)
+            .ColorAndOpacity(SecondaryTextColor)
             .Text(Description.GetValue())
         ];
     }
@@ -588,6 +763,12 @@ TSharedRef<SWidget> MakeWanaAISection(const FWanaWorksUITabBuilderArgs& Args, co
         .AutoHeight()
         .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
         [
+            MakeTestSandboxSection(Args, SectionHeaderFont)
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
+        [
             MakeWrappedButtonSection(
                 Args,
                 SectionHeaderFont,
@@ -703,16 +884,22 @@ TSharedRef<SWidget> MakeOutputSection(const FWanaWorksUITabBuilderArgs& Args, co
     return MakeSection(
         SectionHeaderFont,
         LOCTEXT("WanaWorksOutputSection", "Output"),
-        SNew(SBox)
-        .MinDesiredHeight(240.0f)
+        SNew(SBorder)
+        .Padding(10.0f)
+        .BorderBackgroundColor(FLinearColor(0.05f, 0.08f, 0.11f, 0.85f))
         [
-            SNew(SMultiLineEditableTextBox)
-            .IsReadOnly(true)
-            .Text_Lambda([GetLogText = Args.GetLogText]()
-            {
-                return GetLogText ? GetLogText() : FText::GetEmpty();
-            })
-        ]);
+            SNew(SBox)
+            .MinDesiredHeight(240.0f)
+            [
+                SNew(SMultiLineEditableTextBox)
+                .IsReadOnly(true)
+                .Text_Lambda([GetLogText = Args.GetLogText]()
+                {
+                    return GetLogText ? GetLogText() : FText::GetEmpty();
+                })
+            ]
+        ],
+        LOCTEXT("WanaWorksOutputDescription", "Latest action results, live test feedback, and structured observer-target summaries."));
 }
 }
 
@@ -736,13 +923,41 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
                 [
                     SNew(SBorder)
                     .Padding(FMargin(12.0f, 10.0f))
+                    .BorderBackgroundColor(FLinearColor(0.08f, 0.12f, 0.18f, 0.92f))
                     [
-                        SNew(STextBlock)
-                        .Font(PanelHeaderFont)
-                        .Text_Lambda([GetStatusText = Args.GetStatusText]()
-                        {
-                            return GetStatusText ? GetStatusText() : FText::GetEmpty();
-                        })
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot()
+                        .AutoWidth()
+                        .VAlign(VAlign_Center)
+                        .Padding(0.0f, 0.0f, 8.0f, 0.0f)
+                        [
+                            SNew(SBorder)
+                            .Padding(FMargin(8.0f, 4.0f))
+                            .BorderBackgroundColor_Lambda([GetStatusText = Args.GetStatusText]()
+                            {
+                                return GetStatusBadgeColor(GetStatusLabelFromMessage(GetStatusText ? GetStatusText() : FText::GetEmpty()));
+                            })
+                            [
+                                SNew(STextBlock)
+                                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+                                .ColorAndOpacity(FLinearColor::White)
+                                .Text_Lambda([GetStatusText = Args.GetStatusText]()
+                                {
+                                    return FText::FromString(GetStatusLabelFromMessage(GetStatusText ? GetStatusText() : FText::GetEmpty()));
+                                })
+                            ]
+                        ]
+                        + SHorizontalBox::Slot()
+                        .FillWidth(1.0f)
+                        .VAlign(VAlign_Center)
+                        [
+                            SNew(STextBlock)
+                            .Font(PanelHeaderFont)
+                            .Text_Lambda([GetStatusText = Args.GetStatusText]()
+                            {
+                                return GetStatusText ? GetStatusText() : FText::GetEmpty();
+                            })
+                        ]
                     ]
                 ]
                 + SVerticalBox::Slot()

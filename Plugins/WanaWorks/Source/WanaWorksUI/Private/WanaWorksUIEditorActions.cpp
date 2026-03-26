@@ -349,6 +349,103 @@ void AppendLinesWithPrefix(FWanaCommandResponse& Response, const FWanaCommandRes
         }
     }
 }
+
+FWanaCommandResponse ExecuteEvaluateActorPairInternal(AActor* ObserverActor, AActor* TargetActor, bool bTargetFallsBackToObserver)
+{
+    if (!ObserverActor || !TargetActor)
+    {
+        return MakeEditorFailureResponse(
+            TEXT("Status: Observer or target is missing."),
+            TEXT("Select or assign both an observer and target actor before evaluating the pair."));
+    }
+
+    UWAYPlayerProfileComponent* ProfileComponent = ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>();
+    FWAYRelationshipProfile ExistingProfile;
+    const bool bHadRelationshipProfile = ProfileComponent && ProfileComponent->GetRelationshipProfileForTarget(TargetActor, ExistingProfile);
+    const bool bNeedsWayComponent = ProfileComponent == nullptr;
+    const bool bNeedsTransaction = bNeedsWayComponent || !bHadRelationshipProfile;
+
+    TUniquePtr<FScopedTransaction> Transaction;
+
+    if (bNeedsTransaction)
+    {
+        Transaction = MakeUnique<FScopedTransaction>(LOCTEXT("WanaWorksEvaluateLiveTargetTransaction", "Evaluate WanaAI Live Target"));
+        ObserverActor->Modify();
+    }
+
+    if (!ProfileComponent)
+    {
+        ProfileComponent = FindOrAddPreferenceComponent(ObserverActor);
+    }
+
+    if (!ProfileComponent)
+    {
+        if (Transaction)
+        {
+            Transaction->Cancel();
+        }
+
+        return MakeEditorFailureResponse(
+            TEXT("Status: Could not prepare observer WAY component."),
+            TEXT("Failed to create or find UWAYPlayerProfileComponent for the observer."));
+    }
+
+    ProfileComponent->SetFlags(RF_Transactional);
+
+    if (bNeedsTransaction)
+    {
+        ProfileComponent->Modify();
+    }
+
+    const FWAYTargetEvaluation Evaluation = ProfileComponent->EvaluateTarget(TargetActor);
+
+    if (bNeedsTransaction)
+    {
+        ObserverActor->MarkPackageDirty();
+    }
+
+    TArray<FString> ReadinessNotes;
+
+    if (bNeedsWayComponent)
+    {
+        ReadinessNotes.Add(TEXT("Observer was missing UWAYPlayerProfileComponent, so it was added automatically for the evaluation."));
+    }
+
+    if (!bHadRelationshipProfile)
+    {
+        ReadinessNotes.Add(TEXT("A relationship profile was created for this observer-target pair during evaluation."));
+    }
+
+    if (bTargetFallsBackToObserver)
+    {
+        ReadinessNotes.Add(TEXT("Target Source: Observer fallback (assign a separate target to test another actor)."));
+    }
+    else
+    {
+        ReadinessNotes.Add(TEXT("Target Source: Explicit target actor."));
+    }
+
+    if (!TargetActor->FindComponentByClass<UWanaIdentityComponent>())
+    {
+        ReadinessNotes.Add(TEXT("Target has no UWanaIdentityComponent, so neutral seed defaults were used."));
+    }
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = true;
+    Response.StatusMessage = TEXT("Status: Live target evaluation complete.");
+    Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), *ObserverActor->GetActorNameOrLabel()));
+    Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), *TargetActor->GetActorNameOrLabel()));
+    Response.OutputLines.Add(FString::Printf(TEXT("Identity Seed: %s"), *MakeIdentitySeedSummary(TargetActor)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Relationship State: %s"), *GetRelationshipStateDisplayLabel(Evaluation.RelationshipProfile.RelationshipState)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Reaction State: %s"), *GetReactionStateDisplayLabel(Evaluation.ReactionState)));
+
+    for (const FString& ReadinessNote : ReadinessNotes)
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Readiness Notes: %s"), *ReadinessNote));
+    }
+
+    return Response;
+}
 }
 
 namespace WanaWorksUIEditorActions
@@ -1122,94 +1219,35 @@ FWanaCommandResponse ExecuteEvaluateLiveTargetCommand()
     AActor* ObserverActor = RelationshipContext.ObserverActor.Get();
     AActor* TargetActor = RelationshipContext.TargetActor.Get();
 
-    if (!ObserverActor || !TargetActor)
+    return ExecuteEvaluateActorPairInternal(ObserverActor, TargetActor, RelationshipContext.bTargetFallsBackToObserver);
+}
+
+FWanaCommandResponse ExecuteEvaluateActorPairCommand(AActor* ObserverActor, AActor* TargetActor, bool bTargetFallsBackToObserver)
+{
+    return ExecuteEvaluateActorPairInternal(ObserverActor, TargetActor, bTargetFallsBackToObserver);
+}
+
+FWanaCommandResponse ExecuteFocusActorCommand(AActor* Actor, const FString& RoleLabel)
+{
+    if (!GEditor)
     {
-        return MakeEditorFailureResponse(TEXT("Status: Observer or target is missing."), TEXT("Select an observer actor and, optionally, a second actor as the target."));
+        return MakeEditorFailureResponse(TEXT("Status: Editor viewport is unavailable."), TEXT("Could not focus actor because GEditor is unavailable."));
     }
 
-    UWAYPlayerProfileComponent* ProfileComponent = ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>();
-    FWAYRelationshipProfile ExistingProfile;
-    const bool bHadRelationshipProfile = ProfileComponent && ProfileComponent->GetRelationshipProfileForTarget(TargetActor, ExistingProfile);
-    const bool bNeedsWayComponent = ProfileComponent == nullptr;
-    const bool bNeedsTransaction = bNeedsWayComponent || !bHadRelationshipProfile;
-
-    TUniquePtr<FScopedTransaction> Transaction;
-
-    if (bNeedsTransaction)
+    if (!Actor)
     {
-        Transaction = MakeUnique<FScopedTransaction>(LOCTEXT("WanaWorksEvaluateLiveTargetTransaction", "Evaluate WanaAI Live Target"));
-        ObserverActor->Modify();
+        return MakeEditorFailureResponse(
+            FString::Printf(TEXT("Status: No %s is assigned."), *RoleLabel.ToLower()),
+            FString::Printf(TEXT("Assign a %s in the sandbox before focusing it."), *RoleLabel.ToLower()));
     }
 
-    if (!ProfileComponent)
-    {
-        ProfileComponent = FindOrAddPreferenceComponent(ObserverActor);
-    }
-
-    if (!ProfileComponent)
-    {
-        if (Transaction)
-        {
-            Transaction->Cancel();
-        }
-
-        return MakeEditorFailureResponse(TEXT("Status: Could not prepare observer WAY component."), TEXT("Failed to create or find UWAYPlayerProfileComponent for the observer."));
-    }
-
-    ProfileComponent->SetFlags(RF_Transactional);
-
-    if (bNeedsTransaction)
-    {
-        ProfileComponent->Modify();
-    }
-
-    const FWAYTargetEvaluation Evaluation = ProfileComponent->EvaluateTarget(TargetActor);
-
-    if (bNeedsTransaction)
-    {
-        ObserverActor->MarkPackageDirty();
-    }
-
-    TArray<FString> ReadinessNotes;
-
-    if (bNeedsWayComponent)
-    {
-        ReadinessNotes.Add(TEXT("Observer was missing UWAYPlayerProfileComponent, so it was added automatically for the live test."));
-    }
-
-    if (!bHadRelationshipProfile)
-    {
-        ReadinessNotes.Add(TEXT("A relationship profile was created for this observer-target pair during evaluation."));
-    }
-
-    if (RelationshipContext.bTargetFallsBackToObserver)
-    {
-        ReadinessNotes.Add(TEXT("Target Source: Observer fallback (select a second actor to test a separate target)."));
-    }
-    else
-    {
-        ReadinessNotes.Add(TEXT("Target Source: Secondary selected actor."));
-    }
-
-    if (!TargetActor->FindComponentByClass<UWanaIdentityComponent>())
-    {
-        ReadinessNotes.Add(TEXT("Target has no UWanaIdentityComponent, so neutral seed defaults were used."));
-    }
+    GEditor->MoveViewportCamerasToActor(*Actor, false);
 
     FWanaCommandResponse Response;
     Response.bSucceeded = true;
-    Response.StatusMessage = TEXT("Status: Live target evaluation complete.");
-    Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), *ObserverActor->GetActorNameOrLabel()));
-    Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), *TargetActor->GetActorNameOrLabel()));
-    Response.OutputLines.Add(FString::Printf(TEXT("Identity Seed: %s"), *MakeIdentitySeedSummary(TargetActor)));
-    Response.OutputLines.Add(FString::Printf(TEXT("Relationship State: %s"), *GetRelationshipStateDisplayLabel(Evaluation.RelationshipProfile.RelationshipState)));
-    Response.OutputLines.Add(FString::Printf(TEXT("Reaction State: %s"), *GetReactionStateDisplayLabel(Evaluation.ReactionState)));
-
-    for (const FString& ReadinessNote : ReadinessNotes)
-    {
-        Response.OutputLines.Add(FString::Printf(TEXT("Readiness Notes: %s"), *ReadinessNote));
-    }
-
+    Response.StatusMessage = FString::Printf(TEXT("Status: Focused %s."), *RoleLabel.ToLower());
+    Response.OutputLines.Add(FString::Printf(TEXT("%s: %s"), *RoleLabel, *Actor->GetActorNameOrLabel()));
+    Response.OutputLines.Add(TEXT("Readiness Notes: Viewport camera moved to the assigned sandbox actor."));
     return Response;
 }
 

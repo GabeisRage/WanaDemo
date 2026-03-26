@@ -59,5 +59,7 @@ namespace WanaWorksUIEditorActions
     FWanaCommandResponse ExecuteApplyIdentityCommand(const FString& FactionTagText, EWAYRelationshipState DefaultRelationshipState);
     FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& PresetLabel);
     FWanaCommandResponse ExecuteEvaluateLiveTargetCommand();
+    FWanaCommandResponse ExecuteEvaluateActorPairCommand(AActor* ObserverActor, AActor* TargetActor, bool bTargetFallsBackToObserver = false);
+    FWanaCommandResponse ExecuteFocusActorCommand(AActor* Actor, const FString& RoleLabel);
     FWanaCommandResponse ExecuteApplyStarterAndTestTargetCommand(const FString& PresetLabel);
 }

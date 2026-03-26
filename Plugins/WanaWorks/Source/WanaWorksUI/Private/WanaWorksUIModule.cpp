@@ -3,6 +3,8 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
 #include "Modules/ModuleManager.h"
+#include "Selection.h"
+#include "Widgets/InvalidateWidgetReason.h"
 #include "WorkspaceMenuStructure.h"
 #include "WorkspaceMenuStructureModule.h"
 #include "WanaWorksCommandDispatcher.h"
@@ -14,6 +16,57 @@
 
 namespace
 {
+FString StripStatusPrefix(const FString& StatusMessage)
+{
+    FString TrimmedMessage = StatusMessage.TrimStartAndEnd();
+
+    if (TrimmedMessage.StartsWith(TEXT("Status:"), ESearchCase::IgnoreCase))
+    {
+        TrimmedMessage = TrimmedMessage.RightChop(7).TrimStartAndEnd();
+    }
+
+    return TrimmedMessage;
+}
+
+FString GetFeedbackToneLabel(const FString& StatusMessage, bool bSucceeded)
+{
+    const FString LowerStatus = StatusMessage.TrimStartAndEnd().ToLower();
+
+    if (!bSucceeded ||
+        LowerStatus.Contains(TEXT("warning")) ||
+        LowerStatus.Contains(TEXT("no actors")) ||
+        LowerStatus.Contains(TEXT("missing")) ||
+        LowerStatus.Contains(TEXT("could not")) ||
+        LowerStatus.Contains(TEXT("failed")) ||
+        LowerStatus.Contains(TEXT("invalid")))
+    {
+        return TEXT("WARNING");
+    }
+
+    if (LowerStatus.Contains(TEXT("already")) ||
+        LowerStatus.Contains(TEXT("preserved")) ||
+        LowerStatus.Contains(TEXT("safe")))
+    {
+        return TEXT("SAFE");
+    }
+
+    if (LowerStatus.Contains(TEXT("live")) || LowerStatus.Contains(TEXT("evaluat")))
+    {
+        return TEXT("LIVE");
+    }
+
+    if (LowerStatus.Contains(TEXT("ready")) ||
+        LowerStatus.Contains(TEXT("applied")) ||
+        LowerStatus.Contains(TEXT("ensured")) ||
+        LowerStatus.Contains(TEXT("complete")) ||
+        LowerStatus.Contains(TEXT("initialized")))
+    {
+        return TEXT("READY");
+    }
+
+    return TEXT("ACTIVE");
+}
+
 const TCHAR* GetCharacterEnhancementPresetLabel(const FString& PresetLabel)
 {
     return PresetLabel.IsEmpty() ? TEXT("Identity Only") : *PresetLabel;
@@ -73,6 +126,43 @@ bool TryParseRelationshipStateLabel(const FString& Label, EWAYRelationshipState&
 
     return false;
 }
+
+FString FormatResponseOutputLine(const FString& Line)
+{
+    const FString TrimmedLine = Line.TrimStartAndEnd();
+
+    if (TrimmedLine.IsEmpty())
+    {
+        return FString();
+    }
+
+    auto IndentLine = [&TrimmedLine]()
+    {
+        return FString::Printf(TEXT("  %s"), *TrimmedLine);
+    };
+
+    auto FormatNote = [&TrimmedLine](const TCHAR* Prefix)
+    {
+        return FString::Printf(TEXT("  - %s"), *TrimmedLine.RightChop(FCString::Strlen(Prefix)).TrimStartAndEnd());
+    };
+
+    if (TrimmedLine.StartsWith(TEXT("Guided Workflow:")))
+    {
+        return FString::Printf(TEXT("[FLOW] %s"), *TrimmedLine.RightChop(16).TrimStartAndEnd());
+    }
+
+    if (TrimmedLine.StartsWith(TEXT("Compatibility Notes:")))
+    {
+        return FormatNote(TEXT("Compatibility Notes:"));
+    }
+
+    if (TrimmedLine.StartsWith(TEXT("Readiness Notes:")))
+    {
+        return FormatNote(TEXT("Readiness Notes:"));
+    }
+
+    return IndentLine();
+}
 }
 
 const FName FWanaWorksUIModule::WanaWorksTabName(TEXT("WanaWorksTab"));
@@ -88,6 +178,8 @@ void FWanaWorksUIModule::StartupModule()
     SelectedEnhancementPresetLabel = TEXT("Identity Only");
     SelectedIdentitySeedState = EWAYRelationshipState::Neutral;
     SelectedRelationshipState = EWAYRelationshipState::Neutral;
+    SandboxObserverActor.Reset();
+    SandboxTargetActor.Reset();
     EnhancementPresetOptions =
     {
         MakeShared<FString>(TEXT("Identity Only")),
@@ -111,15 +203,46 @@ void FWanaWorksUIModule::StartupModule()
         .SetGroup(WorkspaceMenu::GetMenuStructure().GetDeveloperToolsMiscCategory())
         .SetMenuType(ETabSpawnerMenuType::Enabled);
 
+    SelectionChangedHandle = USelection::SelectionChangedEvent.AddRaw(this, &FWanaWorksUIModule::HandleEditorSelectionChanged);
+    SelectObjectHandle = USelection::SelectObjectEvent.AddRaw(this, &FWanaWorksUIModule::HandleEditorSelectionChanged);
+
     FGlobalTabmanager::Get()->TryInvokeTab(WanaWorksTabName);
 }
 
 void FWanaWorksUIModule::ShutdownModule()
 {
+    if (SelectionChangedHandle.IsValid())
+    {
+        USelection::SelectionChangedEvent.Remove(SelectionChangedHandle);
+        SelectionChangedHandle.Reset();
+    }
+
+    if (SelectObjectHandle.IsValid())
+    {
+        USelection::SelectObjectEvent.Remove(SelectObjectHandle);
+        SelectObjectHandle.Reset();
+    }
+
     if (FSlateApplication::IsInitialized())
     {
         FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(WanaWorksTabName);
     }
+}
+
+void FWanaWorksUIModule::RefreshReactiveUI(bool bForceRefresh)
+{
+    RefreshIdentityEditorState(bForceRefresh);
+
+    if (const TSharedPtr<SDockTab> PinnedTab = WanaWorksTab.Pin())
+    {
+        PinnedTab->Invalidate(EInvalidateWidgetReason::Layout);
+    }
+}
+
+void FWanaWorksUIModule::HandleEditorSelectionChanged(UObject* NewSelection)
+{
+    (void)NewSelection;
+    RefreshReactiveUI(true);
 }
 
 void FWanaWorksUIModule::HandleCommandTextChanged(const FText& NewText)
@@ -178,14 +301,36 @@ void FWanaWorksUIModule::ApplyResponse(const FWanaCommandResponse& Response, con
     }
     else if (!EchoedCommand.IsEmpty())
     {
+        if (!LogOutput.IsEmpty())
+        {
+            AppendLogLine(TEXT(""));
+        }
+
         AppendLogLine(FString::Printf(TEXT("> %s"), *EchoedCommand));
+    }
+    else if (!LogOutput.IsEmpty())
+    {
+        AppendLogLine(TEXT(""));
     }
 
     StatusMessage = Response.StatusMessage;
 
+    if (!StatusMessage.IsEmpty())
+    {
+        AppendLogLine(FString::Printf(
+            TEXT("[%s] %s"),
+            *GetFeedbackToneLabel(StatusMessage, Response.bSucceeded),
+            *StripStatusPrefix(StatusMessage)));
+    }
+
     for (const FString& OutputLine : Response.OutputLines)
     {
-        AppendLogLine(OutputLine);
+        const FString FormattedLine = FormatResponseOutputLine(OutputLine);
+
+        if (!FormattedLine.IsEmpty())
+        {
+            AppendLogLine(FormattedLine);
+        }
     }
 }
 
@@ -214,35 +359,156 @@ void FWanaWorksUIModule::ExecuteCommandText(const FString& InCommandText)
 void FWanaWorksUIModule::EnsureIdentityComponent()
 {
     const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteEnsureIdentityComponentCommand();
-    RefreshIdentityEditorState(true);
     ApplyResponse(Response);
+    RefreshReactiveUI(true);
 }
 
 void FWanaWorksUIModule::ApplyIdentity()
 {
     const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteApplyIdentityCommand(IdentityFactionTagText, SelectedIdentitySeedState);
-    RefreshIdentityEditorState(true);
     ApplyResponse(Response);
+    RefreshReactiveUI(true);
 }
 
 void FWanaWorksUIModule::ApplyCharacterEnhancement()
 {
     const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteApplyCharacterEnhancementCommand(SelectedEnhancementPresetLabel);
-    RefreshIdentityEditorState(true);
     ApplyResponse(Response);
+    RefreshReactiveUI(true);
 }
 
 void FWanaWorksUIModule::ApplyStarterAndTestTarget()
 {
     const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteApplyStarterAndTestTargetCommand(SelectedEnhancementPresetLabel);
-    RefreshIdentityEditorState(true);
     ApplyResponse(Response);
+    RefreshReactiveUI(true);
 }
 
 void FWanaWorksUIModule::EvaluateLiveTarget()
 {
     const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteEvaluateLiveTargetCommand();
     ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::UseSelectedActorAsSandboxObserver()
+{
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+
+    if (!WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) || !Snapshot.bHasSelectedActor)
+    {
+        ApplyResponse(WanaWorksUIEditorActions::ExecuteEvaluateActorPairCommand(nullptr, nullptr));
+        RefreshReactiveUI(true);
+        return;
+    }
+
+    SandboxObserverActor = Snapshot.SelectedActor;
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = true;
+    Response.StatusMessage = TEXT("Status: Sandbox observer assigned.");
+    Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), *Snapshot.SelectedActorLabel));
+    Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), SandboxTargetActor.IsValid() ? *SandboxTargetActor->GetActorNameOrLabel() : TEXT("(not assigned)")));
+    Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox observer was assigned from the current editor selection."));
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::UseSelectedActorAsSandboxTarget()
+{
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+
+    if (!WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) || !Snapshot.bHasSelectedActor)
+    {
+        ApplyResponse(WanaWorksUIEditorActions::ExecuteEvaluateActorPairCommand(nullptr, nullptr));
+        RefreshReactiveUI(true);
+        return;
+    }
+
+    SandboxTargetActor = Snapshot.SelectedActor;
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = true;
+    Response.StatusMessage = TEXT("Status: Sandbox target assigned.");
+    Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), SandboxObserverActor.IsValid() ? *SandboxObserverActor->GetActorNameOrLabel() : TEXT("(not assigned)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), *Snapshot.SelectedActorLabel));
+    Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox target was assigned from the current editor selection."));
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::EvaluateSandboxPair()
+{
+    AActor* ObserverActor = SandboxObserverActor.Get();
+    AActor* TargetActor = SandboxTargetActor.Get();
+    bool bTargetFallsBackToObserver = false;
+    bool bUsedSelectionFallback = false;
+
+    FWanaSelectedRelationshipContextSnapshot SelectionContext;
+    const bool bHasSelectionContext = WanaWorksUIEditorActions::GetSelectedRelationshipContextSnapshot(SelectionContext) && SelectionContext.bHasObserverActor;
+
+    if (!ObserverActor && bHasSelectionContext)
+    {
+        ObserverActor = SelectionContext.ObserverActor.Get();
+        bUsedSelectionFallback = ObserverActor != nullptr;
+    }
+
+    if (!TargetActor && bHasSelectionContext)
+    {
+        TargetActor = SelectionContext.TargetActor.Get();
+        bTargetFallsBackToObserver = SelectionContext.bTargetFallsBackToObserver;
+        bUsedSelectionFallback = TargetActor != nullptr || bUsedSelectionFallback;
+    }
+
+    if (!TargetActor && ObserverActor)
+    {
+        TargetActor = ObserverActor;
+        bTargetFallsBackToObserver = true;
+    }
+
+    FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteEvaluateActorPairCommand(ObserverActor, TargetActor, bTargetFallsBackToObserver);
+
+    if (Response.bSucceeded)
+    {
+        if (SandboxObserverActor.IsValid())
+        {
+            Response.OutputLines.Add(TEXT("Readiness Notes: Observer Source: Stored sandbox observer."));
+        }
+        else if (bUsedSelectionFallback)
+        {
+            Response.OutputLines.Add(TEXT("Readiness Notes: Observer Source: Current editor selection."));
+        }
+
+        if (SandboxTargetActor.IsValid())
+        {
+            Response.OutputLines.Add(TEXT("Readiness Notes: Target Source: Stored sandbox target."));
+        }
+        else if (bTargetFallsBackToObserver)
+        {
+            Response.OutputLines.Add(TEXT("Readiness Notes: Target Source: Observer fallback."));
+        }
+        else if (bUsedSelectionFallback)
+        {
+            Response.OutputLines.Add(TEXT("Readiness Notes: Target Source: Current editor selection."));
+        }
+    }
+
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::FocusSandboxObserver()
+{
+    const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteFocusActorCommand(SandboxObserverActor.Get(), TEXT("Observer"));
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::FocusSandboxTarget()
+{
+    const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteFocusActorCommand(SandboxTargetActor.Get(), TEXT("Target"));
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
 }
 
 void FWanaWorksUIModule::ApplySelectedRelationshipState()
@@ -320,6 +586,7 @@ void FWanaWorksUIModule::RunCommand()
     }
 
     ApplyResponse(Response, TrimmedCommand);
+    RefreshReactiveUI(true);
 }
 
 void FWanaWorksUIModule::ClearLog()
@@ -461,6 +728,35 @@ FText FWanaWorksUIModule::GetLiveTestSummaryText() const
     return FText::FromString(Summary);
 }
 
+FText FWanaWorksUIModule::GetTestSandboxSummaryText() const
+{
+    const FString ObserverLabel = SandboxObserverActor.IsValid() ? SandboxObserverActor->GetActorNameOrLabel() : TEXT("(not assigned)");
+    const FString TargetLabel = SandboxTargetActor.IsValid() ? SandboxTargetActor->GetActorNameOrLabel() : TEXT("(not assigned)");
+
+    FWanaSelectedCharacterEnhancementSnapshot SelectionSnapshot;
+    const bool bHasCurrentSelection = WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(SelectionSnapshot) && SelectionSnapshot.bHasSelectedActor;
+
+    FWanaSelectedRelationshipContextSnapshot SelectionContext;
+    const bool bHasSelectionContext = WanaWorksUIEditorActions::GetSelectedRelationshipContextSnapshot(SelectionContext) && SelectionContext.bHasObserverActor;
+
+    const FString PairSource = (SandboxObserverActor.IsValid() || SandboxTargetActor.IsValid())
+        ? TEXT("Stored sandbox assignments are used first, then current selection fills any missing actor.")
+        : TEXT("Current editor selection will be used until you pin an observer or target.");
+
+    const FString SelectionLabel = bHasCurrentSelection ? SelectionSnapshot.SelectedActorLabel : TEXT("(none)");
+    const bool bReadyToEvaluate = (SandboxObserverActor.IsValid() && SandboxTargetActor.IsValid()) || bHasSelectionContext;
+
+    const FString Summary = FString::Printf(
+        TEXT("Current Selection: %s\nSandbox Observer: %s\nSandbox Target: %s\nPair Source: %s\nReady To Evaluate: %s"),
+        *SelectionLabel,
+        *ObserverLabel,
+        *TargetLabel,
+        *PairSource,
+        bReadyToEvaluate ? TEXT("Yes") : TEXT("No"));
+
+    return FText::FromString(Summary);
+}
+
 FText FWanaWorksUIModule::GetRelationshipSummaryText() const
 {
     FWanaSelectedRelationshipContextSnapshot Snapshot;
@@ -523,6 +819,7 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetCharacterEnhancementChainText = [this]() { return GetCharacterEnhancementChainText(); };
     BuilderArgs.GetGuidedWorkflowSummaryText = [this]() { return GetGuidedWorkflowSummaryText(); };
     BuilderArgs.GetLiveTestSummaryText = [this]() { return GetLiveTestSummaryText(); };
+    BuilderArgs.GetTestSandboxSummaryText = [this]() { return GetTestSandboxSummaryText(); };
     BuilderArgs.GetRelationshipSummaryText = [this]() { return GetRelationshipSummaryText(); };
     BuilderArgs.GetIdentitySummaryText = [this]() { return GetIdentitySummaryText(); };
     BuilderArgs.GetIdentityFactionTagText = [this]() { return GetIdentityFactionTagText(); };
@@ -543,14 +840,23 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.OnApplyCharacterEnhancement = [this]() { ApplyCharacterEnhancement(); };
     BuilderArgs.OnApplyStarterAndTestTarget = [this]() { ApplyStarterAndTestTarget(); };
     BuilderArgs.OnEvaluateLiveTarget = [this]() { EvaluateLiveTarget(); };
+    BuilderArgs.OnUseSelectedAsSandboxObserver = [this]() { UseSelectedActorAsSandboxObserver(); };
+    BuilderArgs.OnUseSelectedAsSandboxTarget = [this]() { UseSelectedActorAsSandboxTarget(); };
+    BuilderArgs.OnEvaluateSandboxPair = [this]() { EvaluateSandboxPair(); };
+    BuilderArgs.OnFocusSandboxObserver = [this]() { FocusSandboxObserver(); };
+    BuilderArgs.OnFocusSandboxTarget = [this]() { FocusSandboxTarget(); };
     BuilderArgs.OnApplyRelationshipState = [this]() { ApplySelectedRelationshipState(); };
     BuilderArgs.OnExecuteCommandText = [this](const FString& InCommandText) { ExecuteCommandText(InCommandText); };
 
-    return SNew(SDockTab)
+    TSharedRef<SDockTab> NewTab = SNew(SDockTab)
         .TabRole(ETabRole::NomadTab)
         [
             WanaWorksUITabBuilder::BuildTabContent(BuilderArgs)
         ];
+
+    WanaWorksTab = NewTab;
+    RefreshReactiveUI(true);
+    return NewTab;
 }
 
 #undef LOCTEXT_NAMESPACE
