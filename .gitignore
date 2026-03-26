@@ -1,6 +1,16 @@
+<<<<<<< ours
+<<<<<<< ours
 .vs/
 Binaries/
 DerivedDataCache/
 Intermediate/
 Saved/
 *.VC.db
+=======
+__pycache__/
+*.pyc
+>>>>>>> theirs
+=======
+__pycache__/
+*.pyc
+>>>>>>> theirs
