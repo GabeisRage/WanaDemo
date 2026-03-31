@@ -23,8 +23,16 @@ struct FWanaSelectedCharacterEnhancementSnapshot
     bool bHasIdentityComponent = false;
     bool bHasWAIComponent = false;
     bool bHasWAYComponent = false;
+    bool bIsPawnActor = false;
+    bool bHasAIControllerClass = false;
+    bool bAutoPossessAIEnabled = false;
+    bool bHasSkeletalMeshComponent = false;
+    bool bHasAnimBlueprint = false;
     TWeakObjectPtr<AActor> SelectedActor;
     FString SelectedActorLabel;
+    FString ActorTypeLabel;
+    FString AnimationCompatibilitySummary;
+    FString AIReadinessSummary;
 };
 
 struct FWanaSelectedRelationshipContextSnapshot
@@ -58,6 +66,8 @@ namespace WanaWorksUIEditorActions
     FWanaCommandResponse ExecuteEnsureIdentityComponentCommand();
     FWanaCommandResponse ExecuteApplyIdentityCommand(const FString& FactionTagText, EWAYRelationshipState DefaultRelationshipState);
     FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& PresetLabel);
+    FWanaCommandResponse ExecuteCreateSandboxDuplicateCommand();
+    FWanaCommandResponse ExecutePrepareSelectedActorForAITestCommand();
     FWanaCommandResponse ExecuteEvaluateLiveTargetCommand();
     FWanaCommandResponse ExecuteEvaluateActorPairCommand(AActor* ObserverActor, AActor* TargetActor, bool bTargetFallsBackToObserver = false);
     FWanaCommandResponse ExecuteFocusActorCommand(AActor* Actor, const FString& RoleLabel);

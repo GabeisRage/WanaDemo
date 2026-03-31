@@ -72,6 +72,21 @@ const TCHAR* GetCharacterEnhancementPresetLabel(const FString& PresetLabel)
     return PresetLabel.IsEmpty() ? TEXT("Identity Only") : *PresetLabel;
 }
 
+const TCHAR* GetCharacterEnhancementWorkflowLabel(const FString& WorkflowLabel)
+{
+    if (WorkflowLabel.Equals(TEXT("Create Sandbox Duplicate")))
+    {
+        return TEXT("Create Sandbox Duplicate");
+    }
+
+    if (WorkflowLabel.Equals(TEXT("Convert to AI-Ready Test Subject")))
+    {
+        return TEXT("Convert to AI-Ready Test Subject");
+    }
+
+    return TEXT("Use Original Character");
+}
+
 const TCHAR* GetRelationshipStateLabel(EWAYRelationshipState RelationshipState)
 {
     switch (RelationshipState)
@@ -163,6 +178,17 @@ FString FormatResponseOutputLine(const FString& Line)
 
     return IndentLine();
 }
+
+void AppendLinesWithPrefix(FWanaCommandResponse& Response, const FWanaCommandResponse& SourceResponse, const TCHAR* Prefix)
+{
+    for (const FString& OutputLine : SourceResponse.OutputLines)
+    {
+        if (OutputLine.StartsWith(Prefix))
+        {
+            Response.OutputLines.Add(OutputLine);
+        }
+    }
+}
 }
 
 const FName FWanaWorksUIModule::WanaWorksTabName(TEXT("WanaWorksTab"));
@@ -176,6 +202,7 @@ void FWanaWorksUIModule::StartupModule()
     LogOutput = TEXT("Wana Works Initialized");
     IdentityFactionTagText.Reset();
     SelectedEnhancementPresetLabel = TEXT("Identity Only");
+    SelectedEnhancementWorkflowLabel = TEXT("Use Original Character");
     SelectedIdentitySeedState = EWAYRelationshipState::Neutral;
     SelectedRelationshipState = EWAYRelationshipState::Neutral;
     SandboxObserverActor.Reset();
@@ -185,6 +212,12 @@ void FWanaWorksUIModule::StartupModule()
         MakeShared<FString>(TEXT("Identity Only")),
         MakeShared<FString>(TEXT("Relationship Starter")),
         MakeShared<FString>(TEXT("Full WanaAI Starter"))
+    };
+    EnhancementWorkflowOptions =
+    {
+        MakeShared<FString>(TEXT("Use Original Character")),
+        MakeShared<FString>(TEXT("Create Sandbox Duplicate")),
+        MakeShared<FString>(TEXT("Convert to AI-Ready Test Subject"))
     };
     RelationshipStateOptions =
     {
@@ -275,6 +308,14 @@ void FWanaWorksUIModule::HandleEnhancementPresetOptionSelected(TSharedPtr<FStrin
     if (SelectedOption.IsValid())
     {
         SelectedEnhancementPresetLabel = *SelectedOption;
+    }
+}
+
+void FWanaWorksUIModule::HandleEnhancementWorkflowOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    if (SelectedOption.IsValid())
+    {
+        SelectedEnhancementWorkflowLabel = *SelectedOption;
     }
 }
 
@@ -397,12 +438,16 @@ void FWanaWorksUIModule::UseSelectedActorAsSandboxObserver()
 
     if (!WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) || !Snapshot.bHasSelectedActor)
     {
-        ApplyResponse(WanaWorksUIEditorActions::ExecuteEvaluateActorPairCommand(nullptr, nullptr));
+        FWanaCommandResponse Response;
+        Response.StatusMessage = TEXT("Status: No selected actor to assign as sandbox observer.");
+        Response.OutputLines.Add(TEXT("Select an actor in the editor, then click Use Selected as Observer."));
+        ApplyResponse(Response);
         RefreshReactiveUI(true);
         return;
     }
 
     SandboxObserverActor = Snapshot.SelectedActor;
+    const bool bSelfTargetDebugPair = SandboxTargetActor.IsValid() && SandboxTargetActor.Get() == Snapshot.SelectedActor.Get();
 
     FWanaCommandResponse Response;
     Response.bSucceeded = true;
@@ -410,6 +455,16 @@ void FWanaWorksUIModule::UseSelectedActorAsSandboxObserver()
     Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), *Snapshot.SelectedActorLabel));
     Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), SandboxTargetActor.IsValid() ? *SandboxTargetActor->GetActorNameOrLabel() : TEXT("(not assigned)")));
     Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox observer was assigned from the current editor selection."));
+
+    if (!SandboxTargetActor.IsValid())
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox target is still missing. Use Selected as Target before evaluating the pair."));
+    }
+    else if (bSelfTargetDebugPair)
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: Observer and target are the same actor. Self-target evaluation is active as a debug case."));
+    }
+
     ApplyResponse(Response);
     RefreshReactiveUI(true);
 }
@@ -420,12 +475,16 @@ void FWanaWorksUIModule::UseSelectedActorAsSandboxTarget()
 
     if (!WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) || !Snapshot.bHasSelectedActor)
     {
-        ApplyResponse(WanaWorksUIEditorActions::ExecuteEvaluateActorPairCommand(nullptr, nullptr));
+        FWanaCommandResponse Response;
+        Response.StatusMessage = TEXT("Status: No selected actor to assign as sandbox target.");
+        Response.OutputLines.Add(TEXT("Select an actor in the editor, then click Use Selected as Target."));
+        ApplyResponse(Response);
         RefreshReactiveUI(true);
         return;
     }
 
     SandboxTargetActor = Snapshot.SelectedActor;
+    const bool bSelfTargetDebugPair = SandboxObserverActor.IsValid() && SandboxObserverActor.Get() == Snapshot.SelectedActor.Get();
 
     FWanaCommandResponse Response;
     Response.bSucceeded = true;
@@ -433,6 +492,20 @@ void FWanaWorksUIModule::UseSelectedActorAsSandboxTarget()
     Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), SandboxObserverActor.IsValid() ? *SandboxObserverActor->GetActorNameOrLabel() : TEXT("(not assigned)")));
     Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), *Snapshot.SelectedActorLabel));
     Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox target was assigned from the current editor selection."));
+
+    if (!SandboxObserverActor.IsValid())
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox observer is still missing. Use Selected as Observer before evaluating the pair."));
+    }
+    else if (bSelfTargetDebugPair)
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: Observer and target are the same actor. Self-target evaluation is active as a debug case."));
+    }
+    else
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox pair is ready to evaluate with separate observer and target assignments."));
+    }
+
     ApplyResponse(Response);
     RefreshReactiveUI(true);
 }
@@ -441,56 +514,34 @@ void FWanaWorksUIModule::EvaluateSandboxPair()
 {
     AActor* ObserverActor = SandboxObserverActor.Get();
     AActor* TargetActor = SandboxTargetActor.Get();
-    bool bTargetFallsBackToObserver = false;
-    bool bUsedSelectionFallback = false;
+    FWanaCommandResponse Response;
 
-    FWanaSelectedRelationshipContextSnapshot SelectionContext;
-    const bool bHasSelectionContext = WanaWorksUIEditorActions::GetSelectedRelationshipContextSnapshot(SelectionContext) && SelectionContext.bHasObserverActor;
-
-    if (!ObserverActor && bHasSelectionContext)
+    if (!ObserverActor || !TargetActor)
     {
-        ObserverActor = SelectionContext.ObserverActor.Get();
-        bUsedSelectionFallback = ObserverActor != nullptr;
+        Response.StatusMessage = !ObserverActor
+            ? TEXT("Status: Sandbox observer is missing.")
+            : TEXT("Status: Sandbox target is missing.");
+        Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), ObserverActor ? *ObserverActor->GetActorNameOrLabel() : TEXT("(not assigned)")));
+        Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), TargetActor ? *TargetActor->GetActorNameOrLabel() : TEXT("(not assigned)")));
+        Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox evaluation uses explicit assignments only."));
+        Response.OutputLines.Add(!ObserverActor
+            ? TEXT("Readiness Notes: Use Selected as Observer before evaluating the sandbox pair.")
+            : TEXT("Readiness Notes: Use Selected as Target before evaluating the sandbox pair."));
+        ApplyResponse(Response);
+        RefreshReactiveUI(true);
+        return;
     }
 
-    if (!TargetActor && bHasSelectionContext)
-    {
-        TargetActor = SelectionContext.TargetActor.Get();
-        bTargetFallsBackToObserver = SelectionContext.bTargetFallsBackToObserver;
-        bUsedSelectionFallback = TargetActor != nullptr || bUsedSelectionFallback;
-    }
-
-    if (!TargetActor && ObserverActor)
-    {
-        TargetActor = ObserverActor;
-        bTargetFallsBackToObserver = true;
-    }
-
-    FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteEvaluateActorPairCommand(ObserverActor, TargetActor, bTargetFallsBackToObserver);
+    const bool bIsSelfTargetDebugPair = ObserverActor == TargetActor;
+    Response = WanaWorksUIEditorActions::ExecuteEvaluateActorPairCommand(ObserverActor, TargetActor, false);
 
     if (Response.bSucceeded)
     {
-        if (SandboxObserverActor.IsValid())
-        {
-            Response.OutputLines.Add(TEXT("Readiness Notes: Observer Source: Stored sandbox observer."));
-        }
-        else if (bUsedSelectionFallback)
-        {
-            Response.OutputLines.Add(TEXT("Readiness Notes: Observer Source: Current editor selection."));
-        }
-
-        if (SandboxTargetActor.IsValid())
-        {
-            Response.OutputLines.Add(TEXT("Readiness Notes: Target Source: Stored sandbox target."));
-        }
-        else if (bTargetFallsBackToObserver)
-        {
-            Response.OutputLines.Add(TEXT("Readiness Notes: Target Source: Observer fallback."));
-        }
-        else if (bUsedSelectionFallback)
-        {
-            Response.OutputLines.Add(TEXT("Readiness Notes: Target Source: Current editor selection."));
-        }
+        Response.OutputLines.Add(TEXT("Readiness Notes: Observer Source: Stored sandbox observer."));
+        Response.OutputLines.Add(TEXT("Readiness Notes: Target Source: Stored sandbox target."));
+        Response.OutputLines.Add(bIsSelfTargetDebugPair
+            ? TEXT("Readiness Notes: Self-target evaluation is active as a debug case.")
+            : TEXT("Readiness Notes: Explicit observer-target pair evaluated."));
     }
 
     ApplyResponse(Response);
@@ -731,28 +782,32 @@ FText FWanaWorksUIModule::GetLiveTestSummaryText() const
 FText FWanaWorksUIModule::GetTestSandboxSummaryText() const
 {
     const FString ObserverLabel = SandboxObserverActor.IsValid() ? SandboxObserverActor->GetActorNameOrLabel() : TEXT("(not assigned)");
-    const FString TargetLabel = SandboxTargetActor.IsValid() ? SandboxTargetActor->GetActorNameOrLabel() : TEXT("(not assigned)");
+    const FString TargetLabel = SandboxTargetActor.IsValid() ? SandboxTargetActor->GetActorNameOrLabel() : TEXT("MISSING - Use Selected as Target");
 
     FWanaSelectedCharacterEnhancementSnapshot SelectionSnapshot;
     const bool bHasCurrentSelection = WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(SelectionSnapshot) && SelectionSnapshot.bHasSelectedActor;
-
-    FWanaSelectedRelationshipContextSnapshot SelectionContext;
-    const bool bHasSelectionContext = WanaWorksUIEditorActions::GetSelectedRelationshipContextSnapshot(SelectionContext) && SelectionContext.bHasObserverActor;
-
-    const FString PairSource = (SandboxObserverActor.IsValid() || SandboxTargetActor.IsValid())
-        ? TEXT("Stored sandbox assignments are used first, then current selection fills any missing actor.")
-        : TEXT("Current editor selection will be used until you pin an observer or target.");
-
     const FString SelectionLabel = bHasCurrentSelection ? SelectionSnapshot.SelectedActorLabel : TEXT("(none)");
-    const bool bReadyToEvaluate = (SandboxObserverActor.IsValid() && SandboxTargetActor.IsValid()) || bHasSelectionContext;
+    const bool bReadyToEvaluate = SandboxObserverActor.IsValid() && SandboxTargetActor.IsValid();
+    const bool bSelfTargetDebugPair = bReadyToEvaluate && SandboxObserverActor.Get() == SandboxTargetActor.Get();
+    const FString EvaluationMode = !bReadyToEvaluate
+        ? TEXT("Assignment incomplete")
+        : (bSelfTargetDebugPair ? TEXT("Self-target debug") : TEXT("Explicit observer and target"));
+    const FString NextStep = !SandboxObserverActor.IsValid()
+        ? TEXT("Use Selected as Observer to assign the evaluating actor.")
+        : (!SandboxTargetActor.IsValid()
+            ? TEXT("Use Selected as Target to assign the actor being evaluated.")
+            : (bSelfTargetDebugPair
+                ? TEXT("Self-target debug mode is active. Assign a different target for normal observer-target testing.")
+                : TEXT("Ready to evaluate the explicit sandbox pair.")));
 
     const FString Summary = FString::Printf(
-        TEXT("Current Selection: %s\nSandbox Observer: %s\nSandbox Target: %s\nPair Source: %s\nReady To Evaluate: %s"),
+        TEXT("Current Selection: %s\nSandbox Observer: %s\nSandbox Target: %s\nEvaluation Mode: %s\nReady To Evaluate: %s\nNext Step: %s"),
         *SelectionLabel,
         *ObserverLabel,
         *TargetLabel,
-        *PairSource,
-        bReadyToEvaluate ? TEXT("Yes") : TEXT("No"));
+        *EvaluationMode,
+        bReadyToEvaluate ? TEXT("Yes") : TEXT("No"),
+        *NextStep);
 
     return FText::FromString(Summary);
 }

@@ -11,6 +11,7 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<FText(void)> GetLogText;
     TFunction<FText(void)> GetCharacterEnhancementSummaryText;
     TFunction<FText(void)> GetCharacterEnhancementChainText;
+    TFunction<FText(void)> GetCharacterEnhancementWorkflowText;
     TFunction<FText(void)> GetGuidedWorkflowSummaryText;
     TFunction<FText(void)> GetLiveTestSummaryText;
     TFunction<FText(void)> GetTestSandboxSummaryText;
@@ -18,13 +19,16 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<FText(void)> GetIdentitySummaryText;
     TFunction<FText(void)> GetIdentityFactionTagText;
     const TArray<TSharedPtr<FString>>* EnhancementPresetOptions = nullptr;
+    const TArray<TSharedPtr<FString>>* EnhancementWorkflowOptions = nullptr;
     const TArray<TSharedPtr<FString>>* RelationshipStateOptions = nullptr;
     TFunction<TSharedPtr<FString>(void)> GetSelectedEnhancementPresetOption;
+    TFunction<TSharedPtr<FString>(void)> GetSelectedEnhancementWorkflowOption;
     TFunction<TSharedPtr<FString>(void)> GetSelectedIdentitySeedStateOption;
     TFunction<TSharedPtr<FString>(void)> GetSelectedRelationshipStateOption;
     TFunction<void(const FText&)> OnCommandTextChanged;
     TFunction<void(const FText&)> OnIdentityFactionTagTextChanged;
     TFunction<void(TSharedPtr<FString>)> OnEnhancementPresetOptionSelected;
+    TFunction<void(TSharedPtr<FString>)> OnEnhancementWorkflowOptionSelected;
     TFunction<void(TSharedPtr<FString>)> OnIdentitySeedStateOptionSelected;
     TFunction<void(TSharedPtr<FString>)> OnRelationshipStateOptionSelected;
     TFunction<void(void)> OnRunCommand;

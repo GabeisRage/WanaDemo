@@ -330,7 +330,7 @@ TSharedRef<SWidget> MakeTestSandboxSection(const FWanaWorksUITabBuilderArgs& Arg
         .Padding(0.0f, 0.0f, 0.0f, 10.0f)
         [
             MakeReadOnlyInfoPanel(
-                LOCTEXT("WanaWorksSandboxSummaryLabel", "Sandbox Pair"),
+                LOCTEXT("WanaWorksSandboxSummaryLabel", "Assigned Sandbox Pair"),
                 [GetTestSandboxSummaryText = Args.GetTestSandboxSummaryText]()
                 {
                     return GetTestSandboxSummaryText ? GetTestSandboxSummaryText() : FText::GetEmpty();
@@ -411,7 +411,7 @@ TSharedRef<SWidget> MakeTestSandboxSection(const FWanaWorksUITabBuilderArgs& Arg
                     160.0f)
             ]
         ],
-        LOCTEXT("WanaWorksTestSandboxDescription", "Quickly set up and test observer/target interactions without rebuilding your scene."),
+        LOCTEXT("WanaWorksTestSandboxDescription", "Quickly set up and test observer/target interactions without rebuilding your scene. Assign observer and target separately before evaluation."),
         LOCTEXT("WanaWorksSandboxStatus", "ACTIVE"));
 }
 

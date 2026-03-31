@@ -25,6 +25,7 @@ private:
     void HandleIdentityFactionTagTextChanged(const FText& NewText);
     void HandleIdentitySeedStateOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleEnhancementPresetOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleEnhancementWorkflowOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleRelationshipStateOptionSelected(TSharedPtr<FString> SelectedOption);
     void EnsureIdentityComponent();
     void ExecuteCommandText(const FString& InCommandText);
@@ -42,6 +43,7 @@ private:
     void ClearLog();
     void AppendLogLine(const FString& Line);
     TSharedPtr<FString> GetSelectedEnhancementPresetOption() const;
+    TSharedPtr<FString> GetSelectedEnhancementWorkflowOption() const;
     TSharedPtr<FString> GetSelectedIdentitySeedStateOption();
     TSharedPtr<FString> GetSelectedRelationshipStateOption() const;
 
@@ -50,6 +52,7 @@ private:
     FText GetLogText() const;
     FText GetCharacterEnhancementSummaryText() const;
     FText GetCharacterEnhancementChainText() const;
+    FText GetCharacterEnhancementWorkflowText() const;
     FText GetGuidedWorkflowSummaryText() const;
     FText GetLiveTestSummaryText() const;
     FText GetTestSandboxSummaryText() const;
@@ -64,9 +67,11 @@ private:
     FString LogOutput;
     FString IdentityFactionTagText;
     FString SelectedEnhancementPresetLabel;
+    FString SelectedEnhancementWorkflowLabel;
     EWAYRelationshipState SelectedIdentitySeedState = EWAYRelationshipState::Neutral;
     EWAYRelationshipState SelectedRelationshipState = EWAYRelationshipState::Neutral;
     TArray<TSharedPtr<FString>> EnhancementPresetOptions;
+    TArray<TSharedPtr<FString>> EnhancementWorkflowOptions;
     TArray<TSharedPtr<FString>> RelationshipStateOptions;
     TWeakObjectPtr<AActor> CachedIdentityActor;
     TWeakObjectPtr<AActor> SandboxObserverActor;

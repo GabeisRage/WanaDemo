@@ -2,11 +2,14 @@
 
 #include "Editor.h"
 #include "Components/ActorComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Selection.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/Pawn.h"
 #include "ScopedTransaction.h"
 #include "WAIPersonalityComponent.h"
 #include "WAYPlayerProfileComponent.h"
@@ -237,6 +240,98 @@ FString MakeReputationTagsSummary(const TArray<FName>& ReputationTags)
 FString JoinOrNone(const TArray<FString>& Entries)
 {
     return Entries.Num() > 0 ? FString::Join(Entries, TEXT(", ")) : TEXT("(none)");
+}
+
+FString GetActorTypeLabel(const AActor* Actor)
+{
+    if (Cast<ACharacter>(Actor))
+    {
+        return TEXT("Character");
+    }
+
+    if (Cast<APawn>(Actor))
+    {
+        return TEXT("Pawn");
+    }
+
+    return TEXT("Actor");
+}
+
+FString MakeAnimationCompatibilitySummary(bool bHasSkeletalMeshComponent, bool bHasAnimBlueprint)
+{
+    if (!bHasSkeletalMeshComponent)
+    {
+        return TEXT("No skeletal mesh animation setup detected.");
+    }
+
+    if (bHasAnimBlueprint)
+    {
+        return TEXT("Anim Blueprint is assigned.");
+    }
+
+    return TEXT("Skeletal mesh found, but no Anim Blueprint is assigned.");
+}
+
+FString MakeAIReadinessSummary(bool bIsPawnActor, bool bAutoPossessAIEnabled, bool bHasAIControllerClass)
+{
+    if (!bIsPawnActor)
+    {
+        return TEXT("Not a Pawn/Character test subject.");
+    }
+
+    if (bAutoPossessAIEnabled && bHasAIControllerClass)
+    {
+        return TEXT("AI-ready for lightweight testing.");
+    }
+
+    if (bAutoPossessAIEnabled)
+    {
+        return TEXT("Auto Possess AI is enabled. Assign an AIControllerClass if you want autonomous controller behavior.");
+    }
+
+    return TEXT("Can be prepared for AI-ready testing.");
+}
+
+bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot)
+{
+    OutSnapshot = FWanaSelectedCharacterEnhancementSnapshot();
+
+    if (!Actor)
+    {
+        return false;
+    }
+
+    OutSnapshot.bHasSelectedActor = true;
+    OutSnapshot.SelectedActor = const_cast<AActor*>(Actor);
+    OutSnapshot.SelectedActorLabel = Actor->GetActorNameOrLabel();
+    OutSnapshot.bHasIdentityComponent = Actor->FindComponentByClass<UWanaIdentityComponent>() != nullptr;
+    OutSnapshot.bHasWAIComponent = Actor->FindComponentByClass<UWAIPersonalityComponent>() != nullptr;
+    OutSnapshot.bHasWAYComponent = Actor->FindComponentByClass<UWAYPlayerProfileComponent>() != nullptr;
+    OutSnapshot.ActorTypeLabel = GetActorTypeLabel(Actor);
+
+    if (const APawn* Pawn = Cast<APawn>(Actor))
+    {
+        OutSnapshot.bIsPawnActor = true;
+        OutSnapshot.bHasAIControllerClass = Pawn->AIControllerClass != nullptr;
+        OutSnapshot.bAutoPossessAIEnabled = Pawn->AutoPossessAI != EAutoPossessAI::Disabled;
+    }
+
+    TArray<USkeletalMeshComponent*> SkeletalMeshComponents;
+    Actor->GetComponents<USkeletalMeshComponent>(SkeletalMeshComponents);
+    OutSnapshot.bHasSkeletalMeshComponent = SkeletalMeshComponents.Num() > 0;
+
+    for (const USkeletalMeshComponent* SkeletalMeshComponent : SkeletalMeshComponents)
+    {
+        if (SkeletalMeshComponent && SkeletalMeshComponent->GetAnimClass() != nullptr)
+        {
+            OutSnapshot.bHasAnimBlueprint = true;
+            break;
+        }
+    }
+
+    OutSnapshot.AnimationCompatibilitySummary = MakeAnimationCompatibilitySummary(OutSnapshot.bHasSkeletalMeshComponent, OutSnapshot.bHasAnimBlueprint);
+    OutSnapshot.AIReadinessSummary = MakeAIReadinessSummary(OutSnapshot.bIsPawnActor, OutSnapshot.bAutoPossessAIEnabled, OutSnapshot.bHasAIControllerClass);
+    return true;
 }
 
 bool TryResolveCharacterEnhancementPreset(
@@ -482,22 +577,8 @@ bool GetSelectedActorIdentitySnapshot(FWanaSelectedActorIdentitySnapshot& OutSna
 
 bool GetSelectedCharacterEnhancementSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot)
 {
-    OutSnapshot = FWanaSelectedCharacterEnhancementSnapshot();
-
     const AActor* SelectedActor = GetFirstSelectedActor();
-
-    if (!SelectedActor)
-    {
-        return false;
-    }
-
-    OutSnapshot.bHasSelectedActor = true;
-    OutSnapshot.SelectedActor = const_cast<AActor*>(SelectedActor);
-    OutSnapshot.SelectedActorLabel = SelectedActor->GetActorNameOrLabel();
-    OutSnapshot.bHasIdentityComponent = SelectedActor->FindComponentByClass<UWanaIdentityComponent>() != nullptr;
-    OutSnapshot.bHasWAIComponent = SelectedActor->FindComponentByClass<UWAIPersonalityComponent>() != nullptr;
-    OutSnapshot.bHasWAYComponent = SelectedActor->FindComponentByClass<UWAYPlayerProfileComponent>() != nullptr;
-    return true;
+    return BuildCharacterEnhancementSnapshot(SelectedActor, OutSnapshot);
 }
 
 bool GetSelectedRelationshipContextSnapshot(FWanaSelectedRelationshipContextSnapshot& OutSnapshot)
@@ -1202,6 +1283,107 @@ FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& Pres
     for (const FString& CompatibilityNote : CompatibilityNotes)
     {
         Response.OutputLines.Add(FString::Printf(TEXT("Compatibility Notes: %s"), *CompatibilityNote));
+    }
+
+    return Response;
+}
+
+FWanaCommandResponse ExecuteCreateSandboxDuplicateCommand()
+{
+    AActor* SelectedActor = GetFirstSelectedActorMutable();
+
+    if (!SelectedActor)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: No actors selected."), TEXT("Select a character or pawn before creating a sandbox duplicate."));
+    }
+
+    UWorld* EditorWorld = SelectedActor->GetWorld();
+
+    if (!GEditor || !EditorWorld || !SelectedActor->GetLevel())
+    {
+        return MakeEditorFailureResponse(TEXT("Status: Sandbox duplicate failed."), TEXT("Could not access the editor world for sandbox duplication."));
+    }
+
+    const FTransform SourceTransform = SelectedActor->GetActorTransform();
+    FTransform DuplicateTransform = SourceTransform;
+    DuplicateTransform.AddToTranslation(FVector(180.0f, 0.0f, 0.0f));
+
+    FScopedTransaction Transaction(LOCTEXT("WanaWorksCreateSandboxDuplicateTransaction", "Create WanaWorks Sandbox Duplicate"));
+    AActor* DuplicateActor = GEditor->AddActor(SelectedActor->GetLevel(), SelectedActor->GetClass(), DuplicateTransform);
+
+    if (!DuplicateActor)
+    {
+        Transaction.Cancel();
+        return MakeEditorFailureResponse(TEXT("Status: Sandbox duplicate failed."), TEXT("Could not create a sandbox duplicate for the selected actor."));
+    }
+
+    DuplicateActor->SetFlags(RF_Transactional);
+    DuplicateActor->Modify();
+    DuplicateActor->SetActorLabel(FString::Printf(TEXT("WW_Sandbox_%s"), *SelectedActor->GetActorNameOrLabel()), true);
+    DuplicateActor->SetFolderPath(FName(TEXT("WanaWorks/Sandbox")));
+    DuplicateActor->MarkPackageDirty();
+
+    GEditor->SelectNone(false, true, false);
+    GEditor->SelectActor(DuplicateActor, true, true, true);
+    GEditor->NoteSelectionChange();
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = true;
+    Response.StatusMessage = TEXT("Status: Created sandbox duplicate.");
+    Response.OutputLines.Add(FString::Printf(TEXT("Selected Actor: %s"), *SelectedActor->GetActorNameOrLabel()));
+    Response.OutputLines.Add(TEXT("Workflow Path: Create Sandbox Duplicate"));
+    Response.OutputLines.Add(TEXT("Subject Mode: Sandbox duplicate"));
+    Response.OutputLines.Add(FString::Printf(TEXT("Active Subject: %s"), *DuplicateActor->GetActorNameOrLabel()));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: The original actor was left untouched."));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: The sandbox copy was placed in the WanaWorks/Sandbox folder and selected for continued setup."));
+    return Response;
+}
+
+FWanaCommandResponse ExecutePrepareSelectedActorForAITestCommand()
+{
+    AActor* SelectedActor = GetFirstSelectedActorMutable();
+
+    if (!SelectedActor)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: No actors selected."), TEXT("Select a character or pawn before preparing an AI-ready test subject."));
+    }
+
+    APawn* SelectedPawn = Cast<APawn>(SelectedActor);
+
+    if (!SelectedPawn)
+    {
+        FWanaCommandResponse Response;
+        Response.bSucceeded = true;
+        Response.StatusMessage = TEXT("Status: AI-ready prep not applicable.");
+        Response.OutputLines.Add(FString::Printf(TEXT("Selected Actor: %s"), *SelectedActor->GetActorNameOrLabel()));
+        Response.OutputLines.Add(TEXT("AI-Ready Preparation: Not applied"));
+        Response.OutputLines.Add(TEXT("Compatibility Notes: AI-ready prep only applies to Pawn or Character actors."));
+        return Response;
+    }
+
+    const bool bAutoPossessAIAlreadyEnabled = SelectedPawn->AutoPossessAI != EAutoPossessAI::Disabled;
+
+    if (!bAutoPossessAIAlreadyEnabled)
+    {
+        FScopedTransaction Transaction(LOCTEXT("WanaWorksPrepareAITestSubjectTransaction", "Prepare WanaWorks AI-Ready Test Subject"));
+        SelectedPawn->Modify();
+        SelectedPawn->AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+        SelectedPawn->MarkPackageDirty();
+    }
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = true;
+    Response.StatusMessage = bAutoPossessAIAlreadyEnabled
+        ? TEXT("Status: AI-ready prep already configured.")
+        : TEXT("Status: Applied AI-ready prep.");
+    Response.OutputLines.Add(FString::Printf(TEXT("Selected Actor: %s"), *SelectedActor->GetActorNameOrLabel()));
+    Response.OutputLines.Add(FString::Printf(TEXT("AI-Ready Preparation: %s"), bAutoPossessAIAlreadyEnabled ? TEXT("Already configured") : TEXT("Applied")));
+    Response.OutputLines.Add(FString::Printf(TEXT("AI Controller Class: %s"), SelectedPawn->AIControllerClass ? TEXT("Present") : TEXT("Missing")));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: Existing Character BP and animation setup were preserved."));
+
+    if (!SelectedPawn->AIControllerClass)
+    {
+        Response.OutputLines.Add(TEXT("Compatibility Notes: Assign an AIControllerClass later if you want autonomous controller-driven behavior."));
     }
 
     return Response;
