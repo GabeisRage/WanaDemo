@@ -2,6 +2,7 @@
 
 #include "Components/ActorComponent.h"
 #include "GameFramework/Actor.h"
+#include "WanaWorksEnvironmentReadiness.h"
 #include "WAYPlayerProfileComponent.h"
 
 FWanaPredictionProfile UWITBlueprintLibrary::BuildPredictionProfile(FName ClassificationTag, EWanaBehaviorDomain Domain, float Confidence)
@@ -47,6 +48,11 @@ FWanaPredictionProfile UWITBlueprintLibrary::EvaluateActorForObserver(AActor* Ob
         TargetActor->GetClass()->GetFName(),
         TargetActor->Tags,
         ComponentClassNames);
+}
+
+FWanaMovementReadiness UWITBlueprintLibrary::GetMovementReadinessForObserverTarget(AActor* ObserverActor, AActor* TargetActor)
+{
+    return FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(ObserverActor, TargetActor);
 }
 
 FWanaPredictionProfile UWITBlueprintLibrary::ClassifyActorHeuristically(

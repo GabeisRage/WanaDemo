@@ -30,6 +30,7 @@ public:
     UWAYPlayerProfileComponent();
 
     virtual void BeginPlay() override;
+    virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
     UFUNCTION(BlueprintCallable, Category = "Wana Works|WAY")
     void RecordPreferenceSignal(FName SignalName, float Weight);
@@ -85,6 +86,9 @@ private:
     UFUNCTION()
     void HandleReactionChanged(AActor* ObserverActor, AActor* TargetActor, EWAYRelationshipState RelationshipState, EWAYReactionState ReactionState);
 
+    bool TryApplyMovementReaction(AActor* TargetActor, EWAYReactionState ReactionState, const FVector& SafeDirection, FString& OutBehaviorDescription);
+    bool StartBasicReactionMovement(AActor* TargetActor, EWAYReactionState ReactionState, FString& OutBehaviorDescription);
+    void StopBasicReactionMovement();
     int32 FindRelationshipProfileIndex(AActor* TargetActor) const;
     FWAYRelationshipSeed MakeRelationshipSeedForTarget(AActor* TargetActor) const;
     FWAYRelationshipProfile CreateRelationshipProfile(AActor* TargetActor) const;
@@ -96,4 +100,9 @@ private:
     TArray<FWAYRelationshipProfile> RelationshipProfiles;
 
     TMap<AActor*, EWAYReactionState> CachedReactionStates;
+    TWeakObjectPtr<AActor> ActiveBasicReactionTarget;
+    EWAYReactionState ActiveBasicReactionState = EWAYReactionState::Observational;
+    float ActiveBasicReactionTimeRemaining = 0.0f;
+    bool bRestoresRunPhysicsWithNoController = false;
+    bool bPreviousRunPhysicsWithNoController = false;
 };

@@ -18,6 +18,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Wana Works|WIT", meta = (DefaultToSelf = "ObserverActor"))
     static FWanaPredictionProfile EvaluateActorForObserver(AActor* ObserverActor, AActor* TargetActor);
 
+    UFUNCTION(BlueprintPure, Category = "Wana Works|WIT", meta = (DisplayName = "Get Movement Readiness For Observer Target", DefaultToSelf = "ObserverActor"))
+    static FWanaMovementReadiness GetMovementReadinessForObserverTarget(AActor* ObserverActor, AActor* TargetActor);
+
     static FWanaPredictionProfile ClassifyActorHeuristically(
         FName ActorName,
         FName ClassName,
