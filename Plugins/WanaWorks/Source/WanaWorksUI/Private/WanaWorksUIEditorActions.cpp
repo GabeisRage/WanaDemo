@@ -322,7 +322,9 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
 
     for (const USkeletalMeshComponent* SkeletalMeshComponent : SkeletalMeshComponents)
     {
-        if (SkeletalMeshComponent && SkeletalMeshComponent->GetAnimClass() != nullptr)
+        if (SkeletalMeshComponent
+            && (SkeletalMeshComponent->GetAnimationMode() == EAnimationMode::AnimationBlueprint
+                || SkeletalMeshComponent->GetAnimInstance() != nullptr))
         {
             OutSnapshot.bHasAnimBlueprint = true;
             break;
@@ -579,6 +581,11 @@ bool GetSelectedCharacterEnhancementSnapshot(FWanaSelectedCharacterEnhancementSn
 {
     const AActor* SelectedActor = GetFirstSelectedActor();
     return BuildCharacterEnhancementSnapshot(SelectedActor, OutSnapshot);
+}
+
+bool GetCharacterEnhancementSnapshotForActor(const AActor* Actor, FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot)
+{
+    return BuildCharacterEnhancementSnapshot(Actor, OutSnapshot);
 }
 
 bool GetSelectedRelationshipContextSnapshot(FWanaSelectedRelationshipContextSnapshot& OutSnapshot)

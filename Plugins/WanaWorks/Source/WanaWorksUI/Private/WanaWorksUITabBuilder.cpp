@@ -195,6 +195,56 @@ TSharedRef<SWidget> MakeCharacterEnhancementSection(const FWanaWorksUITabBuilder
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        [
+            MakeReadOnlyInfoPanel(
+                LOCTEXT("WanaWorksCharacterEnhancementWorkflowInfoLabel", "Workflow Guidance"),
+                [GetCharacterEnhancementWorkflowText = Args.GetCharacterEnhancementWorkflowText]()
+                {
+                    return GetCharacterEnhancementWorkflowText ? GetCharacterEnhancementWorkflowText() : FText::GetEmpty();
+                })
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+        [
+            SNew(STextBlock)
+            .Text(LOCTEXT("WanaWorksCharacterEnhancementWorkflowLabel", "Setup Workflow"))
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        [
+            SNew(SBox)
+            .WidthOverride(260.0f)
+            [
+                SNew(SComboBox<TSharedPtr<FString>>)
+                .OptionsSource(Args.EnhancementWorkflowOptions)
+                .InitiallySelectedItem(Args.GetSelectedEnhancementWorkflowOption ? Args.GetSelectedEnhancementWorkflowOption() : nullptr)
+                .OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
+                {
+                    return SNew(STextBlock)
+                        .Text(Item.IsValid() ? FText::FromString(*Item) : FText::GetEmpty());
+                })
+                .OnSelectionChanged_Lambda([OnEnhancementWorkflowOptionSelected = Args.OnEnhancementWorkflowOptionSelected](TSharedPtr<FString> SelectedItem, ESelectInfo::Type)
+                {
+                    if (OnEnhancementWorkflowOptionSelected)
+                    {
+                        OnEnhancementWorkflowOptionSelected(SelectedItem);
+                    }
+                })
+                [
+                    SNew(STextBlock)
+                    .Text_Lambda([GetSelectedEnhancementWorkflowOption = Args.GetSelectedEnhancementWorkflowOption]()
+                    {
+                        const TSharedPtr<FString> SelectedOption = GetSelectedEnhancementWorkflowOption ? GetSelectedEnhancementWorkflowOption() : nullptr;
+                        return SelectedOption.IsValid() ? FText::FromString(*SelectedOption) : LOCTEXT("WanaWorksCharacterEnhancementWorkflowDefault", "Use Original Character");
+                    })
+                ]
+            ]
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
         .Padding(0.0f, 0.0f, 0.0f, 6.0f)
         [
             SNew(STextBlock)
@@ -246,7 +296,7 @@ TSharedRef<SWidget> MakeCharacterEnhancementSection(const FWanaWorksUITabBuilder
                 },
                 220.0f)
         ],
-        LOCTEXT("WanaWorksCharacterEnhancementDescription", "Quickly applies WanaAI systems to the selected character without rebuilding existing logic. Use this for the fastest setup."),
+        LOCTEXT("WanaWorksCharacterEnhancementDescription", "Quickly applies WanaAI systems to the selected character without rebuilding existing logic. Create Sandbox Duplicate is the safest testing path, and all options enhance existing setups instead of replacing them."),
         LOCTEXT("WanaWorksReadyStatus", "READY"),
         true);
 }
@@ -282,6 +332,26 @@ TSharedRef<SWidget> MakeGuidedWorkflowSection(const FWanaWorksUITabBuilderArgs& 
                 },
                 220.0f)
         ]);
+}
+
+TSharedRef<SWidget> MakeEnhancementResultsSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
+{
+    return MakeSection(
+        SectionHeaderFont,
+        LOCTEXT("WanaWorksEnhancementResultsSection", "Enhancement Results"),
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            MakeReadOnlyInfoPanel(
+                LOCTEXT("WanaWorksEnhancementResultsLabel", "Most Recent WanaAI Result"),
+                [GetEnhancementResultsText = Args.GetEnhancementResultsText]()
+                {
+                    return GetEnhancementResultsText ? GetEnhancementResultsText() : FText::GetEmpty();
+                })
+        ],
+        LOCTEXT("WanaWorksEnhancementResultsDescription", "Clean checklist of what the latest WanaAI setup or test-prep changed for the active subject."),
+        LOCTEXT("WanaWorksEnhancementResultsStatus", "ACTIVE"));
 }
 
 TSharedRef<SWidget> MakeLiveTestSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
@@ -746,6 +816,12 @@ TSharedRef<SWidget> MakeWanaAISection(const FWanaWorksUITabBuilderArgs& Args, co
         .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing + 4.0f)
         [
             MakeCharacterEnhancementSection(Args, SectionHeaderFont)
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
+        [
+            MakeEnhancementResultsSection(Args, SectionHeaderFont)
         ]
         + SVerticalBox::Slot()
         .AutoHeight()

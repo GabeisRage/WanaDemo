@@ -9,6 +9,7 @@ class SDockTab;
 class FSpawnTabArgs;
 class UObject;
 struct FWanaCommandResponse;
+struct FWanaSelectedCharacterEnhancementSnapshot;
 
 class WANAWORKSUI_API FWanaWorksUIModule : public IModuleInterface
 {
@@ -27,6 +28,13 @@ private:
     void HandleEnhancementPresetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleEnhancementWorkflowOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleRelationshipStateOptionSelected(TSharedPtr<FString> SelectedOption);
+    void UpdateEnhancementResultsState(
+        const FWanaSelectedCharacterEnhancementSnapshot* BeforeSnapshot,
+        const FWanaSelectedCharacterEnhancementSnapshot* AfterSnapshot,
+        const FString& WorkflowUsed,
+        bool bUpdateWorkflowMetadata,
+        bool bSandboxCopyCreated,
+        bool bOriginalPreserved);
     void EnsureIdentityComponent();
     void ExecuteCommandText(const FString& InCommandText);
     void ApplyIdentity();
@@ -53,6 +61,7 @@ private:
     FText GetCharacterEnhancementSummaryText() const;
     FText GetCharacterEnhancementChainText() const;
     FText GetCharacterEnhancementWorkflowText() const;
+    FText GetEnhancementResultsText() const;
     FText GetGuidedWorkflowSummaryText() const;
     FText GetLiveTestSummaryText() const;
     FText GetTestSandboxSummaryText() const;
@@ -74,12 +83,23 @@ private:
     TArray<TSharedPtr<FString>> EnhancementWorkflowOptions;
     TArray<TSharedPtr<FString>> RelationshipStateOptions;
     TWeakObjectPtr<AActor> CachedIdentityActor;
+    TWeakObjectPtr<AActor> LastEnhancementResultsActor;
     TWeakObjectPtr<AActor> SandboxObserverActor;
     TWeakObjectPtr<AActor> SandboxTargetActor;
     TWeakPtr<SDockTab> WanaWorksTab;
     FDelegateHandle SelectionChangedHandle;
     FDelegateHandle SelectObjectHandle;
     bool bIdentityStateInitialized = false;
+    bool bEnhancementResultsInitialized = false;
+    FString LastEnhancementResultsActorLabel;
+    FString LastEnhancementWorkflowUsed;
+    FString LastEnhancementIdentityResult;
+    FString LastEnhancementWAYResult;
+    FString LastEnhancementWAIResult;
+    FString LastEnhancementAIReadyResult;
+    FString LastEnhancementAnimationResult;
+    bool bLastEnhancementSandboxCopyCreated = false;
+    bool bLastEnhancementOriginalPreserved = true;
 
     static const FName WanaWorksTabName;
 };

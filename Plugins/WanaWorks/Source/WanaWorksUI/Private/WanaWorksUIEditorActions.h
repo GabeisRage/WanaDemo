@@ -51,6 +51,7 @@ namespace WanaWorksUIEditorActions
 {
     bool GetSelectedActorIdentitySnapshot(FWanaSelectedActorIdentitySnapshot& OutSnapshot);
     bool GetSelectedCharacterEnhancementSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot);
+    bool GetCharacterEnhancementSnapshotForActor(const AActor* Actor, FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot);
     bool GetSelectedRelationshipContextSnapshot(FWanaSelectedRelationshipContextSnapshot& OutSnapshot);
     FWanaCommandResponse ExecuteWeatherPresetCommand(const FString& PresetName);
     FWanaCommandResponse ExecuteSpawnCubeCommand();

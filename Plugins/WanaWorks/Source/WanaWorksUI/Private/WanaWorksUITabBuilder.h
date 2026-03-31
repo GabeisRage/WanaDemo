@@ -12,6 +12,7 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<FText(void)> GetCharacterEnhancementSummaryText;
     TFunction<FText(void)> GetCharacterEnhancementChainText;
     TFunction<FText(void)> GetCharacterEnhancementWorkflowText;
+    TFunction<FText(void)> GetEnhancementResultsText;
     TFunction<FText(void)> GetGuidedWorkflowSummaryText;
     TFunction<FText(void)> GetLiveTestSummaryText;
     TFunction<FText(void)> GetTestSandboxSummaryText;

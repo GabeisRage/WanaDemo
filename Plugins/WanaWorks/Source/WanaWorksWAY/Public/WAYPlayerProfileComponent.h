@@ -29,6 +29,8 @@ class WANAWORKSWAY_API UWAYPlayerProfileComponent : public UActorComponent
 public:
     UWAYPlayerProfileComponent();
 
+    virtual void BeginPlay() override;
+
     UFUNCTION(BlueprintCallable, Category = "Wana Works|WAY")
     void RecordPreferenceSignal(FName SignalName, float Weight);
 
@@ -56,6 +58,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Wana Works|WAY", meta = (DisplayName = "Evaluate And React", Keywords = "WAY reaction evaluate react observer target AI"))
     EWAYReactionState EvaluateAndReact(AActor* TargetActor);
 
+    UFUNCTION(BlueprintCallable, Category = "Wana Works|WAY|Behavior", meta = (DisplayName = "Apply Basic Reaction Behavior", Keywords = "WAY reaction behavior visual response observer target AI"))
+    bool ApplyBasicReactionBehavior(AActor* TargetActor);
+
     UFUNCTION(BlueprintCallable, Category = "Wana Works|WAY")
     void SetRelationshipStateForTarget(AActor* TargetActor, EWAYRelationshipState NewRelationshipState);
 
@@ -71,9 +76,15 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "Wana Works|WAY")
     FWAYReactionChangedSignature OnReactionChanged;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Behavior")
+    bool bAutoApplyBasicReactionBehavior = false;
+
     static EWAYReactionState ResolveReactionForRelationshipState(EWAYRelationshipState RelationshipState);
 
 private:
+    UFUNCTION()
+    void HandleReactionChanged(AActor* ObserverActor, AActor* TargetActor, EWAYRelationshipState RelationshipState, EWAYReactionState ReactionState);
+
     int32 FindRelationshipProfileIndex(AActor* TargetActor) const;
     FWAYRelationshipSeed MakeRelationshipSeedForTarget(AActor* TargetActor) const;
     FWAYRelationshipProfile CreateRelationshipProfile(AActor* TargetActor) const;
