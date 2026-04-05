@@ -14,6 +14,7 @@ namespace
 {
 constexpr float BasicReactionMoveDistance = 120.0f;
 constexpr float BasicReactionProtectiveRange = 260.0f;
+constexpr float StarterFollowRange = 180.0f;
 constexpr float BasicReactionMoveInputScale = 0.9f;
 constexpr float BasicReactionMovePulseDuration = 0.45f;
 constexpr float BasicReactionProtectiveMovePulseDuration = 0.30f;
@@ -29,6 +30,14 @@ FString GetReactionStateLogLabel(EWAYReactionState ReactionState)
     return ReactionEnum
         ? ReactionEnum->GetDisplayNameTextByValue(static_cast<int64>(ReactionState)).ToString()
         : TEXT("Observational");
+}
+
+FString GetBehaviorPresetLogLabel(EWAYBehaviorPreset BehaviorPreset)
+{
+    const UEnum* BehaviorEnum = StaticEnum<EWAYBehaviorPreset>();
+    return BehaviorEnum
+        ? BehaviorEnum->GetDisplayNameTextByValue(static_cast<int64>(BehaviorPreset)).ToString()
+        : TEXT("None");
 }
 
 void FaceActorDirection(AActor* Actor, const FVector& Direction)
@@ -286,18 +295,42 @@ FWAYTargetEvaluation UWAYPlayerProfileComponent::EvaluateTarget(AActor* TargetAc
     {
         Evaluation.RelationshipProfile.TargetActor = nullptr;
         Evaluation.ReactionState = ResolveReactionForRelationshipState(EWAYRelationshipState::Neutral);
+        Evaluation.RecommendedBehavior = EWAYBehaviorPreset::None;
         return Evaluation;
     }
 
     Evaluation.RelationshipProfile = EnsureRelationshipProfileForObservedTarget(TargetActor);
     Evaluation.ReactionState = ResolveReactionForRelationshipState(Evaluation.RelationshipProfile.RelationshipState);
+    Evaluation.RecommendedBehavior = ResolveRecommendedBehaviorForReactionState(Evaluation.ReactionState);
+    CachedBehaviorExecutionModes.Add(
+        TargetActor,
+        ResolveBehaviorExecutionModeForMovementReadiness(FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(GetOwner(), TargetActor)));
 
     const EWAYReactionState* PreviousReaction = CachedReactionStates.Find(TargetActor);
+    const EWAYBehaviorPreset* PreviousBehavior = CachedRecommendedBehaviors.Find(TargetActor);
 
     if (!PreviousReaction || *PreviousReaction != Evaluation.ReactionState)
     {
         CachedReactionStates.Add(TargetActor, Evaluation.ReactionState);
         OnReactionChanged.Broadcast(GetOwner(), TargetActor, Evaluation.RelationshipProfile.RelationshipState, Evaluation.ReactionState);
+    }
+
+    if (!PreviousBehavior || *PreviousBehavior != Evaluation.RecommendedBehavior)
+    {
+        CachedRecommendedBehaviors.Add(TargetActor, Evaluation.RecommendedBehavior);
+        OnRecommendedBehaviorChanged.Broadcast(GetOwner(), TargetActor, Evaluation.ReactionState, Evaluation.RecommendedBehavior);
+
+        if (AActor* ObserverActor = GetOwner())
+        {
+            UE_LOG(
+                LogWanaWorksWAY,
+                Log,
+                TEXT("Updated WanaAI recommended behavior. Observer=%s Target=%s Reaction=%s Behavior=%s"),
+                *ObserverActor->GetActorNameOrLabel(),
+                *TargetActor->GetActorNameOrLabel(),
+                *GetReactionStateLogLabel(Evaluation.ReactionState),
+                *GetBehaviorPresetLogLabel(Evaluation.RecommendedBehavior));
+        }
     }
 
     return Evaluation;
@@ -311,6 +344,151 @@ EWAYReactionState UWAYPlayerProfileComponent::EvaluateAndGetReaction(AActor* Tar
 EWAYReactionState UWAYPlayerProfileComponent::EvaluateAndReact(AActor* TargetActor)
 {
     return EvaluateTarget(TargetActor).ReactionState;
+}
+
+EWAYBehaviorPreset UWAYPlayerProfileComponent::EvaluateTargetAndGetRecommendedBehavior(AActor* TargetActor)
+{
+    return EvaluateTarget(TargetActor).RecommendedBehavior;
+}
+
+bool UWAYPlayerProfileComponent::ApplyRecommendedBehaviorHook(AActor* TargetActor)
+{
+    return ApplyBehaviorPresetHook(TargetActor, GetRecommendedBehaviorForTarget(TargetActor));
+}
+
+bool UWAYPlayerProfileComponent::ApplyBehaviorPresetHook(AActor* TargetActor, EWAYBehaviorPreset BehaviorPreset)
+{
+    if (!TargetActor)
+    {
+        return false;
+    }
+
+    AActor* ObserverActor = GetOwner();
+
+    if (!ObserverActor)
+    {
+        return false;
+    }
+
+    FVector DirectionToTarget = TargetActor->GetActorLocation() - ObserverActor->GetActorLocation();
+    DirectionToTarget.Z = 0.0f;
+
+    if (DirectionToTarget.IsNearlyZero())
+    {
+        DirectionToTarget = ObserverActor->GetActorForwardVector();
+        DirectionToTarget.Z = 0.0f;
+    }
+
+    const FVector SafeDirection = DirectionToTarget.GetSafeNormal();
+    const FWanaMovementReadiness MovementReadiness = FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(ObserverActor, TargetActor);
+    const float DistanceToTarget = DirectionToTarget.Size();
+    FString HookDescription;
+    bool bApplied = true;
+    EWAYBehaviorExecutionMode ExecutionMode = ResolveBehaviorExecutionModeForMovementReadiness(MovementReadiness);
+
+    switch (BehaviorPreset)
+    {
+    case EWAYBehaviorPreset::ApproachHostile:
+        ApplyReactionFacing(ObserverActor, SafeDirection, EWAYReactionState::Hostile);
+        HookDescription = TEXT("Starter hook requested a simple hostile approach response.");
+        TryApplyMovementReaction(TargetActor, EWAYReactionState::Hostile, SafeDirection, HookDescription, &ExecutionMode);
+        break;
+
+    case EWAYBehaviorPreset::GuardTarget:
+        ApplyReactionFacing(ObserverActor, SafeDirection, EWAYReactionState::Protective);
+        HookDescription = TEXT("Starter hook requested a simple guard response.");
+        TryApplyMovementReaction(TargetActor, EWAYReactionState::Protective, SafeDirection, HookDescription, &ExecutionMode);
+        break;
+
+    case EWAYBehaviorPreset::ObserveTarget:
+        StopBasicReactionMovement();
+        ApplyReactionFacing(ObserverActor, SafeDirection, EWAYReactionState::Observational);
+        HookDescription = TEXT("Starter hook faced the target and held position for observation.");
+        ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
+        break;
+
+    case EWAYBehaviorPreset::FollowTarget:
+    {
+        StopBasicReactionMovement();
+        ApplyReactionFacing(ObserverActor, SafeDirection, EWAYReactionState::Cooperative);
+
+        if (DistanceToTarget <= StarterFollowRange)
+        {
+            HookDescription = TEXT("Starter hook kept the actor within simple follow range and facing the target.");
+            ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
+            break;
+        }
+
+        if (!MovementReadiness.bCanAttemptMovement)
+        {
+            HookDescription = FString::Printf(
+                TEXT("Starter hook faced the target, but follow movement was blocked. %s Falling back to facing-only behavior."),
+                *MovementReadiness.Detail);
+            ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
+            break;
+        }
+
+        FString MovementCompatibilityDetail;
+
+        if (StartBasicReactionMovement(TargetActor, EWAYReactionState::Hostile, MovementCompatibilityDetail))
+        {
+            HookDescription = FString::Printf(
+                TEXT("Starter hook requested a short follow movement pulse. Movement allowed. %s"),
+                *MovementReadiness.Detail);
+            ExecutionMode = EWAYBehaviorExecutionMode::MovementAllowed;
+
+            if (!MovementCompatibilityDetail.IsEmpty())
+            {
+                HookDescription += TEXT(" ");
+                HookDescription += MovementCompatibilityDetail.TrimStartAndEnd();
+            }
+
+            break;
+        }
+
+        if (MovementReadiness.bSupportsDirectActorMove && TryMoveActor(ObserverActor, SafeDirection * (BasicReactionMoveDistance * 0.75f)))
+        {
+            HookDescription = FString::Printf(
+                TEXT("Starter hook moved slightly toward the target with a safe actor fallback. Movement allowed. %s"),
+                *MovementReadiness.Detail);
+            ExecutionMode = EWAYBehaviorExecutionMode::FallbackActive;
+            break;
+        }
+
+        HookDescription = FString::Printf(
+            TEXT("Starter hook faced the target, but no safe follow movement path was available. %s"),
+            *MovementReadiness.Detail);
+        ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
+        break;
+    }
+
+    case EWAYBehaviorPreset::None:
+    default:
+        StopBasicReactionMovement();
+        HookDescription = TEXT("No starter behavior hook was applied for the current target.");
+        bApplied = false;
+        ExecutionMode = ResolveBehaviorExecutionModeForMovementReadiness(MovementReadiness);
+        break;
+    }
+
+    CachedBehaviorExecutionModes.Add(TargetActor, ExecutionMode);
+
+    if (bApplied && BehaviorPreset != EWAYBehaviorPreset::None)
+    {
+        CachedLastAppliedBehaviorHooks.Add(TargetActor, BehaviorPreset);
+    }
+
+    UE_LOG(
+        LogWanaWorksWAY,
+        Log,
+        TEXT("Applied WanaAI starter behavior hook. Observer=%s Target=%s Behavior=%s Applied=%s Detail=%s"),
+        *ObserverActor->GetActorNameOrLabel(),
+        *TargetActor->GetActorNameOrLabel(),
+        *GetBehaviorPresetLogLabel(BehaviorPreset),
+        bApplied ? TEXT("Yes") : TEXT("No"),
+        *HookDescription);
+
+    return bApplied;
 }
 
 bool UWAYPlayerProfileComponent::ApplyBasicReactionBehavior(AActor* TargetActor)
@@ -342,7 +520,9 @@ bool UWAYPlayerProfileComponent::ApplyBasicReactionBehavior(AActor* TargetActor)
     ApplyReactionFacing(ObserverActor, SafeDirection, ReactionState);
 
     FString BehaviorDescription = DescribeBasicReactionBehavior(ObserverActor, TargetActor, ReactionState);
-    TryApplyMovementReaction(TargetActor, ReactionState, SafeDirection, BehaviorDescription);
+    EWAYBehaviorExecutionMode ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
+    TryApplyMovementReaction(TargetActor, ReactionState, SafeDirection, BehaviorDescription, &ExecutionMode);
+    CachedBehaviorExecutionModes.Add(TargetActor, ExecutionMode);
 
     UE_LOG(
         LogWanaWorksWAY,
@@ -394,6 +574,46 @@ EWAYReactionState UWAYPlayerProfileComponent::GetReactionForTarget(AActor* Targe
     return ResolveReactionForRelationshipState(EWAYRelationshipState::Neutral);
 }
 
+EWAYBehaviorPreset UWAYPlayerProfileComponent::GetRecommendedBehaviorForTarget(AActor* TargetActor) const
+{
+    if (!TargetActor)
+    {
+        return EWAYBehaviorPreset::None;
+    }
+
+    return ResolveRecommendedBehaviorForReactionState(GetReactionForTarget(TargetActor));
+}
+
+bool UWAYPlayerProfileComponent::HasStarterBehaviorHookForTarget(AActor* TargetActor) const
+{
+    return TargetActor != nullptr && GetRecommendedBehaviorForTarget(TargetActor) != EWAYBehaviorPreset::None;
+}
+
+EWAYBehaviorPreset UWAYPlayerProfileComponent::GetLastAppliedBehaviorHookForTarget(AActor* TargetActor) const
+{
+    if (const EWAYBehaviorPreset* CachedHook = CachedLastAppliedBehaviorHooks.Find(TargetActor))
+    {
+        return *CachedHook;
+    }
+
+    return EWAYBehaviorPreset::None;
+}
+
+EWAYBehaviorExecutionMode UWAYPlayerProfileComponent::GetBehaviorExecutionModeForTarget(AActor* TargetActor) const
+{
+    if (!TargetActor)
+    {
+        return EWAYBehaviorExecutionMode::Unknown;
+    }
+
+    if (const EWAYBehaviorExecutionMode* CachedExecutionMode = CachedBehaviorExecutionModes.Find(TargetActor))
+    {
+        return *CachedExecutionMode;
+    }
+
+    return ResolveBehaviorExecutionModeForMovementReadiness(FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(GetOwner(), TargetActor));
+}
+
 EWAYReactionState UWAYPlayerProfileComponent::ResolveReactionForRelationshipState(EWAYRelationshipState RelationshipState)
 {
     switch (RelationshipState)
@@ -414,6 +634,35 @@ EWAYReactionState UWAYPlayerProfileComponent::ResolveReactionForRelationshipStat
     default:
         return EWAYReactionState::Observational;
     }
+}
+
+EWAYBehaviorPreset UWAYPlayerProfileComponent::ResolveRecommendedBehaviorForReactionState(EWAYReactionState ReactionState)
+{
+    switch (ReactionState)
+    {
+    case EWAYReactionState::Hostile:
+        return EWAYBehaviorPreset::ApproachHostile;
+
+    case EWAYReactionState::Cooperative:
+        return EWAYBehaviorPreset::FollowTarget;
+
+    case EWAYReactionState::Protective:
+        return EWAYBehaviorPreset::GuardTarget;
+
+    case EWAYReactionState::Cautious:
+    case EWAYReactionState::Observational:
+        return EWAYBehaviorPreset::ObserveTarget;
+
+    default:
+        return EWAYBehaviorPreset::None;
+    }
+}
+
+EWAYBehaviorExecutionMode UWAYPlayerProfileComponent::ResolveBehaviorExecutionModeForMovementReadiness(const FWanaMovementReadiness& MovementReadiness)
+{
+    return MovementReadiness.bCanAttemptMovement
+        ? EWAYBehaviorExecutionMode::MovementAllowed
+        : EWAYBehaviorExecutionMode::FacingOnly;
 }
 
 void UWAYPlayerProfileComponent::HandleReactionChanged(AActor* ObserverActor, AActor* TargetActor, EWAYRelationshipState RelationshipState, EWAYReactionState ReactionState)
@@ -438,7 +687,9 @@ void UWAYPlayerProfileComponent::HandleReactionChanged(AActor* ObserverActor, AA
     const FVector SafeDirection = DirectionToTarget.GetSafeNormal();
 
     ApplyReactionFacing(ObserverActor, SafeDirection, ReactionState);
-    TryApplyMovementReaction(TargetActor, ReactionState, SafeDirection, BehaviorDescription);
+    EWAYBehaviorExecutionMode ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
+    TryApplyMovementReaction(TargetActor, ReactionState, SafeDirection, BehaviorDescription, &ExecutionMode);
+    CachedBehaviorExecutionModes.Add(TargetActor, ExecutionMode);
 
     UE_LOG(
         LogWanaWorksWAY,
@@ -450,8 +701,13 @@ void UWAYPlayerProfileComponent::HandleReactionChanged(AActor* ObserverActor, AA
         *BehaviorDescription);
 }
 
-bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, EWAYReactionState ReactionState, const FVector& SafeDirection, FString& OutBehaviorDescription)
+bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, EWAYReactionState ReactionState, const FVector& SafeDirection, FString& OutBehaviorDescription, EWAYBehaviorExecutionMode* OutExecutionMode)
 {
+    if (OutExecutionMode)
+    {
+        *OutExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
+    }
+
     if (!IsMovementDrivenReaction(ReactionState))
     {
         StopBasicReactionMovement();
@@ -477,6 +733,11 @@ bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, E
 
     if (StartBasicReactionMovement(TargetActor, ReactionState, OutBehaviorDescription))
     {
+        if (OutExecutionMode)
+        {
+            *OutExecutionMode = EWAYBehaviorExecutionMode::MovementAllowed;
+        }
+
         OutBehaviorDescription += FString::Printf(TEXT(" Movement allowed. %s"), *MovementReadiness.Detail);
         return true;
     }
@@ -491,6 +752,11 @@ bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, E
 
         if (TryMoveActor(ObserverActor, FallbackOffset))
         {
+            if (OutExecutionMode)
+            {
+                *OutExecutionMode = EWAYBehaviorExecutionMode::FallbackActive;
+            }
+
             OutBehaviorDescription = ReactionState == EWAYReactionState::Hostile
                 ? TEXT("Turned toward the target and advanced slightly with a safe actor move fallback.")
                 : ReactionState == EWAYReactionState::Cautious

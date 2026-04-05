@@ -35,11 +35,16 @@ private:
         bool bUpdateWorkflowMetadata,
         bool bSandboxCopyCreated,
         bool bOriginalPreserved);
+    void UpdateSavedSubjectProgressState(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     void EnsureIdentityComponent();
     void ExecuteCommandText(const FString& InCommandText);
     void ApplyIdentity();
+    void CreateAIReadyController();
+    void ConvertSelectedSubjectToAIReady();
+    void SaveSubjectProgress();
     void ApplyCharacterEnhancement();
     void ApplyStarterAndTestTarget();
+    void ScanEnvironmentReadiness();
     void EvaluateLiveTarget();
     void UseSelectedActorAsSandboxObserver();
     void UseSelectedActorAsSandboxTarget();
@@ -58,16 +63,22 @@ private:
     FText GetStatusText() const;
     FText GetCommandText() const;
     FText GetLogText() const;
+    FText GetSubjectSetupSummaryText() const;
+    FText GetSubjectStackSummaryText() const;
+    FText GetSavedSubjectProgressText() const;
     FText GetCharacterEnhancementSummaryText() const;
     FText GetCharacterEnhancementChainText() const;
     FText GetCharacterEnhancementWorkflowText() const;
     FText GetEnhancementResultsText() const;
     FText GetGuidedWorkflowSummaryText() const;
     FText GetLiveTestSummaryText() const;
+    FText GetBehaviorResultsText() const;
     FText GetTestSandboxSummaryText() const;
+    FText GetWITEnvironmentReadinessText() const;
     FText GetRelationshipSummaryText() const;
     FText GetIdentitySummaryText();
     FText GetIdentityFactionTagText();
+    bool ResolvePreferredWITReadinessPair(AActor*& OutObserverActor, AActor*& OutTargetActor, FString& OutPairSourceLabel, bool& bOutTargetFallsBackToObserver) const;
 
     TSharedRef<SDockTab> SpawnWanaWorksTab(const FSpawnTabArgs& SpawnTabArgs);
 
@@ -100,6 +111,17 @@ private:
     FString LastEnhancementAnimationResult;
     bool bLastEnhancementSandboxCopyCreated = false;
     bool bLastEnhancementOriginalPreserved = true;
+    bool bSavedSubjectProgressInitialized = false;
+    FString LastSavedSubjectLabel;
+    FString LastSavedSubjectTypeLabel;
+    FString LastSavedSubjectWorkflowLabel;
+    FString LastSavedSubjectPresetLabel;
+    FString LastSavedSubjectAIControllerResult;
+    FString LastSavedSubjectAnimationResult;
+    FString LastSavedSubjectIdentityResult;
+    FString LastSavedSubjectWAIResult;
+    FString LastSavedSubjectWAYResult;
+    FString LastSavedSubjectAIReadyResult;
 
     static const FName WanaWorksTabName;
 };

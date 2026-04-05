@@ -45,6 +45,22 @@ FString GetReactionStateDisplayLabel(EWAYReactionState ReactionState)
         : TEXT("Observational");
 }
 
+FString GetBehaviorPresetDisplayLabel(EWAYBehaviorPreset BehaviorPreset)
+{
+    const UEnum* BehaviorEnum = StaticEnum<EWAYBehaviorPreset>();
+    return BehaviorEnum
+        ? BehaviorEnum->GetDisplayNameTextByValue(static_cast<int64>(BehaviorPreset)).ToString()
+        : TEXT("None");
+}
+
+FString GetBehaviorExecutionModeDisplayLabel(EWAYBehaviorExecutionMode ExecutionMode)
+{
+    const UEnum* ExecutionModeEnum = StaticEnum<EWAYBehaviorExecutionMode>();
+    return ExecutionModeEnum
+        ? ExecutionModeEnum->GetDisplayNameTextByValue(static_cast<int64>(ExecutionMode)).ToString()
+        : TEXT("Unknown");
+}
+
 bool TryParseRelationshipState(const FString& RelationshipStateText, EWAYRelationshipState& OutRelationshipState)
 {
     const FString NormalizedRelationshipState = RelationshipStateText.TrimStartAndEnd().ToLower();
@@ -242,19 +258,23 @@ FString JoinOrNone(const TArray<FString>& Entries)
     return Entries.Num() > 0 ? FString::Join(Entries, TEXT(", ")) : TEXT("(none)");
 }
 
-FString GetActorTypeLabel(const AActor* Actor)
+FString GetActorTypeLabel(
+    const AActor* Actor,
+    bool bHasAIControllerClass,
+    bool bAutoPossessAIEnabled,
+    bool bHasSkeletalMeshComponent)
 {
-    if (Cast<ACharacter>(Actor))
-    {
-        return TEXT("Character");
-    }
-
     if (Cast<APawn>(Actor))
     {
-        return TEXT("Pawn");
+        return (bHasAIControllerClass || bAutoPossessAIEnabled) ? TEXT("AI Pawn") : TEXT("Character Pawn");
     }
 
-    return TEXT("Actor");
+    if (bHasSkeletalMeshComponent)
+    {
+        return TEXT("Character Actor");
+    }
+
+    return TEXT("Unknown / Unsupported");
 }
 
 FString MakeAnimationCompatibilitySummary(bool bHasSkeletalMeshComponent, bool bHasAnimBlueprint)
@@ -307,7 +327,6 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
     OutSnapshot.bHasIdentityComponent = Actor->FindComponentByClass<UWanaIdentityComponent>() != nullptr;
     OutSnapshot.bHasWAIComponent = Actor->FindComponentByClass<UWAIPersonalityComponent>() != nullptr;
     OutSnapshot.bHasWAYComponent = Actor->FindComponentByClass<UWAYPlayerProfileComponent>() != nullptr;
-    OutSnapshot.ActorTypeLabel = GetActorTypeLabel(Actor);
 
     if (const APawn* Pawn = Cast<APawn>(Actor))
     {
@@ -331,6 +350,11 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
         }
     }
 
+    OutSnapshot.ActorTypeLabel = GetActorTypeLabel(
+        Actor,
+        OutSnapshot.bHasAIControllerClass,
+        OutSnapshot.bAutoPossessAIEnabled,
+        OutSnapshot.bHasSkeletalMeshComponent);
     OutSnapshot.AnimationCompatibilitySummary = MakeAnimationCompatibilitySummary(OutSnapshot.bHasSkeletalMeshComponent, OutSnapshot.bHasAnimBlueprint);
     OutSnapshot.AIReadinessSummary = MakeAIReadinessSummary(OutSnapshot.bIsPawnActor, OutSnapshot.bAutoPossessAIEnabled, OutSnapshot.bHasAIControllerClass);
     return true;
@@ -378,12 +402,31 @@ bool TryResolveCharacterEnhancementPreset(
 
 void AppendRelationshipProfileLines(FWanaCommandResponse& Response, const AActor* SelectedActor, const FWAYRelationshipProfile& Profile)
 {
-    const EWAYReactionState ReactionState = UWAYPlayerProfileComponent::ResolveReactionForRelationshipState(Profile.RelationshipState);
+    const UWAYPlayerProfileComponent* ProfileComponent = SelectedActor ? SelectedActor->FindComponentByClass<UWAYPlayerProfileComponent>() : nullptr;
+    const EWAYReactionState ReactionState = ProfileComponent && Profile.TargetActor
+        ? ProfileComponent->GetReactionForTarget(Profile.TargetActor)
+        : UWAYPlayerProfileComponent::ResolveReactionForRelationshipState(Profile.RelationshipState);
+    const EWAYBehaviorPreset RecommendedBehavior = ProfileComponent && Profile.TargetActor
+        ? ProfileComponent->GetRecommendedBehaviorForTarget(Profile.TargetActor)
+        : UWAYPlayerProfileComponent::ResolveRecommendedBehaviorForReactionState(ReactionState);
+    const bool bStarterHookAvailable = ProfileComponent && Profile.TargetActor
+        ? ProfileComponent->HasStarterBehaviorHookForTarget(Profile.TargetActor)
+        : RecommendedBehavior != EWAYBehaviorPreset::None;
+    const EWAYBehaviorPreset LastAppliedHook = ProfileComponent && Profile.TargetActor
+        ? ProfileComponent->GetLastAppliedBehaviorHookForTarget(Profile.TargetActor)
+        : EWAYBehaviorPreset::None;
+    const EWAYBehaviorExecutionMode ExecutionMode = ProfileComponent && Profile.TargetActor
+        ? ProfileComponent->GetBehaviorExecutionModeForTarget(Profile.TargetActor)
+        : EWAYBehaviorExecutionMode::Unknown;
 
     Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), *SelectedActor->GetActorNameOrLabel()));
     Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), Profile.TargetActor ? *Profile.TargetActor->GetActorNameOrLabel() : TEXT("(none)")));
     Response.OutputLines.Add(FString::Printf(TEXT("Relationship State: %s"), *GetRelationshipStateDisplayLabel(Profile.RelationshipState)));
     Response.OutputLines.Add(FString::Printf(TEXT("Reaction: %s"), *GetReactionStateDisplayLabel(ReactionState)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Recommended Behavior: %s"), *GetBehaviorPresetDisplayLabel(RecommendedBehavior)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Starter Hook: %s"), bStarterHookAvailable ? TEXT("Available") : TEXT("Not Available")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Last Applied Hook: %s"), *GetBehaviorPresetDisplayLabel(LastAppliedHook)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Execution Mode: %s"), *GetBehaviorExecutionModeDisplayLabel(ExecutionMode)));
     Response.OutputLines.Add(FString::Printf(TEXT("Trust: %.2f"), Profile.Trust));
     Response.OutputLines.Add(FString::Printf(TEXT("Fear: %.2f"), Profile.Fear));
     Response.OutputLines.Add(FString::Printf(TEXT("Respect: %.2f"), Profile.Respect));
@@ -434,6 +477,78 @@ FString MakeIdentitySeedSummary(const AActor* TargetActor)
         Seed.Respect,
         Seed.Attachment,
         Seed.Hostility);
+}
+
+FString GetMovementCapabilityLabel(const FWanaMovementReadiness& MovementReadiness, bool bHasObserverActor)
+{
+    if (!bHasObserverActor)
+    {
+        return TEXT("Unknown");
+    }
+
+    return MovementReadiness.bHasUsableMovementCapability ? TEXT("Yes") : TEXT("No");
+}
+
+FString GetNavigationContextLabel(const FWanaMovementReadiness& MovementReadiness, bool bHasObserverActor)
+{
+    if (!bHasObserverActor)
+    {
+        return TEXT("Unknown");
+    }
+
+    return MovementReadiness.bHasMovementContext ? TEXT("Detected") : TEXT("Missing");
+}
+
+FString GetReachabilityLabel(const FWanaMovementReadiness& MovementReadiness, bool bHasObserverActor, bool bHasTargetActor)
+{
+    if (!bHasObserverActor || !bHasTargetActor)
+    {
+        return TEXT("Unknown");
+    }
+
+    return MovementReadiness.bTargetReachableHint ? TEXT("Likely") : TEXT("Blocked");
+}
+
+FString GetFallbackModeLabel(const FWanaMovementReadiness& MovementReadiness, bool bHasObserverActor, bool bHasTargetActor)
+{
+    if (!bHasObserverActor || !bHasTargetActor)
+    {
+        return TEXT("Facing Only");
+    }
+
+    return MovementReadiness.bCanAttemptMovement ? TEXT("Movement Allowed") : TEXT("Facing Only");
+}
+
+void AppendEnvironmentReadinessLines(FWanaCommandResponse& Response, const FWanaEnvironmentReadinessSnapshot& Snapshot)
+{
+    Response.OutputLines.Add(FString::Printf(TEXT("Movement Capability: %s"), *GetMovementCapabilityLabel(Snapshot.MovementReadiness, Snapshot.bHasObserverActor)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Navigation Context: %s"), *GetNavigationContextLabel(Snapshot.MovementReadiness, Snapshot.bHasObserverActor)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Reachability: %s"), *GetReachabilityLabel(Snapshot.MovementReadiness, Snapshot.bHasObserverActor, Snapshot.bHasTargetActor)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Fallback Mode: %s"), *GetFallbackModeLabel(Snapshot.MovementReadiness, Snapshot.bHasObserverActor, Snapshot.bHasTargetActor)));
+
+    if (!Snapshot.PairSourceLabel.IsEmpty())
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Readiness Notes: Pair Source: %s"), *Snapshot.PairSourceLabel));
+    }
+
+    if (Snapshot.bTargetFallsBackToObserver)
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: Observer fallback is active. Assign a separate target for standard movement-aware reactions."));
+    }
+
+    if (!Snapshot.bHasObserverActor)
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: No observer actor is assigned for readiness scanning."));
+    }
+    else if (!Snapshot.bHasTargetActor)
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: No target actor is assigned, so movement-based reactions are blocked until a target is chosen."));
+    }
+
+    if (!Snapshot.MovementReadiness.Detail.IsEmpty())
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Readiness Notes: %s"), *Snapshot.MovementReadiness.Detail));
+    }
 }
 
 void AppendLinesWithPrefix(FWanaCommandResponse& Response, const FWanaCommandResponse& SourceResponse, const FString& Prefix)
@@ -527,14 +642,27 @@ FWanaCommandResponse ExecuteEvaluateActorPairInternal(AActor* ObserverActor, AAc
         ReadinessNotes.Add(TEXT("Target has no UWanaIdentityComponent, so neutral seed defaults were used."));
     }
 
+    FWanaEnvironmentReadinessSnapshot ReadinessSnapshot;
+    WanaWorksUIEditorActions::GetEnvironmentReadinessSnapshotForActorPair(
+        ObserverActor,
+        TargetActor,
+        bTargetFallsBackToObserver,
+        bTargetFallsBackToObserver ? TEXT("Current selection (observer fallback)") : TEXT("Current selection"),
+        ReadinessSnapshot);
+
     FWanaCommandResponse Response;
     Response.bSucceeded = true;
     Response.StatusMessage = TEXT("Status: Live target evaluation complete.");
     Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), *ObserverActor->GetActorNameOrLabel()));
     Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), *TargetActor->GetActorNameOrLabel()));
+    AppendEnvironmentReadinessLines(Response, ReadinessSnapshot);
     Response.OutputLines.Add(FString::Printf(TEXT("Identity Seed: %s"), *MakeIdentitySeedSummary(TargetActor)));
     Response.OutputLines.Add(FString::Printf(TEXT("Relationship State: %s"), *GetRelationshipStateDisplayLabel(Evaluation.RelationshipProfile.RelationshipState)));
     Response.OutputLines.Add(FString::Printf(TEXT("Reaction State: %s"), *GetReactionStateDisplayLabel(Evaluation.ReactionState)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Recommended Behavior: %s"), *GetBehaviorPresetDisplayLabel(Evaluation.RecommendedBehavior)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Starter Hook: %s"), Evaluation.RecommendedBehavior != EWAYBehaviorPreset::None ? TEXT("Available") : TEXT("Not Available")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Last Applied Hook: %s"), *GetBehaviorPresetDisplayLabel(ProfileComponent->GetLastAppliedBehaviorHookForTarget(TargetActor))));
+    Response.OutputLines.Add(FString::Printf(TEXT("Execution Mode: %s"), *GetBehaviorExecutionModeDisplayLabel(ProfileComponent->GetBehaviorExecutionModeForTarget(TargetActor))));
 
     for (const FString& ReadinessNote : ReadinessNotes)
     {
@@ -614,6 +742,85 @@ bool GetSelectedRelationshipContextSnapshot(FWanaSelectedRelationshipContextSnap
     }
 
     OutSnapshot.bTargetFallsBackToObserver = bTargetFallsBackToObserver;
+    return true;
+}
+
+bool GetEnvironmentReadinessSnapshotForActorPair(const AActor* ObserverActor, const AActor* TargetActor, bool bTargetFallsBackToObserver, const FString& PairSourceLabel, FWanaEnvironmentReadinessSnapshot& OutSnapshot)
+{
+    OutSnapshot = FWanaEnvironmentReadinessSnapshot();
+    OutSnapshot.PairSourceLabel = PairSourceLabel;
+    OutSnapshot.bTargetFallsBackToObserver = bTargetFallsBackToObserver;
+
+    if (ObserverActor)
+    {
+        OutSnapshot.bHasObserverActor = true;
+        OutSnapshot.ObserverActor = const_cast<AActor*>(ObserverActor);
+        OutSnapshot.ObserverActorLabel = ObserverActor->GetActorNameOrLabel();
+    }
+
+    if (TargetActor)
+    {
+        OutSnapshot.bHasTargetActor = true;
+        OutSnapshot.TargetActor = const_cast<AActor*>(TargetActor);
+        OutSnapshot.TargetActorLabel = TargetActor->GetActorNameOrLabel();
+    }
+
+    if (ObserverActor || TargetActor)
+    {
+        OutSnapshot.MovementReadiness = UWITBlueprintLibrary::GetMovementReadinessForObserverTarget(
+            const_cast<AActor*>(ObserverActor),
+            const_cast<AActor*>(TargetActor));
+    }
+    else
+    {
+        OutSnapshot.MovementReadiness.Detail = TEXT("Movement blocked because no observer or target is assigned for readiness scanning.");
+    }
+
+    return OutSnapshot.bHasObserverActor || OutSnapshot.bHasTargetActor;
+}
+
+bool GetBehaviorResultsSnapshotForActorPair(const AActor* ObserverActor, const AActor* TargetActor, bool bTargetFallsBackToObserver, const FString& PairSourceLabel, FWanaBehaviorResultsSnapshot& OutSnapshot)
+{
+    OutSnapshot = FWanaBehaviorResultsSnapshot();
+    OutSnapshot.PairSourceLabel = PairSourceLabel;
+    OutSnapshot.bTargetFallsBackToObserver = bTargetFallsBackToObserver;
+
+    if (ObserverActor)
+    {
+        OutSnapshot.bHasObserverActor = true;
+        OutSnapshot.ObserverActor = const_cast<AActor*>(ObserverActor);
+        OutSnapshot.ObserverActorLabel = ObserverActor->GetActorNameOrLabel();
+    }
+
+    if (TargetActor)
+    {
+        OutSnapshot.bHasTargetActor = true;
+        OutSnapshot.TargetActor = const_cast<AActor*>(TargetActor);
+        OutSnapshot.TargetActorLabel = TargetActor->GetActorNameOrLabel();
+    }
+
+    const UWAYPlayerProfileComponent* ProfileComponent = ObserverActor ? ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>() : nullptr;
+
+    if (!ProfileComponent || !TargetActor)
+    {
+        return OutSnapshot.bHasObserverActor || OutSnapshot.bHasTargetActor;
+    }
+
+    OutSnapshot.bHasWAYComponent = true;
+    OutSnapshot.ReactionState = ProfileComponent->GetReactionForTarget(const_cast<AActor*>(TargetActor));
+    OutSnapshot.RecommendedBehavior = ProfileComponent->GetRecommendedBehaviorForTarget(const_cast<AActor*>(TargetActor));
+    OutSnapshot.bStarterHookAvailable = ProfileComponent->HasStarterBehaviorHookForTarget(const_cast<AActor*>(TargetActor));
+    OutSnapshot.LastAppliedHook = ProfileComponent->GetLastAppliedBehaviorHookForTarget(const_cast<AActor*>(TargetActor));
+    OutSnapshot.ExecutionMode = ProfileComponent->GetBehaviorExecutionModeForTarget(const_cast<AActor*>(TargetActor));
+
+    FWAYRelationshipProfile RelationshipProfile;
+
+    if (ProfileComponent->GetRelationshipProfileForTarget(const_cast<AActor*>(TargetActor), RelationshipProfile))
+    {
+        OutSnapshot.bHasRelationshipProfile = true;
+        OutSnapshot.RelationshipState = RelationshipProfile.RelationshipState;
+    }
+
     return true;
 }
 
@@ -1416,6 +1623,24 @@ FWanaCommandResponse ExecuteEvaluateActorPairCommand(AActor* ObserverActor, AAct
     return ExecuteEvaluateActorPairInternal(ObserverActor, TargetActor, bTargetFallsBackToObserver);
 }
 
+FWanaCommandResponse ExecuteScanEnvironmentReadinessCommand(AActor* ObserverActor, AActor* TargetActor, const FString& PairSourceLabel, bool bTargetFallsBackToObserver)
+{
+    FWanaEnvironmentReadinessSnapshot Snapshot;
+    GetEnvironmentReadinessSnapshotForActorPair(ObserverActor, TargetActor, bTargetFallsBackToObserver, PairSourceLabel, Snapshot);
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = Snapshot.bHasObserverActor && Snapshot.bHasTargetActor;
+    Response.StatusMessage = Response.bSucceeded
+        ? (Snapshot.MovementReadiness.bCanAttemptMovement
+            ? TEXT("Status: Environment readiness scan allows movement-aware reactions.")
+            : TEXT("Status: Environment readiness scan recommends facing-only fallback."))
+        : TEXT("Status: Environment readiness scan is incomplete.");
+    Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), Snapshot.bHasObserverActor ? *Snapshot.ObserverActorLabel : TEXT("(not assigned)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), Snapshot.bHasTargetActor ? *Snapshot.TargetActorLabel : TEXT("(not assigned)")));
+    AppendEnvironmentReadinessLines(Response, Snapshot);
+    return Response;
+}
+
 FWanaCommandResponse ExecuteFocusActorCommand(AActor* Actor, const FString& RoleLabel)
 {
     if (!GEditor)
@@ -1471,9 +1696,17 @@ FWanaCommandResponse ExecuteApplyStarterAndTestTargetCommand(const FString& Pres
     AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Preset Used:"));
     AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Components Added:"));
     AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Already Present:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Movement Capability:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Navigation Context:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Reachability:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Fallback Mode:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Identity Seed:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Relationship State:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Reaction State:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Recommended Behavior:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Starter Hook:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Last Applied Hook:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Execution Mode:"));
     AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Compatibility Notes:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Readiness Notes:"));
     return Response;

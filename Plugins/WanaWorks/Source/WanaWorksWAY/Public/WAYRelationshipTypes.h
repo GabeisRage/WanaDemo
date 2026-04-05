@@ -25,6 +25,25 @@ enum class EWAYReactionState : uint8
     Observational UMETA(DisplayName = "Observational")
 };
 
+UENUM(BlueprintType)
+enum class EWAYBehaviorPreset : uint8
+{
+    None UMETA(DisplayName = "None"),
+    FollowTarget UMETA(DisplayName = "Follow Target"),
+    GuardTarget UMETA(DisplayName = "Guard Target"),
+    ObserveTarget UMETA(DisplayName = "Observe Target"),
+    ApproachHostile UMETA(DisplayName = "Approach Hostile")
+};
+
+UENUM(BlueprintType)
+enum class EWAYBehaviorExecutionMode : uint8
+{
+    Unknown UMETA(DisplayName = "Unknown"),
+    FacingOnly UMETA(DisplayName = "Facing Only"),
+    MovementAllowed UMETA(DisplayName = "Movement Allowed"),
+    FallbackActive UMETA(DisplayName = "Fallback Active")
+};
+
 USTRUCT(BlueprintType)
 struct WANAWORKSWAY_API FWAYRelationshipSeed
 {
@@ -89,4 +108,7 @@ struct WANAWORKSWAY_API FWAYTargetEvaluation
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY")
     EWAYReactionState ReactionState = EWAYReactionState::Observational;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY")
+    EWAYBehaviorPreset RecommendedBehavior = EWAYBehaviorPreset::None;
 };

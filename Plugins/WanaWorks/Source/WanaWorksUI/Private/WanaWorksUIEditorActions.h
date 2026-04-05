@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "WanaWorksCommandDispatcher.h"
+#include "WanaWorksTypes.h"
 #include "WAYRelationshipTypes.h"
 
 class AActor;
@@ -47,12 +48,47 @@ struct FWanaSelectedRelationshipContextSnapshot
     FString TargetActorLabel;
 };
 
+struct FWanaEnvironmentReadinessSnapshot
+{
+    bool bHasObserverActor = false;
+    bool bHasTargetActor = false;
+    bool bTargetFallsBackToObserver = false;
+    TWeakObjectPtr<AActor> ObserverActor;
+    TWeakObjectPtr<AActor> TargetActor;
+    FString PairSourceLabel;
+    FString ObserverActorLabel;
+    FString TargetActorLabel;
+    FWanaMovementReadiness MovementReadiness;
+};
+
+struct FWanaBehaviorResultsSnapshot
+{
+    bool bHasObserverActor = false;
+    bool bHasTargetActor = false;
+    bool bHasWAYComponent = false;
+    bool bHasRelationshipProfile = false;
+    bool bStarterHookAvailable = false;
+    bool bTargetFallsBackToObserver = false;
+    TWeakObjectPtr<AActor> ObserverActor;
+    TWeakObjectPtr<AActor> TargetActor;
+    FString PairSourceLabel;
+    FString ObserverActorLabel;
+    FString TargetActorLabel;
+    EWAYRelationshipState RelationshipState = EWAYRelationshipState::Neutral;
+    EWAYReactionState ReactionState = EWAYReactionState::Observational;
+    EWAYBehaviorPreset RecommendedBehavior = EWAYBehaviorPreset::None;
+    EWAYBehaviorPreset LastAppliedHook = EWAYBehaviorPreset::None;
+    EWAYBehaviorExecutionMode ExecutionMode = EWAYBehaviorExecutionMode::Unknown;
+};
+
 namespace WanaWorksUIEditorActions
 {
     bool GetSelectedActorIdentitySnapshot(FWanaSelectedActorIdentitySnapshot& OutSnapshot);
     bool GetSelectedCharacterEnhancementSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot);
     bool GetCharacterEnhancementSnapshotForActor(const AActor* Actor, FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot);
     bool GetSelectedRelationshipContextSnapshot(FWanaSelectedRelationshipContextSnapshot& OutSnapshot);
+    bool GetEnvironmentReadinessSnapshotForActorPair(const AActor* ObserverActor, const AActor* TargetActor, bool bTargetFallsBackToObserver, const FString& PairSourceLabel, FWanaEnvironmentReadinessSnapshot& OutSnapshot);
+    bool GetBehaviorResultsSnapshotForActorPair(const AActor* ObserverActor, const AActor* TargetActor, bool bTargetFallsBackToObserver, const FString& PairSourceLabel, FWanaBehaviorResultsSnapshot& OutSnapshot);
     FWanaCommandResponse ExecuteWeatherPresetCommand(const FString& PresetName);
     FWanaCommandResponse ExecuteSpawnCubeCommand();
     FWanaCommandResponse ExecuteListSelectionCommand();
@@ -71,6 +107,7 @@ namespace WanaWorksUIEditorActions
     FWanaCommandResponse ExecutePrepareSelectedActorForAITestCommand();
     FWanaCommandResponse ExecuteEvaluateLiveTargetCommand();
     FWanaCommandResponse ExecuteEvaluateActorPairCommand(AActor* ObserverActor, AActor* TargetActor, bool bTargetFallsBackToObserver = false);
+    FWanaCommandResponse ExecuteScanEnvironmentReadinessCommand(AActor* ObserverActor, AActor* TargetActor, const FString& PairSourceLabel, bool bTargetFallsBackToObserver = false);
     FWanaCommandResponse ExecuteFocusActorCommand(AActor* Actor, const FString& RoleLabel);
     FWanaCommandResponse ExecuteApplyStarterAndTestTargetCommand(const FString& PresetLabel);
 }

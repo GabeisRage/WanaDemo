@@ -9,227 +9,15 @@
 #include "WorkspaceMenuStructureModule.h"
 #include "WanaWorksCommandDispatcher.h"
 #include "WanaWorksUIEditorActions.h"
+#include "WanaWorksUIFormattingUtils.h"
+#include "WanaWorksUISummaryText.h"
 #include "WanaWorksUITabBuilder.h"
 #include "Widgets/Docking/SDockTab.h"
 
 #define LOCTEXT_NAMESPACE "FWanaWorksUIModule"
 
-namespace
-{
-FString StripStatusPrefix(const FString& StatusMessage)
-{
-    FString TrimmedMessage = StatusMessage.TrimStartAndEnd();
-
-    if (TrimmedMessage.StartsWith(TEXT("Status:"), ESearchCase::IgnoreCase))
-    {
-        TrimmedMessage = TrimmedMessage.RightChop(7).TrimStartAndEnd();
-    }
-
-    return TrimmedMessage;
-}
-
-FString GetFeedbackToneLabel(const FString& StatusMessage, bool bSucceeded)
-{
-    const FString LowerStatus = StatusMessage.TrimStartAndEnd().ToLower();
-
-    if (!bSucceeded ||
-        LowerStatus.Contains(TEXT("warning")) ||
-        LowerStatus.Contains(TEXT("no actors")) ||
-        LowerStatus.Contains(TEXT("missing")) ||
-        LowerStatus.Contains(TEXT("could not")) ||
-        LowerStatus.Contains(TEXT("failed")) ||
-        LowerStatus.Contains(TEXT("invalid")))
-    {
-        return TEXT("WARNING");
-    }
-
-    if (LowerStatus.Contains(TEXT("already")) ||
-        LowerStatus.Contains(TEXT("preserved")) ||
-        LowerStatus.Contains(TEXT("safe")))
-    {
-        return TEXT("SAFE");
-    }
-
-    if (LowerStatus.Contains(TEXT("live")) || LowerStatus.Contains(TEXT("evaluat")))
-    {
-        return TEXT("LIVE");
-    }
-
-    if (LowerStatus.Contains(TEXT("ready")) ||
-        LowerStatus.Contains(TEXT("applied")) ||
-        LowerStatus.Contains(TEXT("ensured")) ||
-        LowerStatus.Contains(TEXT("complete")) ||
-        LowerStatus.Contains(TEXT("initialized")))
-    {
-        return TEXT("READY");
-    }
-
-    return TEXT("ACTIVE");
-}
-
-const TCHAR* GetCharacterEnhancementPresetLabel(const FString& PresetLabel)
-{
-    return PresetLabel.IsEmpty() ? TEXT("Identity Only") : *PresetLabel;
-}
-
-const TCHAR* GetCharacterEnhancementWorkflowLabel(const FString& WorkflowLabel)
-{
-    if (WorkflowLabel.Equals(TEXT("Create Sandbox Duplicate")))
-    {
-        return TEXT("Create Sandbox Duplicate");
-    }
-
-    if (WorkflowLabel.Equals(TEXT("Convert to AI-Ready Test Subject")))
-    {
-        return TEXT("Convert to AI-Ready Test Subject");
-    }
-
-    return TEXT("Use Original Character");
-}
-
-FString GetCharacterEnhancementResultsWorkflowLabel(const FString& WorkflowLabel)
-{
-    if (WorkflowLabel.Equals(TEXT("Create Sandbox Duplicate")))
-    {
-        return TEXT("Sandbox Duplicate");
-    }
-
-    if (WorkflowLabel.Equals(TEXT("Convert to AI-Ready Test Subject")))
-    {
-        return TEXT("AI-Ready Test Subject");
-    }
-
-    if (WorkflowLabel.Equals(TEXT("Use Original Character")))
-    {
-        return TEXT("Original");
-    }
-
-    return WorkflowLabel.IsEmpty() ? TEXT("Not run yet") : WorkflowLabel;
-}
-
-FString GetEnhancementComponentResultLabel(bool bHasComponent, bool bWasAdded)
-{
-    if (bWasAdded)
-    {
-        return TEXT("Added");
-    }
-
-    return bHasComponent ? TEXT("Present") : TEXT("Missing");
-}
-
-FString GetAnimationReadinessResultLabel(bool bHasSkeletalMeshComponent, bool bHasAnimBlueprint)
-{
-    if (!bHasSkeletalMeshComponent)
-    {
-        return TEXT("Missing");
-    }
-
-    return bHasAnimBlueprint ? TEXT("Detected") : TEXT("Warning");
-}
-
-const TCHAR* GetRelationshipStateLabel(EWAYRelationshipState RelationshipState)
-{
-    switch (RelationshipState)
-    {
-    case EWAYRelationshipState::Acquaintance:
-        return TEXT("Acquaintance");
-    case EWAYRelationshipState::Friend:
-        return TEXT("Friend");
-    case EWAYRelationshipState::Partner:
-        return TEXT("Partner");
-    case EWAYRelationshipState::Enemy:
-        return TEXT("Enemy");
-    case EWAYRelationshipState::Neutral:
-    default:
-        return TEXT("Neutral");
-    }
-}
-
-bool TryParseRelationshipStateLabel(const FString& Label, EWAYRelationshipState& OutRelationshipState)
-{
-    const FString NormalizedLabel = Label.TrimStartAndEnd().ToLower();
-
-    if (NormalizedLabel == TEXT("acquaintance"))
-    {
-        OutRelationshipState = EWAYRelationshipState::Acquaintance;
-        return true;
-    }
-
-    if (NormalizedLabel == TEXT("friend"))
-    {
-        OutRelationshipState = EWAYRelationshipState::Friend;
-        return true;
-    }
-
-    if (NormalizedLabel == TEXT("partner"))
-    {
-        OutRelationshipState = EWAYRelationshipState::Partner;
-        return true;
-    }
-
-    if (NormalizedLabel == TEXT("enemy"))
-    {
-        OutRelationshipState = EWAYRelationshipState::Enemy;
-        return true;
-    }
-
-    if (NormalizedLabel == TEXT("neutral"))
-    {
-        OutRelationshipState = EWAYRelationshipState::Neutral;
-        return true;
-    }
-
-    return false;
-}
-
-FString FormatResponseOutputLine(const FString& Line)
-{
-    const FString TrimmedLine = Line.TrimStartAndEnd();
-
-    if (TrimmedLine.IsEmpty())
-    {
-        return FString();
-    }
-
-    auto IndentLine = [&TrimmedLine]()
-    {
-        return FString::Printf(TEXT("  %s"), *TrimmedLine);
-    };
-
-    auto FormatNote = [&TrimmedLine](const TCHAR* Prefix)
-    {
-        return FString::Printf(TEXT("  - %s"), *TrimmedLine.RightChop(FCString::Strlen(Prefix)).TrimStartAndEnd());
-    };
-
-    if (TrimmedLine.StartsWith(TEXT("Guided Workflow:")))
-    {
-        return FString::Printf(TEXT("[FLOW] %s"), *TrimmedLine.RightChop(16).TrimStartAndEnd());
-    }
-
-    if (TrimmedLine.StartsWith(TEXT("Compatibility Notes:")))
-    {
-        return FormatNote(TEXT("Compatibility Notes:"));
-    }
-
-    if (TrimmedLine.StartsWith(TEXT("Readiness Notes:")))
-    {
-        return FormatNote(TEXT("Readiness Notes:"));
-    }
-
-    return IndentLine();
-}
-
-void AppendLinesWithPrefix(FWanaCommandResponse& Response, const FWanaCommandResponse& SourceResponse, const TCHAR* Prefix)
-{
-    for (const FString& OutputLine : SourceResponse.OutputLines)
-    {
-        if (OutputLine.StartsWith(Prefix))
-        {
-            Response.OutputLines.Add(OutputLine);
-        }
-    }
-}
-}
+namespace UIFmt = WanaWorksUIFormattingUtils;
+namespace UISummary = WanaWorksUISummaryText;
 
 const FName FWanaWorksUIModule::WanaWorksTabName(TEXT("WanaWorksTab"));
 
@@ -347,7 +135,7 @@ void FWanaWorksUIModule::HandleIdentitySeedStateOptionSelected(TSharedPtr<FStrin
 
     EWAYRelationshipState ParsedRelationshipState = EWAYRelationshipState::Neutral;
 
-    if (TryParseRelationshipStateLabel(*SelectedOption, ParsedRelationshipState))
+    if (UIFmt::TryParseRelationshipStateLabel(*SelectedOption, ParsedRelationshipState))
     {
         SelectedIdentitySeedState = ParsedRelationshipState;
     }
@@ -378,7 +166,7 @@ void FWanaWorksUIModule::HandleRelationshipStateOptionSelected(TSharedPtr<FStrin
 
     EWAYRelationshipState ParsedRelationshipState = EWAYRelationshipState::Neutral;
 
-    if (TryParseRelationshipStateLabel(*SelectedOption, ParsedRelationshipState))
+    if (UIFmt::TryParseRelationshipStateLabel(*SelectedOption, ParsedRelationshipState))
     {
         SelectedRelationshipState = ParsedRelationshipState;
     }
@@ -409,15 +197,15 @@ void FWanaWorksUIModule::UpdateEnhancementResultsState(
     bEnhancementResultsInitialized = true;
     LastEnhancementResultsActor = EffectiveSnapshot->SelectedActor;
     LastEnhancementResultsActorLabel = EffectiveSnapshot->SelectedActorLabel;
-    LastEnhancementIdentityResult = GetEnhancementComponentResultLabel(EffectiveSnapshot->bHasIdentityComponent, bIdentityAdded);
-    LastEnhancementWAYResult = GetEnhancementComponentResultLabel(EffectiveSnapshot->bHasWAYComponent, bWAYAdded);
-    LastEnhancementWAIResult = GetEnhancementComponentResultLabel(EffectiveSnapshot->bHasWAIComponent, bWAIAdded);
-    LastEnhancementAIReadyResult = EffectiveSnapshot->bIsPawnActor && EffectiveSnapshot->bAutoPossessAIEnabled ? TEXT("Yes") : TEXT("No");
-    LastEnhancementAnimationResult = GetAnimationReadinessResultLabel(EffectiveSnapshot->bHasSkeletalMeshComponent, EffectiveSnapshot->bHasAnimBlueprint);
+    LastEnhancementIdentityResult = UIFmt::GetEnhancementComponentResultLabel(EffectiveSnapshot->bHasIdentityComponent, bIdentityAdded);
+    LastEnhancementWAYResult = UIFmt::GetEnhancementComponentResultLabel(EffectiveSnapshot->bHasWAYComponent, bWAYAdded);
+    LastEnhancementWAIResult = UIFmt::GetEnhancementComponentResultLabel(EffectiveSnapshot->bHasWAIComponent, bWAIAdded);
+    LastEnhancementAIReadyResult = UIFmt::IsAIReadyForLightweightTesting(*EffectiveSnapshot) ? TEXT("Yes") : TEXT("No");
+    LastEnhancementAnimationResult = UIFmt::GetAnimationReadinessResultLabel(EffectiveSnapshot->bHasSkeletalMeshComponent, EffectiveSnapshot->bHasAnimBlueprint);
 
     if (bUpdateWorkflowMetadata)
     {
-        LastEnhancementWorkflowUsed = GetCharacterEnhancementResultsWorkflowLabel(WorkflowUsed);
+        LastEnhancementWorkflowUsed = UIFmt::GetCharacterEnhancementResultsWorkflowLabel(WorkflowUsed);
         bLastEnhancementSandboxCopyCreated = bSandboxCopyCreated;
         bLastEnhancementOriginalPreserved = bOriginalPreserved;
     }
@@ -427,6 +215,26 @@ void FWanaWorksUIModule::UpdateEnhancementResultsState(
         bLastEnhancementSandboxCopyCreated = false;
         bLastEnhancementOriginalPreserved = true;
     }
+}
+
+void FWanaWorksUIModule::UpdateSavedSubjectProgressState(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSelectedActor)
+    {
+        return;
+    }
+
+    bSavedSubjectProgressInitialized = true;
+    LastSavedSubjectLabel = Snapshot.SelectedActorLabel;
+    LastSavedSubjectTypeLabel = Snapshot.ActorTypeLabel;
+    LastSavedSubjectWorkflowLabel = UIFmt::GetCharacterEnhancementWorkflowLabel(SelectedEnhancementWorkflowLabel);
+    LastSavedSubjectPresetLabel = UIFmt::GetCharacterEnhancementPresetLabel(SelectedEnhancementPresetLabel);
+    LastSavedSubjectAIControllerResult = UIFmt::GetAIControllerPresenceLabel(Snapshot);
+    LastSavedSubjectAnimationResult = UIFmt::GetAnimationBlueprintStatusLabel(Snapshot);
+    LastSavedSubjectIdentityResult = Snapshot.bHasIdentityComponent ? TEXT("Present") : TEXT("Missing");
+    LastSavedSubjectWAIResult = Snapshot.bHasWAIComponent ? TEXT("Present") : TEXT("Missing");
+    LastSavedSubjectWAYResult = Snapshot.bHasWAYComponent ? TEXT("Present") : TEXT("Missing");
+    LastSavedSubjectAIReadyResult = UIFmt::IsAIReadyForLightweightTesting(Snapshot) ? TEXT("Yes") : TEXT("No");
 }
 
 void FWanaWorksUIModule::ApplyResponse(const FWanaCommandResponse& Response, const FString& EchoedCommand)
@@ -455,13 +263,13 @@ void FWanaWorksUIModule::ApplyResponse(const FWanaCommandResponse& Response, con
     {
         AppendLogLine(FString::Printf(
             TEXT("[%s] %s"),
-            *GetFeedbackToneLabel(StatusMessage, Response.bSucceeded),
-            *StripStatusPrefix(StatusMessage)));
+            *UIFmt::GetFeedbackToneLabel(StatusMessage, Response.bSucceeded),
+            *UIFmt::StripStatusPrefix(StatusMessage)));
     }
 
     for (const FString& OutputLine : Response.OutputLines)
     {
-        const FString FormattedLine = FormatResponseOutputLine(OutputLine);
+        const FString FormattedLine = UIFmt::FormatResponseOutputLine(OutputLine);
 
         if (!FormattedLine.IsEmpty())
         {
@@ -506,6 +314,116 @@ void FWanaWorksUIModule::ApplyIdentity()
     RefreshReactiveUI(true);
 }
 
+void FWanaWorksUIModule::CreateAIReadyController()
+{
+    FWanaSelectedCharacterEnhancementSnapshot BeforeSnapshot;
+    const bool bHasBeforeSnapshot = WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(BeforeSnapshot) && BeforeSnapshot.bHasSelectedActor;
+    FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecutePrepareSelectedActorForAITestCommand();
+
+    if (bHasBeforeSnapshot)
+    {
+        Response.OutputLines.Insert(FString::Printf(TEXT("Selected Subject: %s"), *BeforeSnapshot.SelectedActorLabel), 0);
+        Response.OutputLines.Insert(TEXT("Workflow Action: Create AI-Ready Controller"), 1);
+    }
+
+    if (Response.bSucceeded && bHasBeforeSnapshot)
+    {
+        FWanaSelectedCharacterEnhancementSnapshot AfterSnapshot;
+        const bool bHasAfterSnapshot = WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(AfterSnapshot) && AfterSnapshot.bHasSelectedActor;
+        const FWanaSelectedCharacterEnhancementSnapshot& EffectiveSnapshot = bHasAfterSnapshot ? AfterSnapshot : BeforeSnapshot;
+        const FString AIControllerPathLabel = !EffectiveSnapshot.bIsPawnActor
+            ? TEXT("Not applicable")
+            : (EffectiveSnapshot.bHasAIControllerClass
+                ? TEXT("Present")
+                : (EffectiveSnapshot.bAutoPossessAIEnabled ? TEXT("Prepared for later assignment") : TEXT("Missing")));
+
+        Response.OutputLines.Add(FString::Printf(TEXT("Detected Type: %s"), *EffectiveSnapshot.ActorTypeLabel));
+        Response.OutputLines.Add(FString::Printf(TEXT("AI Controller Path: %s"), *AIControllerPathLabel));
+        Response.OutputLines.Add(TEXT("Compatibility Notes: WanaWorks keeps the existing subject setup and only prepares a lightweight AI-ready path."));
+        UpdateEnhancementResultsState(
+            bHasBeforeSnapshot ? &BeforeSnapshot : nullptr,
+            bHasAfterSnapshot ? &AfterSnapshot : (bHasBeforeSnapshot ? &BeforeSnapshot : nullptr),
+            FString(),
+            false,
+            false,
+            true);
+    }
+
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::ConvertSelectedSubjectToAIReady()
+{
+    FWanaSelectedCharacterEnhancementSnapshot BeforeSnapshot;
+    const bool bHasBeforeSnapshot = WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(BeforeSnapshot) && BeforeSnapshot.bHasSelectedActor;
+    FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecutePrepareSelectedActorForAITestCommand();
+
+    if (bHasBeforeSnapshot)
+    {
+        Response.OutputLines.Insert(FString::Printf(TEXT("Selected Subject: %s"), *BeforeSnapshot.SelectedActorLabel), 0);
+        Response.OutputLines.Insert(TEXT("Workflow Action: Convert to AI-Ready Subject"), 1);
+    }
+
+    if (Response.bSucceeded && bHasBeforeSnapshot)
+    {
+        FWanaSelectedCharacterEnhancementSnapshot AfterSnapshot;
+        const bool bHasAfterSnapshot = WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(AfterSnapshot) && AfterSnapshot.bHasSelectedActor;
+        const FWanaSelectedCharacterEnhancementSnapshot& EffectiveSnapshot = bHasAfterSnapshot ? AfterSnapshot : BeforeSnapshot;
+        const FString ConvertedSubjectReadyLabel = !EffectiveSnapshot.bIsPawnActor
+            ? TEXT("Not applicable")
+            : (UIFmt::IsAIReadyForLightweightTesting(EffectiveSnapshot) ? TEXT("Yes") : TEXT("No"));
+
+        Response.OutputLines.Add(FString::Printf(TEXT("Detected Type: %s"), *EffectiveSnapshot.ActorTypeLabel));
+        Response.OutputLines.Add(FString::Printf(TEXT("Converted Subject Ready: %s"), *ConvertedSubjectReadyLabel));
+        Response.OutputLines.Add(TEXT("Compatibility Notes: The original Character BP, AI Controller path, and Animation Blueprint setup were preserved."));
+        UpdateEnhancementResultsState(
+            bHasBeforeSnapshot ? &BeforeSnapshot : nullptr,
+            bHasAfterSnapshot ? &AfterSnapshot : (bHasBeforeSnapshot ? &BeforeSnapshot : nullptr),
+            FString(),
+            false,
+            false,
+            true);
+    }
+
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::SaveSubjectProgress()
+{
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+
+    if (!WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) || !Snapshot.bHasSelectedActor)
+    {
+        FWanaCommandResponse Response;
+        Response.StatusMessage = TEXT("Status: No subject selected.");
+        Response.OutputLines.Add(TEXT("Select a subject before saving WanaWorks progress."));
+        ApplyResponse(Response);
+        RefreshReactiveUI(true);
+        return;
+    }
+
+    UpdateSavedSubjectProgressState(Snapshot);
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = true;
+    Response.StatusMessage = TEXT("Status: Saved subject setup progress.");
+    Response.OutputLines.Add(FString::Printf(TEXT("Saved Subject: %s"), *Snapshot.SelectedActorLabel));
+    Response.OutputLines.Add(FString::Printf(TEXT("Detected Type: %s"), *Snapshot.ActorTypeLabel));
+    Response.OutputLines.Add(FString::Printf(TEXT("Workflow Preference: %s"), UIFmt::GetCharacterEnhancementWorkflowLabel(SelectedEnhancementWorkflowLabel)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Starter Preset: %s"), UIFmt::GetCharacterEnhancementPresetLabel(SelectedEnhancementPresetLabel)));
+    Response.OutputLines.Add(FString::Printf(TEXT("AI Controller: %s"), *LastSavedSubjectAIControllerResult));
+    Response.OutputLines.Add(FString::Printf(TEXT("Animation Blueprint: %s"), *LastSavedSubjectAnimationResult));
+    Response.OutputLines.Add(FString::Printf(TEXT("Identity: %s"), *LastSavedSubjectIdentityResult));
+    Response.OutputLines.Add(FString::Printf(TEXT("WAI: %s"), *LastSavedSubjectWAIResult));
+    Response.OutputLines.Add(FString::Printf(TEXT("WAY: %s"), *LastSavedSubjectWAYResult));
+    Response.OutputLines.Add(FString::Printf(TEXT("AI-Ready: %s"), *LastSavedSubjectAIReadyResult));
+    Response.OutputLines.Add(TEXT("Readiness Notes: This snapshot is kept in the current Wana Works session so your setup progress is easy to pick back up."));
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
 void FWanaWorksUIModule::ApplyCharacterEnhancement()
 {
     FWanaSelectedCharacterEnhancementSnapshot SourceSnapshot;
@@ -520,7 +438,7 @@ void FWanaWorksUIModule::ApplyCharacterEnhancement()
         return;
     }
 
-    const FString WorkflowLabel = GetCharacterEnhancementWorkflowLabel(SelectedEnhancementWorkflowLabel);
+    const FString WorkflowLabel = UIFmt::GetCharacterEnhancementWorkflowLabel(SelectedEnhancementWorkflowLabel);
     FWanaCommandResponse WorkflowResponse;
     FWanaCommandResponse EnhancementResponse;
     FWanaCommandResponse AIReadyResponse;
@@ -592,22 +510,22 @@ void FWanaWorksUIModule::ApplyCharacterEnhancement()
         Response.OutputLines.Add(FString::Printf(TEXT("AI Readiness: %s"), *ActiveSnapshot.AIReadinessSummary));
     }
 
-    AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Preset Used:"));
-    AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Components Added:"));
-    AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Already Present:"));
-    AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Compatibility Notes:"));
+    UIFmt::AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Preset Used:"));
+    UIFmt::AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Components Added:"));
+    UIFmt::AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Already Present:"));
+    UIFmt::AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Compatibility Notes:"));
 
     if (bUseSandboxDuplicate)
     {
-        AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Compatibility Notes:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Compatibility Notes:"));
         Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox observer was updated to the prepared subject."));
     }
 
     if (bUseAIReadyPrep)
     {
-        AppendLinesWithPrefix(Response, AIReadyResponse, TEXT("AI-Ready Preparation:"));
-        AppendLinesWithPrefix(Response, AIReadyResponse, TEXT("AI Controller Class:"));
-        AppendLinesWithPrefix(Response, AIReadyResponse, TEXT("Compatibility Notes:"));
+        UIFmt::AppendLinesWithPrefix(Response, AIReadyResponse, TEXT("AI-Ready Preparation:"));
+        UIFmt::AppendLinesWithPrefix(Response, AIReadyResponse, TEXT("AI Controller Class:"));
+        UIFmt::AppendLinesWithPrefix(Response, AIReadyResponse, TEXT("Compatibility Notes:"));
     }
     else
     {
@@ -646,6 +564,74 @@ void FWanaWorksUIModule::ApplyStarterAndTestTarget()
             true);
     }
 
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
+bool FWanaWorksUIModule::ResolvePreferredWITReadinessPair(AActor*& OutObserverActor, AActor*& OutTargetActor, FString& OutPairSourceLabel, bool& bOutTargetFallsBackToObserver) const
+{
+    OutObserverActor = nullptr;
+    OutTargetActor = nullptr;
+    OutPairSourceLabel = TEXT("No active pair");
+    bOutTargetFallsBackToObserver = false;
+
+    FWanaSelectedRelationshipContextSnapshot SelectionSnapshot;
+    const bool bHasSelectionSnapshot = WanaWorksUIEditorActions::GetSelectedRelationshipContextSnapshot(SelectionSnapshot) && SelectionSnapshot.bHasObserverActor;
+    const bool bHasExplicitSelectionPair = bHasSelectionSnapshot && SelectionSnapshot.bHasTargetActor && !SelectionSnapshot.bTargetFallsBackToObserver;
+    const bool bHasExplicitSandboxPair = SandboxObserverActor.IsValid() && SandboxTargetActor.IsValid();
+
+    if (bHasExplicitSelectionPair)
+    {
+        OutObserverActor = SelectionSnapshot.ObserverActor.Get();
+        OutTargetActor = SelectionSnapshot.TargetActor.Get();
+        OutPairSourceLabel = TEXT("Current selection");
+        return true;
+    }
+
+    if (bHasExplicitSandboxPair)
+    {
+        OutObserverActor = SandboxObserverActor.Get();
+        OutTargetActor = SandboxTargetActor.Get();
+        OutPairSourceLabel = TEXT("Sandbox pair");
+        return true;
+    }
+
+    if (bHasSelectionSnapshot)
+    {
+        OutObserverActor = SelectionSnapshot.ObserverActor.Get();
+        OutTargetActor = SelectionSnapshot.TargetActor.Get();
+        bOutTargetFallsBackToObserver = SelectionSnapshot.bTargetFallsBackToObserver;
+        OutPairSourceLabel = SelectionSnapshot.bTargetFallsBackToObserver
+            ? TEXT("Current selection (observer fallback)")
+            : TEXT("Current selection");
+        return true;
+    }
+
+    if (SandboxObserverActor.IsValid() || SandboxTargetActor.IsValid())
+    {
+        OutObserverActor = SandboxObserverActor.Get();
+        OutTargetActor = SandboxTargetActor.Get();
+        OutPairSourceLabel = TEXT("Sandbox assignments");
+        return true;
+    }
+
+    return false;
+}
+
+void FWanaWorksUIModule::ScanEnvironmentReadiness()
+{
+    AActor* ObserverActor = nullptr;
+    AActor* TargetActor = nullptr;
+    FString PairSourceLabel;
+    bool bTargetFallsBackToObserver = false;
+
+    ResolvePreferredWITReadinessPair(ObserverActor, TargetActor, PairSourceLabel, bTargetFallsBackToObserver);
+
+    const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteScanEnvironmentReadinessCommand(
+        ObserverActor,
+        TargetActor,
+        PairSourceLabel,
+        bTargetFallsBackToObserver);
     ApplyResponse(Response);
     RefreshReactiveUI(true);
 }
@@ -832,7 +818,7 @@ void FWanaWorksUIModule::FocusSandboxTarget()
 
 void FWanaWorksUIModule::ApplySelectedRelationshipState()
 {
-    ExecuteCommandText(FString::Printf(TEXT("apply relationship state %s"), GetRelationshipStateLabel(SelectedRelationshipState)));
+    ExecuteCommandText(FString::Printf(TEXT("apply relationship state %s"), UIFmt::GetRelationshipStateLabel(SelectedRelationshipState)));
 }
 
 void FWanaWorksUIModule::RunCommand()
@@ -895,7 +881,7 @@ void FWanaWorksUIModule::RunCommand()
         break;
 
     case EWanaCommandAction::ApplyRelationshipState:
-        TryParseRelationshipStateLabel(ActionArgument, SelectedRelationshipState);
+        UIFmt::TryParseRelationshipStateLabel(ActionArgument, SelectedRelationshipState);
         Response = WanaWorksUIEditorActions::ExecuteApplyRelationshipStateCommand(ActionArgument);
         break;
 
@@ -926,7 +912,7 @@ void FWanaWorksUIModule::AppendLogLine(const FString& Line)
 
 TSharedPtr<FString> FWanaWorksUIModule::GetSelectedEnhancementPresetOption() const
 {
-    const FString SelectedLabel = GetCharacterEnhancementPresetLabel(SelectedEnhancementPresetLabel);
+    const FString SelectedLabel = UIFmt::GetCharacterEnhancementPresetLabel(SelectedEnhancementPresetLabel);
 
     for (const TSharedPtr<FString>& Option : EnhancementPresetOptions)
     {
@@ -941,7 +927,7 @@ TSharedPtr<FString> FWanaWorksUIModule::GetSelectedEnhancementPresetOption() con
 
 TSharedPtr<FString> FWanaWorksUIModule::GetSelectedEnhancementWorkflowOption() const
 {
-    const FString SelectedLabel = GetCharacterEnhancementWorkflowLabel(SelectedEnhancementWorkflowLabel);
+    const FString SelectedLabel = UIFmt::GetCharacterEnhancementWorkflowLabel(SelectedEnhancementWorkflowLabel);
 
     for (const TSharedPtr<FString>& Option : EnhancementWorkflowOptions)
     {
@@ -956,7 +942,7 @@ TSharedPtr<FString> FWanaWorksUIModule::GetSelectedEnhancementWorkflowOption() c
 
 TSharedPtr<FString> FWanaWorksUIModule::GetSelectedRelationshipStateOption() const
 {
-    const FString SelectedLabel = GetRelationshipStateLabel(SelectedRelationshipState);
+    const FString SelectedLabel = UIFmt::GetRelationshipStateLabel(SelectedRelationshipState);
 
     for (const TSharedPtr<FString>& Option : RelationshipStateOptions)
     {
@@ -973,7 +959,7 @@ TSharedPtr<FString> FWanaWorksUIModule::GetSelectedIdentitySeedStateOption()
 {
     RefreshIdentityEditorState();
 
-    const FString SelectedLabel = GetRelationshipStateLabel(SelectedIdentitySeedState);
+    const FString SelectedLabel = UIFmt::GetRelationshipStateLabel(SelectedIdentitySeedState);
 
     for (const TSharedPtr<FString>& Option : RelationshipStateOptions)
     {
@@ -1001,88 +987,71 @@ FText FWanaWorksUIModule::GetLogText() const
     return FText::FromString(LogOutput);
 }
 
+FText FWanaWorksUIModule::GetSubjectSetupSummaryText() const
+{
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+    const bool bHasSnapshot = WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
+    return FText::FromString(UISummary::BuildSubjectSetupSummaryText(
+        bHasSnapshot ? &Snapshot : nullptr,
+        SelectedEnhancementWorkflowLabel,
+        SelectedEnhancementPresetLabel));
+}
+
+FText FWanaWorksUIModule::GetSubjectStackSummaryText() const
+{
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+    const bool bHasSnapshot = WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
+    return FText::FromString(UISummary::BuildSubjectStackSummaryText(bHasSnapshot ? &Snapshot : nullptr));
+}
+
+FText FWanaWorksUIModule::GetSavedSubjectProgressText() const
+{
+    return FText::FromString(UISummary::BuildSavedSubjectProgressSummaryText(
+        bSavedSubjectProgressInitialized,
+        LastSavedSubjectLabel,
+        LastSavedSubjectTypeLabel,
+        LastSavedSubjectWorkflowLabel,
+        LastSavedSubjectPresetLabel,
+        LastSavedSubjectAIControllerResult,
+        LastSavedSubjectAnimationResult,
+        LastSavedSubjectIdentityResult,
+        LastSavedSubjectWAIResult,
+        LastSavedSubjectWAYResult,
+        LastSavedSubjectAIReadyResult));
+}
+
 FText FWanaWorksUIModule::GetCharacterEnhancementSummaryText() const
 {
     FWanaSelectedCharacterEnhancementSnapshot Snapshot;
-
-    if (!WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) || !Snapshot.bHasSelectedActor)
-    {
-        return FText::FromString(TEXT("Selected Actor Name: (none)\nActor Type: (none)\nIdentity: Missing\nWAY: Missing\nWAI: Missing\nAnimation: Missing\nAI Ready: Warning\nCompatibility: Warning"));
-    }
-
-    const bool bCompatibilityWarning = Snapshot.bHasSkeletalMeshComponent && !Snapshot.bHasAnimBlueprint;
-
-    const FString Summary = FString::Printf(
-        TEXT("Selected Actor Name: %s\nActor Type: %s\nIdentity: %s\nWAY: %s\nWAI: %s\nAnimation: %s\nAI Ready: %s\nCompatibility: %s"),
-        *Snapshot.SelectedActorLabel,
-        *Snapshot.ActorTypeLabel,
-        Snapshot.bHasIdentityComponent ? TEXT("Present") : TEXT("Missing"),
-        Snapshot.bHasWAYComponent ? TEXT("Present") : TEXT("Missing"),
-        Snapshot.bHasWAIComponent ? TEXT("Present") : TEXT("Missing"),
-        *Snapshot.AnimationCompatibilitySummary,
-        *Snapshot.AIReadinessSummary,
-        bCompatibilityWarning ? TEXT("Warning") : TEXT("Safe"));
-
-    return FText::FromString(Summary);
+    const bool bHasSnapshot = WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
+    return FText::FromString(UISummary::BuildCharacterEnhancementSummaryText(bHasSnapshot ? &Snapshot : nullptr));
 }
 
 FText FWanaWorksUIModule::GetCharacterEnhancementChainText() const
 {
     FWanaSelectedCharacterEnhancementSnapshot Snapshot;
     const bool bHasSnapshot = WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
-
-    const TCHAR* BehaviorGraphStatus = bHasSnapshot && Snapshot.bHasWAIComponent ? TEXT("READY") : TEXT("ACTIVE");
-    const TCHAR* CombatLogicStatus = bHasSnapshot && Snapshot.bHasWAYComponent ? TEXT("READY") : TEXT("ACTIVE");
-    const TCHAR* AnimationHooksStatus = !bHasSnapshot
-        ? TEXT("ACTIVE")
-        : (Snapshot.bHasAnimBlueprint ? TEXT("READY") : (Snapshot.bHasSkeletalMeshComponent ? TEXT("WARNING") : TEXT("ACTIVE")));
-
-    const FString Summary = FString::Printf(
-        TEXT("%s  Behavior Graph Ready\n%s  Combat Logic Synced\n%s  Animation Hooks Attached"),
-        BehaviorGraphStatus,
-        CombatLogicStatus,
-        AnimationHooksStatus);
-
-    return FText::FromString(Summary);
+    return FText::FromString(UISummary::BuildCharacterEnhancementChainText(bHasSnapshot ? &Snapshot : nullptr));
 }
 
 FText FWanaWorksUIModule::GetCharacterEnhancementWorkflowText() const
 {
-    const FString WorkflowLabel = GetCharacterEnhancementWorkflowLabel(SelectedEnhancementWorkflowLabel);
-
-    if (WorkflowLabel == TEXT("Create Sandbox Duplicate"))
-    {
-        return FText::FromString(TEXT("Safest option for testing. Creates a clearly named WanaWorks sandbox copy, keeps the original actor untouched, and selects the duplicate for continued setup."));
-    }
-
-    if (WorkflowLabel == TEXT("Convert to AI-Ready Test Subject"))
-    {
-        return FText::FromString(TEXT("Keeps the current actor, applies WanaAI, and adds lightweight AI-ready pawn prep without replacing Character BP or Anim BP assets."));
-    }
-
-    return FText::FromString(TEXT("Enhances the currently selected actor in place. WanaWorks adds to the existing setup instead of replacing Character BP or Animation Blueprint logic."));
+    return FText::FromString(UISummary::BuildCharacterEnhancementWorkflowText(UIFmt::GetCharacterEnhancementWorkflowLabel(SelectedEnhancementWorkflowLabel)));
 }
 
 FText FWanaWorksUIModule::GetEnhancementResultsText() const
 {
-    if (!bEnhancementResultsInitialized)
-    {
-        return FText::FromString(TEXT("Subject: (none)\nIdentity: Missing\nWAY: Missing\nWAI: Missing\nAI-Ready: No\nAnimation Readiness: Missing\nWorkflow Used: Not run yet\nSandbox Copy: Not Used\nOriginal Preserved: Yes"));
-    }
-
-    const FString Summary = FString::Printf(
-        TEXT("Subject: %s\nIdentity: %s\nWAY: %s\nWAI: %s\nAI-Ready: %s\nAnimation Readiness: %s\nWorkflow Used: %s\nSandbox Copy: %s\nOriginal Preserved: %s"),
-        LastEnhancementResultsActorLabel.IsEmpty() ? TEXT("(none)") : *LastEnhancementResultsActorLabel,
-        *LastEnhancementIdentityResult,
-        *LastEnhancementWAYResult,
-        *LastEnhancementWAIResult,
-        *LastEnhancementAIReadyResult,
-        *LastEnhancementAnimationResult,
-        LastEnhancementWorkflowUsed.IsEmpty() ? TEXT("Not run yet") : *LastEnhancementWorkflowUsed,
-        bLastEnhancementSandboxCopyCreated ? TEXT("Created") : TEXT("Not Used"),
-        bLastEnhancementOriginalPreserved ? TEXT("Yes") : TEXT("No"));
-
-    return FText::FromString(Summary);
+    return FText::FromString(UISummary::BuildEnhancementResultsText(
+        bEnhancementResultsInitialized,
+        LastEnhancementResultsActorLabel,
+        LastEnhancementIdentityResult,
+        LastEnhancementWAYResult,
+        LastEnhancementWAIResult,
+        LastEnhancementAIReadyResult,
+        LastEnhancementAnimationResult,
+        LastEnhancementWorkflowUsed,
+        bLastEnhancementSandboxCopyCreated,
+        bLastEnhancementOriginalPreserved));
 }
 
 FText FWanaWorksUIModule::GetGuidedWorkflowSummaryText() const
@@ -1109,6 +1078,46 @@ FText FWanaWorksUIModule::GetLiveTestSummaryText() const
     return FText::FromString(Summary);
 }
 
+FText FWanaWorksUIModule::GetBehaviorResultsText() const
+{
+    AActor* ObserverActor = nullptr;
+    AActor* TargetActor = nullptr;
+    FString PairSourceLabel;
+    bool bTargetFallsBackToObserver = false;
+
+    ResolvePreferredWITReadinessPair(ObserverActor, TargetActor, PairSourceLabel, bTargetFallsBackToObserver);
+
+    FWanaBehaviorResultsSnapshot Snapshot;
+    WanaWorksUIEditorActions::GetBehaviorResultsSnapshotForActorPair(
+        ObserverActor,
+        TargetActor,
+        bTargetFallsBackToObserver,
+        PairSourceLabel,
+        Snapshot);
+
+    return FText::FromString(UISummary::BuildBehaviorResultsText(Snapshot));
+}
+
+FText FWanaWorksUIModule::GetWITEnvironmentReadinessText() const
+{
+    AActor* ObserverActor = nullptr;
+    AActor* TargetActor = nullptr;
+    FString PairSourceLabel;
+    bool bTargetFallsBackToObserver = false;
+
+    ResolvePreferredWITReadinessPair(ObserverActor, TargetActor, PairSourceLabel, bTargetFallsBackToObserver);
+
+    FWanaEnvironmentReadinessSnapshot Snapshot;
+    WanaWorksUIEditorActions::GetEnvironmentReadinessSnapshotForActorPair(
+        ObserverActor,
+        TargetActor,
+        bTargetFallsBackToObserver,
+        PairSourceLabel,
+        Snapshot);
+
+    return FText::FromString(UISummary::BuildWITEnvironmentReadinessText(Snapshot));
+}
+
 FText FWanaWorksUIModule::GetTestSandboxSummaryText() const
 {
     const FString ObserverLabel = SandboxObserverActor.IsValid() ? SandboxObserverActor->GetActorNameOrLabel() : TEXT("(not assigned)");
@@ -1119,27 +1128,14 @@ FText FWanaWorksUIModule::GetTestSandboxSummaryText() const
     const FString SelectionLabel = bHasCurrentSelection ? SelectionSnapshot.SelectedActorLabel : TEXT("(none)");
     const bool bReadyToEvaluate = SandboxObserverActor.IsValid() && SandboxTargetActor.IsValid();
     const bool bSelfTargetDebugPair = bReadyToEvaluate && SandboxObserverActor.Get() == SandboxTargetActor.Get();
-    const FString EvaluationMode = !bReadyToEvaluate
-        ? TEXT("Assignment incomplete")
-        : (bSelfTargetDebugPair ? TEXT("Self-target debug") : TEXT("Explicit observer and target"));
-    const FString NextStep = !SandboxObserverActor.IsValid()
-        ? TEXT("Use Selected as Observer to assign the evaluating actor.")
-        : (!SandboxTargetActor.IsValid()
-            ? TEXT("Use Selected as Target to assign the actor being evaluated.")
-            : (bSelfTargetDebugPair
-                ? TEXT("Self-target debug mode is active. Assign a different target for normal observer-target testing.")
-                : TEXT("Ready to evaluate the explicit sandbox pair.")));
-
-    const FString Summary = FString::Printf(
-        TEXT("Current Selection: %s\nSandbox Observer: %s\nSandbox Target: %s\nEvaluation Mode: %s\nReady To Evaluate: %s\nNext Step: %s"),
-        *SelectionLabel,
-        *ObserverLabel,
-        *TargetLabel,
-        *EvaluationMode,
-        bReadyToEvaluate ? TEXT("Yes") : TEXT("No"),
-        *NextStep);
-
-    return FText::FromString(Summary);
+    return FText::FromString(UISummary::BuildTestSandboxSummaryText(
+        SelectionLabel,
+        ObserverLabel,
+        TargetLabel,
+        SandboxObserverActor.IsValid(),
+        SandboxTargetActor.IsValid(),
+        bReadyToEvaluate,
+        bSelfTargetDebugPair));
 }
 
 FText FWanaWorksUIModule::GetRelationshipSummaryText() const
@@ -1177,7 +1173,7 @@ FText FWanaWorksUIModule::GetIdentitySummaryText()
         *Snapshot.SelectedActorLabel,
         Snapshot.bHasIdentityComponent ? TEXT("Present") : TEXT("Missing"),
         Snapshot.FactionTag.IsEmpty() ? TEXT("(none)") : *Snapshot.FactionTag,
-        GetRelationshipStateLabel(Snapshot.DefaultRelationshipSeed.RelationshipState),
+        UIFmt::GetRelationshipStateLabel(Snapshot.DefaultRelationshipSeed.RelationshipState),
         Snapshot.DefaultRelationshipSeed.Trust,
         Snapshot.DefaultRelationshipSeed.Fear,
         Snapshot.DefaultRelationshipSeed.Respect,
@@ -1200,13 +1196,18 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetStatusText = [this]() { return GetStatusText(); };
     BuilderArgs.GetCommandText = [this]() { return GetCommandText(); };
     BuilderArgs.GetLogText = [this]() { return GetLogText(); };
+    BuilderArgs.GetSubjectSetupSummaryText = [this]() { return GetSubjectSetupSummaryText(); };
+    BuilderArgs.GetSubjectStackSummaryText = [this]() { return GetSubjectStackSummaryText(); };
+    BuilderArgs.GetSavedSubjectProgressText = [this]() { return GetSavedSubjectProgressText(); };
     BuilderArgs.GetCharacterEnhancementSummaryText = [this]() { return GetCharacterEnhancementSummaryText(); };
     BuilderArgs.GetCharacterEnhancementChainText = [this]() { return GetCharacterEnhancementChainText(); };
     BuilderArgs.GetCharacterEnhancementWorkflowText = [this]() { return GetCharacterEnhancementWorkflowText(); };
     BuilderArgs.GetEnhancementResultsText = [this]() { return GetEnhancementResultsText(); };
     BuilderArgs.GetGuidedWorkflowSummaryText = [this]() { return GetGuidedWorkflowSummaryText(); };
     BuilderArgs.GetLiveTestSummaryText = [this]() { return GetLiveTestSummaryText(); };
+    BuilderArgs.GetBehaviorResultsText = [this]() { return GetBehaviorResultsText(); };
     BuilderArgs.GetTestSandboxSummaryText = [this]() { return GetTestSandboxSummaryText(); };
+    BuilderArgs.GetWITEnvironmentReadinessText = [this]() { return GetWITEnvironmentReadinessText(); };
     BuilderArgs.GetRelationshipSummaryText = [this]() { return GetRelationshipSummaryText(); };
     BuilderArgs.GetIdentitySummaryText = [this]() { return GetIdentitySummaryText(); };
     BuilderArgs.GetIdentityFactionTagText = [this]() { return GetIdentityFactionTagText(); };
@@ -1227,8 +1228,12 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.OnClearLog = [this]() { ClearLog(); };
     BuilderArgs.OnEnsureIdentityComponent = [this]() { EnsureIdentityComponent(); };
     BuilderArgs.OnApplyIdentity = [this]() { ApplyIdentity(); };
+    BuilderArgs.OnCreateAIReadyController = [this]() { CreateAIReadyController(); };
+    BuilderArgs.OnConvertToAIReadySubject = [this]() { ConvertSelectedSubjectToAIReady(); };
+    BuilderArgs.OnSaveSubjectProgress = [this]() { SaveSubjectProgress(); };
     BuilderArgs.OnApplyCharacterEnhancement = [this]() { ApplyCharacterEnhancement(); };
     BuilderArgs.OnApplyStarterAndTestTarget = [this]() { ApplyStarterAndTestTarget(); };
+    BuilderArgs.OnScanEnvironmentReadiness = [this]() { ScanEnvironmentReadiness(); };
     BuilderArgs.OnEvaluateLiveTarget = [this]() { EvaluateLiveTarget(); };
     BuilderArgs.OnUseSelectedAsSandboxObserver = [this]() { UseSelectedActorAsSandboxObserver(); };
     BuilderArgs.OnUseSelectedAsSandboxTarget = [this]() { UseSelectedActorAsSandboxTarget(); };

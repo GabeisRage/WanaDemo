@@ -25,6 +25,7 @@ TSharedRef<SWidget> MakeSection(
     const TOptional<FText>& Description = TOptional<FText>(),
     const TOptional<FText>& StatusText = TOptional<FText>(),
     bool bProminent = false);
+TSharedRef<SWidget> MakeCommandButton(const FWanaWorksUITabBuilderArgs& Args, const FWanaCommandDefinition& Definition);
 constexpr float WanaAISubsectionSpacing = 10.0f;
 const FLinearColor SecondaryTextColor(0.78f, 0.82f, 0.88f, 1.0f);
 const FLinearColor InfoPanelColor(0.08f, 0.11f, 0.15f, 0.75f);
@@ -301,6 +302,111 @@ TSharedRef<SWidget> MakeCharacterEnhancementSection(const FWanaWorksUITabBuilder
         true);
 }
 
+TSharedRef<SWidget> MakeSubjectSetupSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
+{
+    return MakeSection(
+        SectionHeaderFont,
+        LOCTEXT("WanaWorksSubjectSetupSection", "Subject Setup"),
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        [
+            MakeReadOnlyInfoPanel(
+                LOCTEXT("WanaWorksSubjectSetupSummaryLabel", "Selected Subject"),
+                [GetSubjectSetupSummaryText = Args.GetSubjectSetupSummaryText]()
+                {
+                    return GetSubjectSetupSummaryText ? GetSubjectSetupSummaryText() : FText::GetEmpty();
+                })
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        [
+            MakeReadOnlyInfoPanel(
+                LOCTEXT("WanaWorksSubjectStackSummaryLabel", "Detected Stack"),
+                [GetSubjectStackSummaryText = Args.GetSubjectStackSummaryText]()
+                {
+                    return GetSubjectStackSummaryText ? GetSubjectStackSummaryText() : FText::GetEmpty();
+                })
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        [
+            MakeReadOnlyInfoPanel(
+                LOCTEXT("WanaWorksSavedSubjectProgressLabel", "Saved Progress"),
+                [GetSavedSubjectProgressText = Args.GetSavedSubjectProgressText]()
+                {
+                    return GetSavedSubjectProgressText ? GetSavedSubjectProgressText() : FText::GetEmpty();
+                })
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            SNew(SWrapBox)
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                MakeFixedWidthButton(
+                    LOCTEXT("WanaWorksSubjectSetupApplyButton", "Apply WanaAI Enhancement"),
+                    [OnApplyCharacterEnhancement = Args.OnApplyCharacterEnhancement]()
+                    {
+                        if (OnApplyCharacterEnhancement)
+                        {
+                            OnApplyCharacterEnhancement();
+                        }
+                    },
+                    220.0f)
+            ]
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                MakeFixedWidthButton(
+                    LOCTEXT("WanaWorksSubjectSetupAIControllerButton", "Create AI-Ready Controller"),
+                    [OnCreateAIReadyController = Args.OnCreateAIReadyController]()
+                    {
+                        if (OnCreateAIReadyController)
+                        {
+                            OnCreateAIReadyController();
+                        }
+                    },
+                    220.0f)
+            ]
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                MakeFixedWidthButton(
+                    LOCTEXT("WanaWorksSubjectSetupConvertButton", "Convert to AI-Ready Subject"),
+                    [OnConvertToAIReadySubject = Args.OnConvertToAIReadySubject]()
+                    {
+                        if (OnConvertToAIReadySubject)
+                        {
+                            OnConvertToAIReadySubject();
+                        }
+                    },
+                    220.0f)
+            ]
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                MakeFixedWidthButton(
+                    LOCTEXT("WanaWorksSubjectSetupSaveButton", "Save Progress"),
+                    [OnSaveSubjectProgress = Args.OnSaveSubjectProgress]()
+                    {
+                        if (OnSaveSubjectProgress)
+                        {
+                            OnSaveSubjectProgress();
+                        }
+                    },
+                    160.0f)
+            ]
+        ],
+        LOCTEXT("WanaWorksSubjectSetupDescription", "Start here. WanaWorks enhances the selected subject without replacing your existing Character BP, AI Controller, or Animation Blueprint. Choose a workflow below, then use these actions to keep setup focused on the subject you are preparing."),
+        LOCTEXT("WanaWorksSubjectSetupStatus", "READY"),
+        true);
+}
+
 TSharedRef<SWidget> MakeGuidedWorkflowSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
 {
     return MakeSection(
@@ -387,6 +493,26 @@ TSharedRef<SWidget> MakeLiveTestSection(const FWanaWorksUITabBuilderArgs& Args, 
         ],
         LOCTEXT("WanaWorksLiveTestDescription", "Quickly test how the selected enhanced actor evaluates another actor."),
         LOCTEXT("WanaWorksLiveStatus", "LIVE"));
+}
+
+TSharedRef<SWidget> MakeBehaviorResultsSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
+{
+    return MakeSection(
+        SectionHeaderFont,
+        LOCTEXT("WanaWorksBehaviorResultsSection", "Behavior Results"),
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            MakeReadOnlyInfoPanel(
+                LOCTEXT("WanaWorksBehaviorResultsLabel", "Current Observer-Target Behavior State"),
+                [GetBehaviorResultsText = Args.GetBehaviorResultsText]()
+                {
+                    return GetBehaviorResultsText ? GetBehaviorResultsText() : FText::GetEmpty();
+                })
+        ],
+        LOCTEXT("WanaWorksBehaviorResultsDescription", "Current relationship, reaction, recommended behavior, and starter hook status for the active observer-target pair."),
+        LOCTEXT("WanaWorksBehaviorResultsStatus", "LIVE"));
 }
 
 TSharedRef<SWidget> MakeTestSandboxSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
@@ -483,6 +609,54 @@ TSharedRef<SWidget> MakeTestSandboxSection(const FWanaWorksUITabBuilderArgs& Arg
         ],
         LOCTEXT("WanaWorksTestSandboxDescription", "Quickly set up and test observer/target interactions without rebuilding your scene. Assign observer and target separately before evaluation."),
         LOCTEXT("WanaWorksSandboxStatus", "ACTIVE"));
+}
+
+TSharedRef<SWidget> MakeWITSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
+{
+    const FWanaCommandDefinition* ClassifyDefinition = WanaWorksCommandRegistry::FindCommandDefinitionById(FName(TEXT("classify_selected")));
+
+    return MakeSection(
+        SectionHeaderFont,
+        LOCTEXT("WanaWorksWITSection", "WIT"),
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+        [
+            MakeReadOnlyInfoPanel(
+                LOCTEXT("WanaWorksWITReadinessSummaryLabel", "Environment Readiness"),
+                [GetWITEnvironmentReadinessText = Args.GetWITEnvironmentReadinessText]()
+                {
+                    return GetWITEnvironmentReadinessText ? GetWITEnvironmentReadinessText() : FText::GetEmpty();
+                })
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            SNew(SWrapBox)
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                ClassifyDefinition
+                    ? MakeCommandButton(Args, *ClassifyDefinition)
+                    : MakeFixedWidthButton(FText::FromString(TEXT("Classify Selected")), []() {})
+            ]
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                MakeFixedWidthButton(
+                    LOCTEXT("WanaWorksScanEnvironmentReadinessButton", "Scan Environment Readiness"),
+                    [OnScanEnvironmentReadiness = Args.OnScanEnvironmentReadiness]()
+                    {
+                        if (OnScanEnvironmentReadiness)
+                        {
+                            OnScanEnvironmentReadiness();
+                        }
+                    },
+                    210.0f)
+            ]
+        ],
+        LOCTEXT("WanaWorksWITDescription", "Helps AI understand the environment, movement space, boundaries, and world context."));
 }
 
 TSharedRef<SWidget> MakeCommandButton(const FWanaWorksUITabBuilderArgs& Args, const FWanaCommandDefinition& Definition)
@@ -815,6 +989,12 @@ TSharedRef<SWidget> MakeWanaAISection(const FWanaWorksUITabBuilderArgs& Args, co
         .AutoHeight()
         .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing + 4.0f)
         [
+            MakeSubjectSetupSection(Args, SectionHeaderFont)
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
+        [
             MakeCharacterEnhancementSection(Args, SectionHeaderFont)
         ]
         + SVerticalBox::Slot()
@@ -839,20 +1019,19 @@ TSharedRef<SWidget> MakeWanaAISection(const FWanaWorksUITabBuilderArgs& Args, co
         .AutoHeight()
         .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
         [
+            MakeBehaviorResultsSection(Args, SectionHeaderFont)
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
+        [
             MakeTestSandboxSection(Args, SectionHeaderFont)
         ]
         + SVerticalBox::Slot()
         .AutoHeight()
         .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
         [
-            MakeWrappedButtonSection(
-                Args,
-                SectionHeaderFont,
-                LOCTEXT("WanaWorksWITSection", "WIT"),
-                {
-                    TEXT("classify_selected")
-                },
-                LOCTEXT("WanaWorksWITDescription", "Helps AI understand the environment, movement space, boundaries, and world context."))
+            MakeWITSection(Args, SectionHeaderFont)
         ]
         + SVerticalBox::Slot()
         .AutoHeight()

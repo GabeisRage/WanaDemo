@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Components/ActorComponent.h"
+#include "WanaWorksTypes.h"
 #include "WAYRelationshipTypes.h"
 #include "WAYPlayerProfileComponent.generated.h"
 
@@ -20,6 +21,7 @@ struct WANAWORKSWAY_API FWAYPreferenceSignal
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FWAYRelationshipStateChangedSignature, AActor*, TargetActor, EWAYRelationshipState, PreviousState, EWAYRelationshipState, NewState);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FWAYReactionChangedSignature, AActor*, ObserverActor, AActor*, TargetActor, EWAYRelationshipState, RelationshipState, EWAYReactionState, ReactionState);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FWAYRecommendedBehaviorChangedSignature, AActor*, ObserverActor, AActor*, TargetActor, EWAYReactionState, ReactionState, EWAYBehaviorPreset, RecommendedBehavior);
 
 UCLASS(ClassGroup=(WanaWorks), BlueprintType, Blueprintable, meta=(BlueprintSpawnableComponent))
 class WANAWORKSWAY_API UWAYPlayerProfileComponent : public UActorComponent
@@ -59,6 +61,15 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Wana Works|WAY", meta = (DisplayName = "Evaluate And React", Keywords = "WAY reaction evaluate react observer target AI"))
     EWAYReactionState EvaluateAndReact(AActor* TargetActor);
 
+    UFUNCTION(BlueprintCallable, Category = "Wana Works|WAY|Behavior", meta = (DisplayName = "Evaluate Target And Get Recommended Behavior", Keywords = "WAY behavior preset evaluate observer target AI"))
+    EWAYBehaviorPreset EvaluateTargetAndGetRecommendedBehavior(AActor* TargetActor);
+
+    UFUNCTION(BlueprintCallable, Category = "Wana Works|WAY|Behavior", meta = (DisplayName = "Apply Recommended Behavior Hook", Keywords = "WAY behavior preset hook recommended observer target AI"))
+    bool ApplyRecommendedBehaviorHook(AActor* TargetActor);
+
+    UFUNCTION(BlueprintCallable, Category = "Wana Works|WAY|Behavior", meta = (DisplayName = "Apply Behavior Preset Hook", Keywords = "WAY behavior preset hook observer target AI"))
+    bool ApplyBehaviorPresetHook(AActor* TargetActor, EWAYBehaviorPreset BehaviorPreset);
+
     UFUNCTION(BlueprintCallable, Category = "Wana Works|WAY|Behavior", meta = (DisplayName = "Apply Basic Reaction Behavior", Keywords = "WAY reaction behavior visual response observer target AI"))
     bool ApplyBasicReactionBehavior(AActor* TargetActor);
 
@@ -67,6 +78,18 @@ public:
 
     UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY", meta = (DisplayName = "Get Reaction For Target", Keywords = "WAY reaction observer target AI"))
     EWAYReactionState GetReactionForTarget(AActor* TargetActor) const;
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Behavior", meta = (DisplayName = "Get Recommended Behavior For Target", Keywords = "WAY behavior preset observer target AI"))
+    EWAYBehaviorPreset GetRecommendedBehaviorForTarget(AActor* TargetActor) const;
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Behavior", meta = (DisplayName = "Has Starter Behavior Hook For Target", Keywords = "WAY behavior preset starter hook observer target AI"))
+    bool HasStarterBehaviorHookForTarget(AActor* TargetActor) const;
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Behavior", meta = (DisplayName = "Get Last Applied Behavior Hook For Target", Keywords = "WAY behavior preset last applied hook observer target AI"))
+    EWAYBehaviorPreset GetLastAppliedBehaviorHookForTarget(AActor* TargetActor) const;
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Behavior", meta = (DisplayName = "Get Behavior Execution Mode For Target", Keywords = "WAY behavior execution mode observer target AI"))
+    EWAYBehaviorExecutionMode GetBehaviorExecutionModeForTarget(AActor* TargetActor) const;
 
     UFUNCTION(BlueprintPure, Category = "Wana Works|WAY")
     const TArray<FWAYRelationshipProfile>& GetRelationshipProfiles() const { return RelationshipProfiles; }
@@ -77,16 +100,21 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "Wana Works|WAY")
     FWAYReactionChangedSignature OnReactionChanged;
 
+    UPROPERTY(BlueprintAssignable, Category = "Wana Works|WAY|Behavior")
+    FWAYRecommendedBehaviorChangedSignature OnRecommendedBehaviorChanged;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Behavior")
     bool bAutoApplyBasicReactionBehavior = false;
 
     static EWAYReactionState ResolveReactionForRelationshipState(EWAYRelationshipState RelationshipState);
+    static EWAYBehaviorPreset ResolveRecommendedBehaviorForReactionState(EWAYReactionState ReactionState);
+    static EWAYBehaviorExecutionMode ResolveBehaviorExecutionModeForMovementReadiness(const FWanaMovementReadiness& MovementReadiness);
 
 private:
     UFUNCTION()
     void HandleReactionChanged(AActor* ObserverActor, AActor* TargetActor, EWAYRelationshipState RelationshipState, EWAYReactionState ReactionState);
 
-    bool TryApplyMovementReaction(AActor* TargetActor, EWAYReactionState ReactionState, const FVector& SafeDirection, FString& OutBehaviorDescription);
+    bool TryApplyMovementReaction(AActor* TargetActor, EWAYReactionState ReactionState, const FVector& SafeDirection, FString& OutBehaviorDescription, EWAYBehaviorExecutionMode* OutExecutionMode = nullptr);
     bool StartBasicReactionMovement(AActor* TargetActor, EWAYReactionState ReactionState, FString& OutBehaviorDescription);
     void StopBasicReactionMovement();
     int32 FindRelationshipProfileIndex(AActor* TargetActor) const;
@@ -100,6 +128,9 @@ private:
     TArray<FWAYRelationshipProfile> RelationshipProfiles;
 
     TMap<AActor*, EWAYReactionState> CachedReactionStates;
+    TMap<AActor*, EWAYBehaviorPreset> CachedRecommendedBehaviors;
+    TMap<AActor*, EWAYBehaviorPreset> CachedLastAppliedBehaviorHooks;
+    TMap<AActor*, EWAYBehaviorExecutionMode> CachedBehaviorExecutionModes;
     TWeakObjectPtr<AActor> ActiveBasicReactionTarget;
     EWAYReactionState ActiveBasicReactionState = EWAYReactionState::Observational;
     float ActiveBasicReactionTimeRemaining = 0.0f;
