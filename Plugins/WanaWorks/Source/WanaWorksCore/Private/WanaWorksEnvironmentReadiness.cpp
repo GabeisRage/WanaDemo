@@ -6,6 +6,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PawnMovementComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 
 namespace
 {
@@ -47,19 +48,32 @@ FWanaMovementReadiness FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness
         const bool bHasMovementComponent = MovementComponent != nullptr;
         const bool bMovementComponentActive = bHasMovementComponent && MovementComponent->IsActive();
         const bool bHasController = ObserverPawn->GetController() != nullptr;
+        bool bHasAnimBlueprint = false;
 
         bool bCanRunWithoutController = false;
 
         if (const ACharacter* ObserverCharacter = Cast<ACharacter>(ObserverPawn))
         {
+            if (const USkeletalMeshComponent* MeshComponent = ObserverCharacter->GetMesh())
+            {
+                bHasAnimBlueprint =
+                    MeshComponent->GetAnimationMode() == EAnimationMode::AnimationBlueprint
+                    && MeshComponent->GetAnimInstance() != nullptr;
+            }
+
             if (const UCharacterMovementComponent* CharacterMovement = ObserverCharacter->GetCharacterMovement())
             {
                 bCanRunWithoutController = CharacterMovement->bRunPhysicsWithNoController;
             }
         }
 
+        Readiness.bAnimationDrivenLocomotionDetected = bHasAnimBlueprint;
         Readiness.bHasUsableMovementCapability = bHasMovementComponent;
-        Readiness.bHasMovementContext = bHasController || bMovementComponentActive || bCanRunWithoutController;
+        Readiness.bSupportsLocomotionPulse =
+            bHasController
+            || bCanRunWithoutController
+            || (!bHasAnimBlueprint && bMovementComponentActive);
+        Readiness.bHasMovementContext = Readiness.bSupportsLocomotionPulse;
         Readiness.bTargetReachableHint = !bLongRangeTarget;
 
         if (Readiness.bHasUsableMovementCapability && Readiness.bHasMovementContext)
@@ -69,11 +83,15 @@ FWanaMovementReadiness FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness
 
             if (bHasController)
             {
-                Readiness.Detail = TEXT("A pawn movement context is available for a safe reaction pulse.");
+                Readiness.Detail = bHasAnimBlueprint
+                    ? TEXT("A controller-backed locomotion stack is available, so movement can use an animation-friendly reaction pulse.")
+                    : TEXT("A pawn movement context is available for a safe reaction pulse.");
             }
             else if (bCanRunWithoutController)
             {
-                Readiness.Detail = TEXT("No controller was detected, but no-controller character movement is available.");
+                Readiness.Detail = bHasAnimBlueprint
+                    ? TEXT("No controller was detected, but no-controller character movement is available for an animation-friendly local pulse.")
+                    : TEXT("No controller was detected, but no-controller character movement is available.");
             }
             else
             {
@@ -91,6 +109,11 @@ FWanaMovementReadiness FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness
         if (!bHasMovementComponent)
         {
             Readiness.Detail = TEXT("Movement blocked because the observer has no usable movement component.");
+        }
+        else if (bHasAnimBlueprint)
+        {
+            Readiness.Status = TEXT("Movement limited");
+            Readiness.Detail = TEXT("Movement blocked because an existing animation-driven locomotion stack was detected without a controller-safe movement context. Falling back to facing-only behavior avoids conflicting with the current Anim BP.");
         }
         else
         {

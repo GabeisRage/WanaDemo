@@ -135,6 +135,96 @@ FString GetAnimationBlueprintStatusLabel(const FWanaSelectedCharacterEnhancement
     return Snapshot.bHasAnimBlueprint ? TEXT("Detected") : TEXT("Missing");
 }
 
+FString GetAnimationIntegrationStatusLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Unknown");
+    }
+
+    return Snapshot.bHasAnimBlueprint ? TEXT("Compatible") : TEXT("Limited");
+}
+
+FString GetAnimationHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Missing");
+    }
+
+    return Snapshot.bHasAnimBlueprint ? TEXT("Available") : TEXT("Limited");
+}
+
+FString GetFacingHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSelectedActor)
+    {
+        return TEXT("Missing");
+    }
+
+    return Snapshot.bHasSkeletalMeshComponent ? TEXT("Available") : TEXT("Limited");
+}
+
+FString GetTurnToTargetHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSelectedActor || !Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Missing");
+    }
+
+    return Snapshot.bHasAnimBlueprint ? TEXT("Available") : TEXT("Limited");
+}
+
+FString GetLocomotionHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSelectedActor || !Snapshot.bIsPawnActor)
+    {
+        return TEXT("Missing");
+    }
+
+    if (IsAIReadyForLightweightTesting(Snapshot) && Snapshot.bHasAnimBlueprint)
+    {
+        return TEXT("Compatible");
+    }
+
+    return TEXT("Limited");
+}
+
+FString GetReactionAnimationHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSelectedActor || !Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Missing");
+    }
+
+    if (Snapshot.bHasAnimBlueprint && (Snapshot.bHasWAYComponent || Snapshot.bHasWAIComponent))
+    {
+        return TEXT("Ready");
+    }
+
+    return TEXT("Limited");
+}
+
+FString GetAnimationIntegrationNotes(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSelectedActor)
+    {
+        return TEXT("Select a character subject to inspect how WanaWorks can layer onto the current animation setup.");
+    }
+
+    if (!Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("No skeletal animation stack was detected yet, so WanaWorks keeps animation integration in a safe visibility-only state.");
+    }
+
+    if (Snapshot.bHasAnimBlueprint)
+    {
+        return TEXT("WanaWorks can enhance facing, reaction flow, and locomotion-aware readiness around the current Animation Blueprint without replacing the asset.");
+    }
+
+    return TEXT("A skeletal mesh is present, but no Animation Blueprint was detected. WanaWorks preserves the current setup and reports only limited safe hook readiness in this phase.");
+}
+
 FString GetCompatibilityStatusLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
 {
     return Snapshot.bHasSkeletalMeshComponent && !Snapshot.bHasAnimBlueprint ? TEXT("Warning") : TEXT("Safe");

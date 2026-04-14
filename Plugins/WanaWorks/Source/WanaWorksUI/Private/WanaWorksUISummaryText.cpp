@@ -11,12 +11,13 @@ FString BuildSubjectSetupSummaryText(
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("Selected Subject: (none)\nDetected Type: Unknown / Unsupported\nCurrent Workflow: Use Original Character\nStarter Preset: Identity Only\nSafe To Enhance: Select a subject in the editor first.");
+        return TEXT("Current Subject: (none)\nSubject Source: WanaWorks picker or editor selection fallback\nDetected Type: Unknown / Unsupported\nCurrent Workflow: Use Original Character\nStarter Preset: Identity Only\nSafe To Enhance: Choose a Character Pawn or AI Pawn in WanaWorks. Editor selection still works as a fallback shortcut.");
     }
 
     return FString::Printf(
-        TEXT("Selected Subject: %s\nDetected Type: %s\nCurrent Workflow: %s\nStarter Preset: %s\nSafe To Enhance: %s"),
+        TEXT("Current Subject: %s\nSubject Source: %s\nDetected Type: %s\nCurrent Workflow: %s\nStarter Preset: %s\nSafe To Enhance: %s"),
         *Snapshot->SelectedActorLabel,
+        Snapshot->SubjectSourceLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot->SubjectSourceLabel,
         *Snapshot->ActorTypeLabel,
         WanaWorksUIFormattingUtils::GetCharacterEnhancementWorkflowLabel(WorkflowLabel),
         WanaWorksUIFormattingUtils::GetCharacterEnhancementPresetLabel(PresetLabel),
@@ -27,21 +28,81 @@ FString BuildSubjectStackSummaryText(const FWanaSelectedCharacterEnhancementSnap
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("AI Controller: Missing\nAnimation Blueprint: Unknown\nIdentity: Missing\nWAI: Missing\nWAY: Missing\nAI-Ready: No");
+        return TEXT("AI Controller: Missing\nLinked AI Controller: (not linked)\nAnimation Blueprint: Unknown\nLinked Animation Blueprint: (not linked)\nIdentity: Missing\nWAI: Missing\nWAY: Missing\nAI-Ready: No\nCompatibility Notes: Pick a project asset to inspect the stack before you create a sandbox subject.");
     }
 
     return FString::Printf(
-        TEXT("AI Controller: %s\nAnimation Blueprint: %s\nIdentity: %s\nWAI: %s\nWAY: %s\nAI-Ready: %s"),
+        TEXT("AI Controller: %s\nLinked AI Controller: %s\nAnimation Blueprint: %s\nLinked Animation Blueprint: %s\nIdentity: %s\nWAI: %s\nWAY: %s\nAI-Ready: %s\nCompatibility Notes: %s"),
         *WanaWorksUIFormattingUtils::GetAIControllerPresenceLabel(*Snapshot),
+        Snapshot->LinkedAIControllerLabel.IsEmpty() ? TEXT("(not linked)") : *Snapshot->LinkedAIControllerLabel,
         *WanaWorksUIFormattingUtils::GetAnimationBlueprintStatusLabel(*Snapshot),
+        Snapshot->LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("(not linked)") : *Snapshot->LinkedAnimationBlueprintLabel,
         Snapshot->bHasIdentityComponent ? TEXT("Present") : TEXT("Missing"),
         Snapshot->bHasWAIComponent ? TEXT("Present") : TEXT("Missing"),
         Snapshot->bHasWAYComponent ? TEXT("Present") : TEXT("Missing"),
-        WanaWorksUIFormattingUtils::IsAIReadyForLightweightTesting(*Snapshot) ? TEXT("Yes") : TEXT("No"));
+        WanaWorksUIFormattingUtils::IsAIReadyForLightweightTesting(*Snapshot) ? TEXT("Yes") : TEXT("No"),
+        *Snapshot->AIReadinessSummary);
+}
+
+FString BuildAnimationIntegrationSummaryText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot)
+{
+    if (!Snapshot || !Snapshot->bHasSelectedActor)
+    {
+        return TEXT("Animation Blueprint: Unknown\nIntegration Status: Unknown\nExisting Anim BP Preserved: Yes\nHook Readiness: Missing\nFacing Hook: Missing\nTurn-To-Target Hook: Missing\nLocomotion Hook: Missing\nReaction Animation Hook: Missing\nNotes: Choose a subject in WanaWorks to inspect safe animation integration.");
+    }
+
+    return FString::Printf(
+        TEXT("Animation Blueprint: %s\nIntegration Status: %s\nExisting Anim BP Preserved: Yes\nHook Readiness: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s\nLocomotion Hook: %s\nReaction Animation Hook: %s\nNotes: %s"),
+        *WanaWorksUIFormattingUtils::GetAnimationBlueprintStatusLabel(*Snapshot),
+        *WanaWorksUIFormattingUtils::GetAnimationIntegrationStatusLabel(*Snapshot),
+        *WanaWorksUIFormattingUtils::GetAnimationHookReadinessLabel(*Snapshot),
+        *WanaWorksUIFormattingUtils::GetFacingHookReadinessLabel(*Snapshot),
+        *WanaWorksUIFormattingUtils::GetTurnToTargetHookReadinessLabel(*Snapshot),
+        *WanaWorksUIFormattingUtils::GetLocomotionHookReadinessLabel(*Snapshot),
+        *WanaWorksUIFormattingUtils::GetReactionAnimationHookReadinessLabel(*Snapshot),
+        *WanaWorksUIFormattingUtils::GetAnimationIntegrationNotes(*Snapshot));
+}
+
+FString BuildWorkflowPresetSummaryText(
+    const FString& PresetLabel,
+    bool bIsCustomPreset,
+    bool bHasSavedCustomPreset,
+    const FString& SavedTimestamp,
+    const FString& SourceLabel,
+    const FString& WorkflowLabel,
+    const FString& EnhancementPresetLabel,
+    const FString& IdentitySeedLabel,
+    const FString& RelationshipLabel,
+    const FString& RecommendedBehaviorLabel,
+    const FString& CoverageLabel,
+    const FString& ApplyNotes,
+    const FString& PersistenceNotes)
+{
+    if (bIsCustomPreset && !bHasSavedCustomPreset)
+    {
+        return TEXT("Preset: Saved Custom Preset\nType: Custom Saved\nSaved At: Not saved yet\nWorkflow Path: (not captured)\nStarter Preset: (not captured)\nIdentity Seed: Neutral\nRelationship Default: Neutral\nRecommended Behavior: None\nCoverage: Save Current as Preset to capture the current workflow.\nNotes: The custom preset slot is empty right now.");
+    }
+
+    return FString::Printf(
+        TEXT("Preset: %s\nType: %s\nSaved At: %s\nSource Subject: %s\nWorkflow Path: %s\nStarter Preset: %s\nIdentity Seed: %s\nRelationship Default: %s\nRecommended Behavior: %s\nCoverage: %s\nNotes: %s\nPersistence: %s"),
+        PresetLabel.IsEmpty() ? TEXT("Full WanaAI Starter") : *PresetLabel,
+        bIsCustomPreset ? TEXT("Custom Saved") : TEXT("Built-In Starter"),
+        SavedTimestamp.IsEmpty() ? TEXT("Built-in") : *SavedTimestamp,
+        SourceLabel.IsEmpty() ? TEXT("(built-in preset)") : *SourceLabel,
+        WorkflowLabel.IsEmpty() ? TEXT("Use Original Character") : *WorkflowLabel,
+        EnhancementPresetLabel.IsEmpty() ? TEXT("Identity Only") : *EnhancementPresetLabel,
+        IdentitySeedLabel.IsEmpty() ? TEXT("Neutral") : *IdentitySeedLabel,
+        RelationshipLabel.IsEmpty() ? TEXT("Neutral") : *RelationshipLabel,
+        RecommendedBehaviorLabel.IsEmpty() ? TEXT("None") : *RecommendedBehaviorLabel,
+        CoverageLabel.IsEmpty() ? TEXT("Identity") : *CoverageLabel,
+        ApplyNotes.IsEmpty() ? TEXT("No notes available.") : *ApplyNotes,
+        PersistenceNotes.IsEmpty() ? TEXT("Built into the current workflow.") : *PersistenceNotes);
 }
 
 FString BuildSavedSubjectProgressSummaryText(
     bool bInitialized,
+    const FString& SavedTimestamp,
+    const FString& SubjectPath,
     const FString& SubjectLabel,
     const FString& SubjectTypeLabel,
     const FString& WorkflowLabel,
@@ -51,19 +112,25 @@ FString BuildSavedSubjectProgressSummaryText(
     const FString& IdentityResult,
     const FString& WAIResult,
     const FString& WAYResult,
-    const FString& AIReadyResult)
+    const FString& AIReadyResult,
+    const FString& ObserverLabel,
+    const FString& TargetLabel)
 {
     if (!bInitialized)
     {
-        return TEXT("Saved Subject: Not saved yet\nSaved Workflow: Use Save Progress when you want to keep this setup snapshot handy for the current Wana Works session.");
+        return TEXT("Saved Subject: Not saved yet\nSaved Workflow: Use Save Progress to keep this setup snapshot in Wana Works for later steps and future editor sessions.");
     }
 
     return FString::Printf(
-        TEXT("Saved Subject: %s\nDetected Type: %s\nWorkflow: %s\nStarter Preset: %s\nAI Controller: %s\nAnimation Blueprint: %s\nIdentity: %s\nWAI: %s\nWAY: %s\nAI-Ready: %s"),
+        TEXT("Saved At: %s\nSaved Subject: %s\nSubject Path: %s\nDetected Type: %s\nWorkflow: %s\nStarter Preset: %s\nSaved Observer: %s\nSaved Target: %s\nAI Controller: %s\nAnimation Blueprint: %s\nIdentity: %s\nWAI: %s\nWAY: %s\nAI-Ready: %s\nPersistence: Stored in editor settings for this project. Use Restore Last Saved State to bring back workflow choices and saved actor assignments."),
+        SavedTimestamp.IsEmpty() ? TEXT("Unknown") : *SavedTimestamp,
         SubjectLabel.IsEmpty() ? TEXT("(none)") : *SubjectLabel,
+        SubjectPath.IsEmpty() ? TEXT("(not stored)") : *SubjectPath,
         SubjectTypeLabel.IsEmpty() ? TEXT("Unknown / Unsupported") : *SubjectTypeLabel,
         WorkflowLabel.IsEmpty() ? TEXT("Use Original Character") : *WorkflowLabel,
         PresetLabel.IsEmpty() ? TEXT("Identity Only") : *PresetLabel,
+        ObserverLabel.IsEmpty() ? TEXT("(none saved)") : *ObserverLabel,
+        TargetLabel.IsEmpty() ? TEXT("(none saved)") : *TargetLabel,
         AIControllerResult.IsEmpty() ? TEXT("Missing") : *AIControllerResult,
         AnimationResult.IsEmpty() ? TEXT("Unknown") : *AnimationResult,
         IdentityResult.IsEmpty() ? TEXT("Missing") : *IdentityResult,
@@ -76,12 +143,13 @@ FString BuildCharacterEnhancementSummaryText(const FWanaSelectedCharacterEnhance
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("Selected Actor Name: (none)\nActor Type: (none)\nIdentity: Missing\nWAY: Missing\nWAI: Missing\nAnimation: Missing\nAI Ready: Warning\nCompatibility: Warning");
+        return TEXT("Current Subject: (none)\nSubject Source: WanaWorks picker or editor selection fallback\nActor Type: (none)\nIdentity: Missing\nWAY: Missing\nWAI: Missing\nAnimation: Missing\nAI Ready: Warning\nCompatibility: Warning");
     }
 
     return FString::Printf(
-        TEXT("Selected Actor Name: %s\nActor Type: %s\nIdentity: %s\nWAY: %s\nWAI: %s\nAnimation: %s\nAI Ready: %s\nCompatibility: %s"),
+        TEXT("Current Subject: %s\nSubject Source: %s\nActor Type: %s\nIdentity: %s\nWAY: %s\nWAI: %s\nAnimation: %s\nAI Ready: %s\nCompatibility: %s"),
         *Snapshot->SelectedActorLabel,
+        Snapshot->SubjectSourceLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot->SubjectSourceLabel,
         *Snapshot->ActorTypeLabel,
         Snapshot->bHasIdentityComponent ? TEXT("Present") : TEXT("Missing"),
         Snapshot->bHasWAYComponent ? TEXT("Present") : TEXT("Missing"),

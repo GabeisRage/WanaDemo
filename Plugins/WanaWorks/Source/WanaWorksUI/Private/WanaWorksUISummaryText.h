@@ -11,9 +11,26 @@ namespace WanaWorksUISummaryText
         const FString& PresetLabel);
 
     FString BuildSubjectStackSummaryText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot);
+    FString BuildAnimationIntegrationSummaryText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot);
+    FString BuildWorkflowPresetSummaryText(
+        const FString& PresetLabel,
+        bool bIsCustomPreset,
+        bool bHasSavedCustomPreset,
+        const FString& SavedTimestamp,
+        const FString& SourceLabel,
+        const FString& WorkflowLabel,
+        const FString& EnhancementPresetLabel,
+        const FString& IdentitySeedLabel,
+        const FString& RelationshipLabel,
+        const FString& RecommendedBehaviorLabel,
+        const FString& CoverageLabel,
+        const FString& ApplyNotes,
+        const FString& PersistenceNotes);
 
     FString BuildSavedSubjectProgressSummaryText(
         bool bInitialized,
+        const FString& SavedTimestamp,
+        const FString& SubjectPath,
         const FString& SubjectLabel,
         const FString& SubjectTypeLabel,
         const FString& WorkflowLabel,
@@ -23,7 +40,9 @@ namespace WanaWorksUISummaryText
         const FString& IdentityResult,
         const FString& WAIResult,
         const FString& WAYResult,
-        const FString& AIReadyResult);
+        const FString& AIReadyResult,
+        const FString& ObserverLabel,
+        const FString& TargetLabel);
 
     FString BuildCharacterEnhancementSummaryText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot);
     FString BuildCharacterEnhancementChainText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot);

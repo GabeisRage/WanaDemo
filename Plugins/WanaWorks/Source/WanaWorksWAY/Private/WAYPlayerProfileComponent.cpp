@@ -433,7 +433,7 @@ bool UWAYPlayerProfileComponent::ApplyBehaviorPresetHook(AActor* TargetActor, EW
         if (StartBasicReactionMovement(TargetActor, EWAYReactionState::Hostile, MovementCompatibilityDetail))
         {
             HookDescription = FString::Printf(
-                TEXT("Starter hook requested a short follow movement pulse. Movement allowed. %s"),
+                TEXT("Starter hook requested a short follow movement pulse. Movement-compatible execution was used. %s"),
                 *MovementReadiness.Detail);
             ExecutionMode = EWAYBehaviorExecutionMode::MovementAllowed;
 
@@ -449,14 +449,14 @@ bool UWAYPlayerProfileComponent::ApplyBehaviorPresetHook(AActor* TargetActor, EW
         if (MovementReadiness.bSupportsDirectActorMove && TryMoveActor(ObserverActor, SafeDirection * (BasicReactionMoveDistance * 0.75f)))
         {
             HookDescription = FString::Printf(
-                TEXT("Starter hook moved slightly toward the target with a safe actor fallback. Movement allowed. %s"),
+                TEXT("Starter hook moved slightly toward the target with a safe actor fallback. Fallback movement was used. %s"),
                 *MovementReadiness.Detail);
             ExecutionMode = EWAYBehaviorExecutionMode::FallbackActive;
             break;
         }
 
         HookDescription = FString::Printf(
-            TEXT("Starter hook faced the target, but no safe follow movement path was available. %s"),
+            TEXT("Starter hook faced the target, but no locomotion-compatible follow path was available. %s"),
             *MovementReadiness.Detail);
         ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
         break;
@@ -660,9 +660,22 @@ EWAYBehaviorPreset UWAYPlayerProfileComponent::ResolveRecommendedBehaviorForReac
 
 EWAYBehaviorExecutionMode UWAYPlayerProfileComponent::ResolveBehaviorExecutionModeForMovementReadiness(const FWanaMovementReadiness& MovementReadiness)
 {
-    return MovementReadiness.bCanAttemptMovement
-        ? EWAYBehaviorExecutionMode::MovementAllowed
-        : EWAYBehaviorExecutionMode::FacingOnly;
+    if (!MovementReadiness.bCanAttemptMovement)
+    {
+        return EWAYBehaviorExecutionMode::FacingOnly;
+    }
+
+    if (MovementReadiness.bSupportsLocomotionPulse)
+    {
+        return EWAYBehaviorExecutionMode::MovementAllowed;
+    }
+
+    if (MovementReadiness.bSupportsDirectActorMove)
+    {
+        return EWAYBehaviorExecutionMode::FallbackActive;
+    }
+
+    return EWAYBehaviorExecutionMode::FacingOnly;
 }
 
 void UWAYPlayerProfileComponent::HandleReactionChanged(AActor* ObserverActor, AActor* TargetActor, EWAYRelationshipState RelationshipState, EWAYReactionState ReactionState)
@@ -738,7 +751,7 @@ bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, E
             *OutExecutionMode = EWAYBehaviorExecutionMode::MovementAllowed;
         }
 
-        OutBehaviorDescription += FString::Printf(TEXT(" Movement allowed. %s"), *MovementReadiness.Detail);
+        OutBehaviorDescription += FString::Printf(TEXT(" Movement-compatible execution was used. %s"), *MovementReadiness.Detail);
         return true;
     }
 
@@ -762,13 +775,13 @@ bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, E
                 : ReactionState == EWAYReactionState::Cautious
                     ? TEXT("Turned toward the target and backed away slightly with a safe actor move fallback.")
                     : TEXT("Moved a little closer to the target with a safe actor move fallback and faced outward protectively.");
-            OutBehaviorDescription += FString::Printf(TEXT(" Movement allowed. %s"), *MovementReadiness.Detail);
+            OutBehaviorDescription += FString::Printf(TEXT(" Fallback movement was used. %s"), *MovementReadiness.Detail);
             return true;
         }
     }
 
     StopBasicReactionMovement();
-    OutBehaviorDescription += TEXT(" Movement was allowed, but no safe locomotion path could be applied, so the actor stayed in a facing-only response.");
+    OutBehaviorDescription += TEXT(" Movement was requested, but no locomotion-compatible path could be applied, so the actor stayed in a facing-only response.");
     return false;
 }
 
@@ -785,6 +798,17 @@ bool UWAYPlayerProfileComponent::StartBasicReactionMovement(AActor* TargetActor,
         && ReactionState != EWAYReactionState::Protective
         && ReactionState != EWAYReactionState::Cautious)
     {
+        StopBasicReactionMovement();
+        return false;
+    }
+
+    const FWanaMovementReadiness MovementReadiness = FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(GetOwner(), TargetActor);
+
+    if (!MovementReadiness.bSupportsLocomotionPulse)
+    {
+        OutBehaviorDescription += FString::Printf(
+            TEXT(" Locomotion-compatible starter movement is not available. %s"),
+            *MovementReadiness.Detail);
         StopBasicReactionMovement();
         return false;
     }

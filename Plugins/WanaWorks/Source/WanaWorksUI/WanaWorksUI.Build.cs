@@ -13,6 +13,7 @@ public class WanaWorksUI : ModuleRules
 
         PrivateDependencyModuleNames.AddRange(new[]
         {
+            "AssetRegistry",
             "CoreUObject",
             "Engine",
             "InputCore",

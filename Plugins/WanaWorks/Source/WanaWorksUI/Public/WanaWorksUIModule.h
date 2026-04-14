@@ -8,6 +8,7 @@ class AActor;
 class SDockTab;
 class FSpawnTabArgs;
 class UObject;
+class UClass;
 struct FWanaCommandResponse;
 struct FWanaSelectedCharacterEnhancementSnapshot;
 
@@ -25,9 +26,12 @@ private:
     void HandleCommandTextChanged(const FText& NewText);
     void HandleIdentityFactionTagTextChanged(const FText& NewText);
     void HandleIdentitySeedStateOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleWorkflowPresetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleEnhancementPresetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleEnhancementWorkflowOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleRelationshipStateOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleCharacterPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleAIPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
     void UpdateEnhancementResultsState(
         const FWanaSelectedCharacterEnhancementSnapshot* BeforeSnapshot,
         const FWanaSelectedCharacterEnhancementSnapshot* AfterSnapshot,
@@ -42,6 +46,10 @@ private:
     void CreateAIReadyController();
     void ConvertSelectedSubjectToAIReady();
     void SaveSubjectProgress();
+    void RestoreSavedSubjectProgress();
+    void ApplySelectedWorkflowPreset();
+    void SaveCurrentStateAsWorkflowPreset();
+    void ShowSelectedWorkflowPresetSummary();
     void ApplyCharacterEnhancement();
     void ApplyStarterAndTestTarget();
     void ScanEnvironmentReadiness();
@@ -49,22 +57,40 @@ private:
     void UseSelectedActorAsSandboxObserver();
     void UseSelectedActorAsSandboxTarget();
     void EvaluateSandboxPair();
+    void FinalizeSandboxBuild();
     void FocusSandboxObserver();
     void FocusSandboxTarget();
     void ApplySelectedRelationshipState();
+    void LoadSavedSubjectProgress();
+    void PersistSavedSubjectProgress() const;
+    void LoadSavedWorkflowPresets();
+    void PersistSavedWorkflowPresets() const;
     void RunCommand();
     void ClearLog();
     void AppendLogLine(const FString& Line);
+    TSharedPtr<FString> GetSelectedWorkflowPresetOption() const;
     TSharedPtr<FString> GetSelectedEnhancementPresetOption() const;
     TSharedPtr<FString> GetSelectedEnhancementWorkflowOption() const;
+    TSharedPtr<FString> GetSelectedCharacterPawnAssetOption() const;
+    TSharedPtr<FString> GetSelectedAIPawnAssetOption() const;
     TSharedPtr<FString> GetSelectedIdentitySeedStateOption();
     TSharedPtr<FString> GetSelectedRelationshipStateOption() const;
+    void RefreshProjectAssetPickerOptions();
+    bool ResolvePreferredSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const;
+    bool ResolvePickedSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const;
+    bool PreparePickerDrivenSubjectForWorkflow(const FString& WorkflowContextLabel, FWanaCommandResponse& OutPreparationResponse, bool& bOutSpawnedFromPicker);
+    UObject* LoadSelectedSubjectAssetObject() const;
+    UClass* LoadSelectedSubjectActorClass() const;
+    FString GetSelectedSubjectAssetPath() const;
+    bool RestoreSubjectPickerFromAssetPath(const FString& AssetPath);
 
     FText GetStatusText() const;
     FText GetCommandText() const;
     FText GetLogText() const;
+    FText GetWorkflowPresetSummaryText() const;
     FText GetSubjectSetupSummaryText() const;
     FText GetSubjectStackSummaryText() const;
+    FText GetAnimationIntegrationText() const;
     FText GetSavedSubjectProgressText() const;
     FText GetCharacterEnhancementSummaryText() const;
     FText GetCharacterEnhancementChainText() const;
@@ -86,13 +112,21 @@ private:
     FString CommandText;
     FString LogOutput;
     FString IdentityFactionTagText;
+    FString SelectedWorkflowPresetLabel;
     FString SelectedEnhancementPresetLabel;
     FString SelectedEnhancementWorkflowLabel;
+    FString SelectedCharacterPawnAssetLabel;
+    FString SelectedAIPawnAssetLabel;
     EWAYRelationshipState SelectedIdentitySeedState = EWAYRelationshipState::Neutral;
     EWAYRelationshipState SelectedRelationshipState = EWAYRelationshipState::Neutral;
+    TArray<TSharedPtr<FString>> WorkflowPresetOptions;
     TArray<TSharedPtr<FString>> EnhancementPresetOptions;
     TArray<TSharedPtr<FString>> EnhancementWorkflowOptions;
+    TArray<TSharedPtr<FString>> CharacterPawnAssetOptions;
+    TArray<TSharedPtr<FString>> AIPawnAssetOptions;
     TArray<TSharedPtr<FString>> RelationshipStateOptions;
+    TMap<FString, FString> CharacterPawnAssetPathByLabel;
+    TMap<FString, FString> AIPawnAssetPathByLabel;
     TWeakObjectPtr<AActor> CachedIdentityActor;
     TWeakObjectPtr<AActor> LastEnhancementResultsActor;
     TWeakObjectPtr<AActor> SandboxObserverActor;
@@ -112,6 +146,8 @@ private:
     bool bLastEnhancementSandboxCopyCreated = false;
     bool bLastEnhancementOriginalPreserved = true;
     bool bSavedSubjectProgressInitialized = false;
+    FString LastSavedTimestamp;
+    FString LastSavedSubjectPath;
     FString LastSavedSubjectLabel;
     FString LastSavedSubjectTypeLabel;
     FString LastSavedSubjectWorkflowLabel;
@@ -122,6 +158,21 @@ private:
     FString LastSavedSubjectWAIResult;
     FString LastSavedSubjectWAYResult;
     FString LastSavedSubjectAIReadyResult;
+    FString LastSavedObserverPath;
+    FString LastSavedObserverLabel;
+    FString LastSavedTargetPath;
+    FString LastSavedTargetLabel;
+    FString LastSavedAnimationBlueprintAssetPath;
+    FString LastSavedAnimationBlueprintAssetLabel;
+    bool bSavedWorkflowPresetInitialized = false;
+    FString LastSavedWorkflowPresetTimestamp;
+    FString LastSavedWorkflowPresetSourceLabel;
+    FString LastSavedWorkflowPresetWorkflowLabel;
+    FString LastSavedWorkflowPresetEnhancementPresetLabel;
+    FString LastSavedWorkflowPresetIdentitySeedLabel;
+    FString LastSavedWorkflowPresetRelationshipLabel;
+    FString LastSavedWorkflowPresetBehaviorLabel;
+    FString LastSavedWorkflowPresetFactionTag;
 
     static const FName WanaWorksTabName;
 };

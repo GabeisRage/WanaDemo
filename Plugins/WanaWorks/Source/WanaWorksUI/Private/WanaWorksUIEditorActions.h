@@ -6,6 +6,8 @@
 #include "WAYRelationshipTypes.h"
 
 class AActor;
+class UAnimBlueprint;
+class UObject;
 
 struct FWanaSelectedActorIdentitySnapshot
 {
@@ -21,6 +23,7 @@ struct FWanaSelectedActorIdentitySnapshot
 struct FWanaSelectedCharacterEnhancementSnapshot
 {
     bool bHasSelectedActor = false;
+    bool bIsProjectAsset = false;
     bool bHasIdentityComponent = false;
     bool bHasWAIComponent = false;
     bool bHasWAYComponent = false;
@@ -31,7 +34,11 @@ struct FWanaSelectedCharacterEnhancementSnapshot
     bool bHasAnimBlueprint = false;
     TWeakObjectPtr<AActor> SelectedActor;
     FString SelectedActorLabel;
+    FString SubjectSourceLabel;
+    FString SubjectAssetPath;
     FString ActorTypeLabel;
+    FString LinkedAnimationBlueprintLabel;
+    FString LinkedAIControllerLabel;
     FString AnimationCompatibilitySummary;
     FString AIReadinessSummary;
 };
@@ -86,6 +93,7 @@ namespace WanaWorksUIEditorActions
     bool GetSelectedActorIdentitySnapshot(FWanaSelectedActorIdentitySnapshot& OutSnapshot);
     bool GetSelectedCharacterEnhancementSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot);
     bool GetCharacterEnhancementSnapshotForActor(const AActor* Actor, FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot);
+    bool GetCharacterEnhancementSnapshotForSubjectObject(const UObject* SubjectObject, FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot);
     bool GetSelectedRelationshipContextSnapshot(FWanaSelectedRelationshipContextSnapshot& OutSnapshot);
     bool GetEnvironmentReadinessSnapshotForActorPair(const AActor* ObserverActor, const AActor* TargetActor, bool bTargetFallsBackToObserver, const FString& PairSourceLabel, FWanaEnvironmentReadinessSnapshot& OutSnapshot);
     bool GetBehaviorResultsSnapshotForActorPair(const AActor* ObserverActor, const AActor* TargetActor, bool bTargetFallsBackToObserver, const FString& PairSourceLabel, FWanaBehaviorResultsSnapshot& OutSnapshot);
@@ -104,6 +112,8 @@ namespace WanaWorksUIEditorActions
     FWanaCommandResponse ExecuteApplyIdentityCommand(const FString& FactionTagText, EWAYRelationshipState DefaultRelationshipState);
     FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& PresetLabel);
     FWanaCommandResponse ExecuteCreateSandboxDuplicateCommand();
+    FWanaCommandResponse ExecuteCreateSandboxSubjectFromAssetCommand(const UObject* SubjectObject, const UAnimBlueprint* AnimationBlueprintOverride = nullptr);
+    FWanaCommandResponse ExecuteCreateFinalizedBuildSubjectFromAssetCommand(const UObject* SubjectObject, const UAnimBlueprint* AnimationBlueprintOverride = nullptr);
     FWanaCommandResponse ExecutePrepareSelectedActorForAITestCommand();
     FWanaCommandResponse ExecuteEvaluateLiveTargetCommand();
     FWanaCommandResponse ExecuteEvaluateActorPairCommand(AActor* ObserverActor, AActor* TargetActor, bool bTargetFallsBackToObserver = false);

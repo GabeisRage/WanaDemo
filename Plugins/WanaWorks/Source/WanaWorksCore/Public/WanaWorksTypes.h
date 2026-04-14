@@ -49,6 +49,12 @@ struct WANAWORKSCORE_API FWanaMovementReadiness
     bool bSupportsDirectActorMove = false;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WIT")
+    bool bSupportsLocomotionPulse = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WIT")
+    bool bAnimationDrivenLocomotionDetected = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WIT")
     float DistanceToTarget = 0.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WIT")

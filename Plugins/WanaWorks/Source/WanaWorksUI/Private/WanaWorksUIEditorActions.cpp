@@ -1,6 +1,8 @@
 #include "WanaWorksUIEditorActions.h"
 
 #include "Editor.h"
+#include "Animation/AnimBlueprint.h"
+#include "Animation/AnimInstance.h"
 #include "Components/ActorComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -8,9 +10,11 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
+#include "Engine/Blueprint.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
 #include "ScopedTransaction.h"
+#include "UObject/SoftObjectPath.h"
 #include "WAIPersonalityComponent.h"
 #include "WAYPlayerProfileComponent.h"
 #include "WanaIdentityComponent.h"
@@ -277,6 +281,57 @@ FString GetActorTypeLabel(
     return TEXT("Unknown / Unsupported");
 }
 
+FString GetAnimBlueprintLabelFromActor(const AActor* Actor)
+{
+    if (!Actor)
+    {
+        return TEXT("(not linked)");
+    }
+
+    TArray<USkeletalMeshComponent*> SkeletalMeshComponents;
+    Actor->GetComponents<USkeletalMeshComponent>(SkeletalMeshComponents);
+
+    for (const USkeletalMeshComponent* SkeletalMeshComponent : SkeletalMeshComponents)
+    {
+        if (!SkeletalMeshComponent)
+        {
+            continue;
+        }
+
+        if (const UClass* AnimClass = const_cast<USkeletalMeshComponent*>(SkeletalMeshComponent)->GetAnimClass())
+        {
+            return AnimClass->GetName();
+        }
+
+        if (const UAnimInstance* AnimInstance = SkeletalMeshComponent->GetAnimInstance())
+        {
+            return AnimInstance->GetClass()->GetName();
+        }
+    }
+
+    return TEXT("(not linked)");
+}
+
+FString GetAIControllerLabelFromActor(const AActor* Actor)
+{
+    const APawn* Pawn = Cast<APawn>(Actor);
+
+    if (!Pawn || !Pawn->AIControllerClass)
+    {
+        return TEXT("(not linked)");
+    }
+
+    return Pawn->AIControllerClass->GetName();
+}
+
+FString BuildFinalizedActorLabel(const FString& SourceLabel)
+{
+    FString BaseLabel = SourceLabel;
+    BaseLabel.RemoveFromStart(TEXT("WW_Sandbox_"));
+    BaseLabel.RemoveFromStart(TEXT("WW_Final_"));
+    return FString::Printf(TEXT("WW_Final_%s"), *BaseLabel);
+}
+
 FString MakeAnimationCompatibilitySummary(bool bHasSkeletalMeshComponent, bool bHasAnimBlueprint)
 {
     if (!bHasSkeletalMeshComponent)
@@ -324,6 +379,8 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
     OutSnapshot.bHasSelectedActor = true;
     OutSnapshot.SelectedActor = const_cast<AActor*>(Actor);
     OutSnapshot.SelectedActorLabel = Actor->GetActorNameOrLabel();
+    OutSnapshot.SubjectSourceLabel = TEXT("Editor Selection");
+    OutSnapshot.SubjectAssetPath = FSoftObjectPath(Actor).ToString();
     OutSnapshot.bHasIdentityComponent = Actor->FindComponentByClass<UWanaIdentityComponent>() != nullptr;
     OutSnapshot.bHasWAIComponent = Actor->FindComponentByClass<UWAIPersonalityComponent>() != nullptr;
     OutSnapshot.bHasWAYComponent = Actor->FindComponentByClass<UWAYPlayerProfileComponent>() != nullptr;
@@ -355,8 +412,47 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
         OutSnapshot.bHasAIControllerClass,
         OutSnapshot.bAutoPossessAIEnabled,
         OutSnapshot.bHasSkeletalMeshComponent);
+    OutSnapshot.LinkedAnimationBlueprintLabel = GetAnimBlueprintLabelFromActor(Actor);
+    OutSnapshot.LinkedAIControllerLabel = GetAIControllerLabelFromActor(Actor);
     OutSnapshot.AnimationCompatibilitySummary = MakeAnimationCompatibilitySummary(OutSnapshot.bHasSkeletalMeshComponent, OutSnapshot.bHasAnimBlueprint);
     OutSnapshot.AIReadinessSummary = MakeAIReadinessSummary(OutSnapshot.bIsPawnActor, OutSnapshot.bAutoPossessAIEnabled, OutSnapshot.bHasAIControllerClass);
+    return true;
+}
+
+bool BuildCharacterEnhancementSnapshotFromSubjectObject(const UObject* SubjectObject, FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot)
+{
+    OutSnapshot = FWanaSelectedCharacterEnhancementSnapshot();
+
+    if (!SubjectObject)
+    {
+        return false;
+    }
+
+    if (const AActor* Actor = Cast<AActor>(SubjectObject))
+    {
+        return BuildCharacterEnhancementSnapshot(Actor, OutSnapshot);
+    }
+
+    const UBlueprint* BlueprintAsset = Cast<UBlueprint>(SubjectObject);
+    const UClass* SubjectClass = BlueprintAsset ? BlueprintAsset->GeneratedClass : Cast<UClass>(SubjectObject);
+
+    if (!SubjectClass || !SubjectClass->IsChildOf(AActor::StaticClass()))
+    {
+        return false;
+    }
+
+    const AActor* DefaultActor = Cast<AActor>(SubjectClass->GetDefaultObject());
+
+    if (!DefaultActor || !BuildCharacterEnhancementSnapshot(DefaultActor, OutSnapshot))
+    {
+        return false;
+    }
+
+    OutSnapshot.SelectedActor = nullptr;
+    OutSnapshot.bIsProjectAsset = true;
+    OutSnapshot.SubjectSourceLabel = TEXT("Project Asset Picker");
+    OutSnapshot.SubjectAssetPath = FSoftObjectPath(SubjectObject).ToString();
+    OutSnapshot.SelectedActorLabel = SubjectObject->GetName();
     return true;
 }
 
@@ -714,6 +810,11 @@ bool GetSelectedCharacterEnhancementSnapshot(FWanaSelectedCharacterEnhancementSn
 bool GetCharacterEnhancementSnapshotForActor(const AActor* Actor, FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot)
 {
     return BuildCharacterEnhancementSnapshot(Actor, OutSnapshot);
+}
+
+bool GetCharacterEnhancementSnapshotForSubjectObject(const UObject* SubjectObject, FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot)
+{
+    return BuildCharacterEnhancementSnapshotFromSubjectObject(SubjectObject, OutSnapshot);
 }
 
 bool GetSelectedRelationshipContextSnapshot(FWanaSelectedRelationshipContextSnapshot& OutSnapshot)
@@ -1550,6 +1651,238 @@ FWanaCommandResponse ExecuteCreateSandboxDuplicateCommand()
     Response.OutputLines.Add(FString::Printf(TEXT("Active Subject: %s"), *DuplicateActor->GetActorNameOrLabel()));
     Response.OutputLines.Add(TEXT("Compatibility Notes: The original actor was left untouched."));
     Response.OutputLines.Add(TEXT("Compatibility Notes: The sandbox copy was placed in the WanaWorks/Sandbox folder and selected for continued setup."));
+    return Response;
+}
+
+FWanaCommandResponse ExecuteCreateSandboxSubjectFromAssetCommand(const UObject* SubjectObject, const UAnimBlueprint* AnimationBlueprintOverride)
+{
+    if (!SubjectObject)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: No subject asset selected."), TEXT("Choose a Character Pawn or AI Pawn asset in Wana Works before creating a sandbox subject."));
+    }
+
+    const UBlueprint* SubjectBlueprint = Cast<UBlueprint>(SubjectObject);
+    const UClass* SubjectClass = SubjectBlueprint ? SubjectBlueprint->GeneratedClass : Cast<UClass>(SubjectObject);
+
+    if (!SubjectClass || !SubjectClass->IsChildOf(AActor::StaticClass()))
+    {
+        return MakeEditorFailureResponse(TEXT("Status: Invalid subject asset."), TEXT("The selected asset is not a Character Pawn or AI Pawn that can be spawned into the editor world."));
+    }
+
+    if (!GEditor)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: Editor world is unavailable."), TEXT("Could not create a sandbox subject because GEditor is unavailable."));
+    }
+
+    UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
+
+    if (!EditorWorld)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: Editor world is unavailable."), TEXT("Could not resolve the current editor world for sandbox subject creation."));
+    }
+
+    ULevel* TargetLevel = EditorWorld->GetCurrentLevel();
+
+    if (!TargetLevel)
+    {
+        TargetLevel = EditorWorld->PersistentLevel.Get();
+    }
+
+    if (!TargetLevel)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: Sandbox subject failed."), TEXT("Could not resolve a target editor level for sandbox subject creation."));
+    }
+
+    FTransform SpawnTransform(FRotator::ZeroRotator, FVector(0.0f, 0.0f, 120.0f));
+
+    if (const AActor* FirstSelectedActor = GetFirstSelectedActor())
+    {
+        SpawnTransform = FirstSelectedActor->GetActorTransform();
+        SpawnTransform.AddToTranslation(FVector(180.0f, 0.0f, 0.0f));
+    }
+
+    FScopedTransaction Transaction(LOCTEXT("WanaWorksCreateSandboxSubjectFromAssetTransaction", "Create WanaWorks Sandbox Subject From Asset"));
+    AActor* SpawnedActor = GEditor->AddActor(TargetLevel, const_cast<UClass*>(SubjectClass), SpawnTransform);
+
+    if (!SpawnedActor)
+    {
+        Transaction.Cancel();
+        return MakeEditorFailureResponse(TEXT("Status: Sandbox subject failed."), TEXT("Could not spawn a sandbox subject from the selected project asset."));
+    }
+
+    SpawnedActor->SetFlags(RF_Transactional);
+    SpawnedActor->Modify();
+    SpawnedActor->SetActorLabel(FString::Printf(TEXT("WW_Sandbox_%s"), *SubjectObject->GetName()), true);
+    SpawnedActor->SetFolderPath(FName(TEXT("WanaWorks/Sandbox")));
+
+    bool bAppliedAnimationOverride = false;
+
+    if (AnimationBlueprintOverride && AnimationBlueprintOverride->GeneratedClass)
+    {
+        TArray<USkeletalMeshComponent*> SkeletalMeshComponents;
+        SpawnedActor->GetComponents<USkeletalMeshComponent>(SkeletalMeshComponents);
+
+        for (USkeletalMeshComponent* SkeletalMeshComponent : SkeletalMeshComponents)
+        {
+            if (!SkeletalMeshComponent)
+            {
+                continue;
+            }
+
+            SkeletalMeshComponent->Modify();
+            SkeletalMeshComponent->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+            SkeletalMeshComponent->SetAnimInstanceClass(AnimationBlueprintOverride->GeneratedClass);
+            bAppliedAnimationOverride = true;
+        }
+    }
+
+    SpawnedActor->MarkPackageDirty();
+
+    GEditor->SelectNone(false, true, false);
+    GEditor->SelectActor(SpawnedActor, true, true, true);
+    GEditor->NoteSelectionChange();
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = true;
+    Response.StatusMessage = TEXT("Status: Created sandbox subject from project asset.");
+    Response.OutputLines.Add(FString::Printf(TEXT("Picked Subject Asset: %s"), *SubjectObject->GetName()));
+    Response.OutputLines.Add(TEXT("Workflow Path: Project Asset Picker -> Sandbox Subject"));
+    Response.OutputLines.Add(FString::Printf(TEXT("Active Subject: %s"), *SpawnedActor->GetActorNameOrLabel()));
+    Response.OutputLines.Add(TEXT("Subject Mode: Sandbox subject"));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: WanaWorks created a sandbox-first subject from the picked project asset without changing the original asset."));
+
+    if (AnimationBlueprintOverride)
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Picked Animation Blueprint: %s"), *AnimationBlueprintOverride->GetName()));
+        Response.OutputLines.Add(FString::Printf(
+            TEXT("Animation Override Applied: %s"),
+            bAppliedAnimationOverride ? TEXT("Yes") : TEXT("Not applied (no compatible skeletal mesh component found)")));
+    }
+    else
+    {
+        Response.OutputLines.Add(TEXT("Picked Animation Blueprint: Auto-detect from subject"));
+    }
+
+    return Response;
+}
+
+FWanaCommandResponse ExecuteCreateFinalizedBuildSubjectFromAssetCommand(const UObject* SubjectObject, const UAnimBlueprint* AnimationBlueprintOverride)
+{
+    if (!SubjectObject)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: No subject available for build."), TEXT("Choose a Character Pawn or AI Pawn in Wana Works, or prepare a sandbox subject first, before building a final version."));
+    }
+
+    const UBlueprint* SubjectBlueprint = Cast<UBlueprint>(SubjectObject);
+    const UClass* SubjectClass = SubjectBlueprint ? SubjectBlueprint->GeneratedClass : Cast<UClass>(SubjectObject);
+
+    if (!SubjectClass || !SubjectClass->IsChildOf(AActor::StaticClass()))
+    {
+        return MakeEditorFailureResponse(TEXT("Status: Invalid build source."), TEXT("The current sandbox workflow source is not a Character Pawn or AI Pawn that can be built into the editor world."));
+    }
+
+    if (!GEditor)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: Editor world is unavailable."), TEXT("Could not build a finalized subject because GEditor is unavailable."));
+    }
+
+    UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
+
+    if (!EditorWorld)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: Editor world is unavailable."), TEXT("Could not resolve the current editor world for final build creation."));
+    }
+
+    ULevel* TargetLevel = EditorWorld->GetCurrentLevel();
+
+    if (!TargetLevel)
+    {
+        TargetLevel = EditorWorld->PersistentLevel.Get();
+    }
+
+    if (!TargetLevel)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: Final build failed."), TEXT("Could not resolve a target editor level for the finalized build output."));
+    }
+
+    FTransform SpawnTransform(FRotator::ZeroRotator, FVector(0.0f, 0.0f, 120.0f));
+
+    if (const AActor* FirstSelectedActor = GetFirstSelectedActor())
+    {
+        SpawnTransform = FirstSelectedActor->GetActorTransform();
+        SpawnTransform.AddToTranslation(FVector(360.0f, 0.0f, 0.0f));
+    }
+
+    FScopedTransaction Transaction(LOCTEXT("WanaWorksCreateFinalizedBuildTransaction", "Create WanaWorks Finalized Build"));
+    AActor* SpawnedActor = GEditor->AddActor(TargetLevel, const_cast<UClass*>(SubjectClass), SpawnTransform);
+
+    if (!SpawnedActor)
+    {
+        Transaction.Cancel();
+        return MakeEditorFailureResponse(TEXT("Status: Final build failed."), TEXT("Could not create the finalized build output from the current sandbox workflow source."));
+    }
+
+    SpawnedActor->SetFlags(RF_Transactional);
+    SpawnedActor->Modify();
+    SpawnedActor->SetActorLabel(BuildFinalizedActorLabel(SubjectObject->GetName()), true);
+    SpawnedActor->SetFolderPath(FName(TEXT("WanaWorks/Builds")));
+
+    bool bAppliedAnimationOverride = false;
+
+    if (AnimationBlueprintOverride && AnimationBlueprintOverride->GeneratedClass)
+    {
+        TArray<USkeletalMeshComponent*> SkeletalMeshComponents;
+        SpawnedActor->GetComponents<USkeletalMeshComponent>(SkeletalMeshComponents);
+
+        for (USkeletalMeshComponent* SkeletalMeshComponent : SkeletalMeshComponents)
+        {
+            if (!SkeletalMeshComponent)
+            {
+                continue;
+            }
+
+            SkeletalMeshComponent->Modify();
+            SkeletalMeshComponent->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+            SkeletalMeshComponent->SetAnimInstanceClass(AnimationBlueprintOverride->GeneratedClass);
+            bAppliedAnimationOverride = true;
+        }
+    }
+
+    SpawnedActor->MarkPackageDirty();
+
+    GEditor->SelectNone(false, true, false);
+    GEditor->SelectActor(SpawnedActor, true, true, true);
+    GEditor->NoteSelectionChange();
+
+    const FString OutputFolder = SpawnedActor->GetFolderPath().ToString();
+    const FString OutputPath = FString::Printf(
+        TEXT("%s/%s"),
+        OutputFolder.IsEmpty() ? TEXT("WanaWorks/Builds") : *OutputFolder,
+        *SpawnedActor->GetActorNameOrLabel());
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = true;
+    Response.StatusMessage = TEXT("Status: Created finalized build output.");
+    Response.OutputLines.Add(FString::Printf(TEXT("Source Asset: %s"), *SubjectObject->GetName()));
+    Response.OutputLines.Add(TEXT("Workflow Path: Sandbox Subject -> Final Build"));
+    Response.OutputLines.Add(FString::Printf(TEXT("Finalized Output: %s"), *SpawnedActor->GetActorNameOrLabel()));
+    Response.OutputLines.Add(FString::Printf(TEXT("Finalized Output Path: %s"), *OutputPath));
+    Response.OutputLines.Add(TEXT("Build Mode: Finalized upgraded subject"));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: The original source was left untouched."));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: The sandbox working subject remains available for continued testing."));
+
+    if (AnimationBlueprintOverride)
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Picked Animation Blueprint: %s"), *AnimationBlueprintOverride->GetName()));
+        Response.OutputLines.Add(FString::Printf(
+            TEXT("Animation Override Applied: %s"),
+            bAppliedAnimationOverride ? TEXT("Yes") : TEXT("Not applied (no compatible skeletal mesh component found)")));
+    }
+    else
+    {
+        Response.OutputLines.Add(TEXT("Picked Animation Blueprint: Auto-detect from subject"));
+    }
+
     return Response;
 }
 
