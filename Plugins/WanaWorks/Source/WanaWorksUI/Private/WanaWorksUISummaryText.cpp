@@ -279,12 +279,18 @@ FString BuildBehaviorResultsText(const FWanaBehaviorResultsSnapshot& Snapshot)
     const FString ExecutionModeLabel = Snapshot.bHasWAYComponent
         ? WanaWorksUIFormattingUtils::GetBehaviorExecutionModeSummaryLabel(Snapshot.ExecutionMode)
         : TEXT("Unknown");
+    const FString VisibleBehaviorLabel = Snapshot.VisibleBehaviorLabel.IsEmpty()
+        ? TEXT("(not applied yet)")
+        : Snapshot.VisibleBehaviorLabel;
+    const FString ResultNotesLabel = Snapshot.BehaviorExecutionDetail.IsEmpty()
+        ? TEXT("No visible behavior has been applied to this target yet.")
+        : Snapshot.BehaviorExecutionDetail;
     const FString AnimationHookApplicationLabel = WanaWorksUIFormattingUtils::GetAnimationHookApplicationStatusLabel(Snapshot.AnimationHookApplicationStatus);
     const FString FacingHookLabel = WanaWorksUIFormattingUtils::GetAnimationHookRequestSummaryLabel(Snapshot.bAnimationFacingHookRequested);
     const FString TurnToTargetHookLabel = WanaWorksUIFormattingUtils::GetAnimationHookRequestSummaryLabel(Snapshot.bAnimationTurnToTargetRequested);
 
     return FString::Printf(
-        TEXT("Observer: %s\nTarget: %s%s\nRelationship State: %s\nReaction State: %s\nRecommended Behavior: %s\nStarter Hook Available: %s\nLast Applied Hook: %s\nExecution Mode: %s\nAnimation Hook Application: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s"),
+        TEXT("Observer: %s\nTarget: %s%s\nRelationship State: %s\nReaction State: %s\nRecommended Behavior: %s\nStarter Hook Available: %s\nVisible Behavior: %s\nLast Applied Hook: %s\nExecution Mode: %s\nResult Notes: %s\nAnimation Hook Application: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s"),
         Snapshot.bHasObserverActor ? *Snapshot.ObserverActorLabel : TEXT("(not assigned)"),
         Snapshot.bHasTargetActor ? *Snapshot.TargetActorLabel : TEXT("(not assigned)"),
         Snapshot.bTargetFallsBackToObserver ? TEXT(" (observer fallback)") : TEXT(""),
@@ -292,8 +298,10 @@ FString BuildBehaviorResultsText(const FWanaBehaviorResultsSnapshot& Snapshot)
         *ReactionStateLabel,
         *RecommendedBehaviorLabel,
         Snapshot.bStarterHookAvailable ? TEXT("Yes") : TEXT("No"),
+        *VisibleBehaviorLabel,
         *LastAppliedHookLabel,
         *ExecutionModeLabel,
+        *ResultNotesLabel,
         *AnimationHookApplicationLabel,
         *FacingHookLabel,
         *TurnToTargetHookLabel);
