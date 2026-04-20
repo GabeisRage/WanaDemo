@@ -44,6 +44,14 @@ enum class EWAYBehaviorExecutionMode : uint8
     FallbackActive UMETA(DisplayName = "Fallback Active")
 };
 
+UENUM(BlueprintType)
+enum class EWAYAnimationHookApplicationStatus : uint8
+{
+    NotAvailable UMETA(DisplayName = "Not Available"),
+    Limited UMETA(DisplayName = "Limited"),
+    Active UMETA(DisplayName = "Active")
+};
+
 USTRUCT(BlueprintType)
 struct WANAWORKSWAY_API FWAYRelationshipSeed
 {
@@ -111,4 +119,46 @@ struct WANAWORKSWAY_API FWAYTargetEvaluation
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY")
     EWAYBehaviorPreset RecommendedBehavior = EWAYBehaviorPreset::None;
+};
+
+USTRUCT(BlueprintType)
+struct WANAWORKSWAY_API FWAYAnimationHookState
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    bool bHookStateValid = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    bool bFacingHookRequested = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    bool bTurnToTargetRequested = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    bool bLocomotionSafeExecutionHint = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    AActor* TargetActor = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    FVector TargetWorldLocation = FVector::ZeroVector;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    float TargetDistance = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    EWAYReactionState ReactionState = EWAYReactionState::Observational;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    EWAYBehaviorPreset RecommendedBehavior = EWAYBehaviorPreset::None;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    EWAYBehaviorExecutionMode ExecutionMode = EWAYBehaviorExecutionMode::Unknown;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    EWAYAnimationHookApplicationStatus ApplicationStatus = EWAYAnimationHookApplicationStatus::NotAvailable;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    FString Detail = TEXT("Animation hook state is not initialized.");
 };

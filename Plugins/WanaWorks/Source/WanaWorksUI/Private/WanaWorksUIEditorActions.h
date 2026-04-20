@@ -41,6 +41,11 @@ struct FWanaSelectedCharacterEnhancementSnapshot
     FString LinkedAIControllerLabel;
     FString AnimationCompatibilitySummary;
     FString AIReadinessSummary;
+    bool bAnimationFacingHookRequested = false;
+    bool bAnimationTurnToTargetRequested = false;
+    bool bAnimationLocomotionHintSafe = false;
+    EWAYAnimationHookApplicationStatus AnimationHookApplicationStatus = EWAYAnimationHookApplicationStatus::NotAvailable;
+    FString AnimationHookDetail;
 };
 
 struct FWanaSelectedRelationshipContextSnapshot
@@ -86,6 +91,13 @@ struct FWanaBehaviorResultsSnapshot
     EWAYBehaviorPreset RecommendedBehavior = EWAYBehaviorPreset::None;
     EWAYBehaviorPreset LastAppliedHook = EWAYBehaviorPreset::None;
     EWAYBehaviorExecutionMode ExecutionMode = EWAYBehaviorExecutionMode::Unknown;
+    FString VisibleBehaviorLabel;
+    FString BehaviorExecutionDetail;
+    bool bAnimationFacingHookRequested = false;
+    bool bAnimationTurnToTargetRequested = false;
+    bool bAnimationLocomotionHintSafe = false;
+    EWAYAnimationHookApplicationStatus AnimationHookApplicationStatus = EWAYAnimationHookApplicationStatus::NotAvailable;
+    FString AnimationHookDetail;
 };
 
 namespace WanaWorksUIEditorActions

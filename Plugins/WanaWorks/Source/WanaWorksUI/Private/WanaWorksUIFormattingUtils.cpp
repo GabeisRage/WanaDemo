@@ -142,11 +142,29 @@ FString GetAnimationIntegrationStatusLabel(const FWanaSelectedCharacterEnhanceme
         return TEXT("Unknown");
     }
 
+    if (Snapshot.AnimationHookApplicationStatus == EWAYAnimationHookApplicationStatus::Active)
+    {
+        return TEXT("Compatible");
+    }
+
     return Snapshot.bHasAnimBlueprint ? TEXT("Compatible") : TEXT("Limited");
+}
+
+FString GetAnimationHookApplicationStatusLabel(EWAYAnimationHookApplicationStatus ApplicationStatus)
+{
+    const UEnum* ApplicationStatusEnum = StaticEnum<EWAYAnimationHookApplicationStatus>();
+    return ApplicationStatusEnum
+        ? ApplicationStatusEnum->GetDisplayNameTextByValue(static_cast<int64>(ApplicationStatus)).ToString()
+        : TEXT("Not Available");
 }
 
 FString GetAnimationHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
 {
+    if (Snapshot.AnimationHookApplicationStatus == EWAYAnimationHookApplicationStatus::Active)
+    {
+        return TEXT("Active");
+    }
+
     if (!Snapshot.bHasSkeletalMeshComponent)
     {
         return TEXT("Missing");
@@ -162,6 +180,11 @@ FString GetFacingHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnaps
         return TEXT("Missing");
     }
 
+    if (Snapshot.AnimationHookApplicationStatus == EWAYAnimationHookApplicationStatus::Active && Snapshot.bAnimationFacingHookRequested)
+    {
+        return TEXT("Active");
+    }
+
     return Snapshot.bHasSkeletalMeshComponent ? TEXT("Available") : TEXT("Limited");
 }
 
@@ -170,6 +193,11 @@ FString GetTurnToTargetHookReadinessLabel(const FWanaSelectedCharacterEnhancemen
     if (!Snapshot.bHasSelectedActor || !Snapshot.bHasSkeletalMeshComponent)
     {
         return TEXT("Missing");
+    }
+
+    if (Snapshot.AnimationHookApplicationStatus == EWAYAnimationHookApplicationStatus::Active && Snapshot.bAnimationTurnToTargetRequested)
+    {
+        return TEXT("Active");
     }
 
     return Snapshot.bHasAnimBlueprint ? TEXT("Available") : TEXT("Limited");
@@ -184,7 +212,7 @@ FString GetLocomotionHookReadinessLabel(const FWanaSelectedCharacterEnhancementS
 
     if (IsAIReadyForLightweightTesting(Snapshot) && Snapshot.bHasAnimBlueprint)
     {
-        return TEXT("Compatible");
+        return Snapshot.bAnimationLocomotionHintSafe ? TEXT("Compatible") : TEXT("Limited");
     }
 
     return TEXT("Limited");
@@ -219,10 +247,20 @@ FString GetAnimationIntegrationNotes(const FWanaSelectedCharacterEnhancementSnap
 
     if (Snapshot.bHasAnimBlueprint)
     {
+        if (!Snapshot.AnimationHookDetail.IsEmpty())
+        {
+            return Snapshot.AnimationHookDetail;
+        }
+
         return TEXT("WanaWorks can enhance facing, reaction flow, and locomotion-aware readiness around the current Animation Blueprint without replacing the asset.");
     }
 
     return TEXT("A skeletal mesh is present, but no Animation Blueprint was detected. WanaWorks preserves the current setup and reports only limited safe hook readiness in this phase.");
+}
+
+FString GetAnimationHookRequestSummaryLabel(bool bRequested)
+{
+    return bRequested ? TEXT("Requested") : TEXT("Idle");
 }
 
 FString GetCompatibilityStatusLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)

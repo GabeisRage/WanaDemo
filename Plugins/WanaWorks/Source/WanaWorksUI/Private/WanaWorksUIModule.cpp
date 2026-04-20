@@ -2439,6 +2439,13 @@ FText FWanaWorksUIModule::GetAnimationIntegrationText() const
     return FText::FromString(UISummary::BuildAnimationIntegrationSummaryText(bHasSnapshot ? &Snapshot : nullptr));
 }
 
+FText FWanaWorksUIModule::GetAnimationHookUsageText() const
+{
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+    const bool bHasSnapshot = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
+    return FText::FromString(UISummary::BuildAnimationHookUsageText(bHasSnapshot ? &Snapshot : nullptr));
+}
+
 FText FWanaWorksUIModule::GetSavedSubjectProgressText() const
 {
     return FText::FromString(UISummary::BuildSavedSubjectProgressSummaryText(
@@ -2639,6 +2646,7 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetSubjectSetupSummaryText = [this]() { return GetSubjectSetupSummaryText(); };
     BuilderArgs.GetSubjectStackSummaryText = [this]() { return GetSubjectStackSummaryText(); };
     BuilderArgs.GetAnimationIntegrationText = [this]() { return GetAnimationIntegrationText(); };
+    BuilderArgs.GetAnimationHookUsageText = [this]() { return GetAnimationHookUsageText(); };
     BuilderArgs.GetSavedSubjectProgressText = [this]() { return GetSavedSubjectProgressText(); };
     BuilderArgs.GetCharacterEnhancementSummaryText = [this]() { return GetCharacterEnhancementSummaryText(); };
     BuilderArgs.GetCharacterEnhancementChainText = [this]() { return GetCharacterEnhancementChainText(); };

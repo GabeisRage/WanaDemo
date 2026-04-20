@@ -65,6 +65,19 @@ FString GetBehaviorExecutionModeDisplayLabel(EWAYBehaviorExecutionMode Execution
         : TEXT("Unknown");
 }
 
+FString GetAnimationHookApplicationStatusDisplayLabel(EWAYAnimationHookApplicationStatus ApplicationStatus)
+{
+    const UEnum* ApplicationStatusEnum = StaticEnum<EWAYAnimationHookApplicationStatus>();
+    return ApplicationStatusEnum
+        ? ApplicationStatusEnum->GetDisplayNameTextByValue(static_cast<int64>(ApplicationStatus)).ToString()
+        : TEXT("Not Available");
+}
+
+const TCHAR* GetAnimationHookRequestDisplayLabel(bool bRequested)
+{
+    return bRequested ? TEXT("Requested") : TEXT("Idle");
+}
+
 bool TryParseRelationshipState(const FString& RelationshipStateText, EWAYRelationshipState& OutRelationshipState)
 {
     const FString NormalizedRelationshipState = RelationshipStateText.TrimStartAndEnd().ToLower();
@@ -416,6 +429,35 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
     OutSnapshot.LinkedAIControllerLabel = GetAIControllerLabelFromActor(Actor);
     OutSnapshot.AnimationCompatibilitySummary = MakeAnimationCompatibilitySummary(OutSnapshot.bHasSkeletalMeshComponent, OutSnapshot.bHasAnimBlueprint);
     OutSnapshot.AIReadinessSummary = MakeAIReadinessSummary(OutSnapshot.bIsPawnActor, OutSnapshot.bAutoPossessAIEnabled, OutSnapshot.bHasAIControllerClass);
+
+    if (const UWAYPlayerProfileComponent* WAYComponent = Actor->FindComponentByClass<UWAYPlayerProfileComponent>())
+    {
+        const FWAYAnimationHookState AnimationHookState = WAYComponent->GetCurrentAnimationHookState();
+        OutSnapshot.bAnimationFacingHookRequested = AnimationHookState.bFacingHookRequested;
+        OutSnapshot.bAnimationTurnToTargetRequested = AnimationHookState.bTurnToTargetRequested;
+        OutSnapshot.bAnimationLocomotionHintSafe = AnimationHookState.bLocomotionSafeExecutionHint;
+        OutSnapshot.AnimationHookApplicationStatus = AnimationHookState.ApplicationStatus;
+        OutSnapshot.AnimationHookDetail = AnimationHookState.Detail;
+
+        if (OutSnapshot.AnimationHookApplicationStatus == EWAYAnimationHookApplicationStatus::NotAvailable)
+        {
+            if (!OutSnapshot.bHasSkeletalMeshComponent)
+            {
+                OutSnapshot.AnimationHookDetail = TEXT("Animation hook application is not available because this subject has no skeletal animation stack.");
+            }
+            else if (!OutSnapshot.bHasAnimBlueprint)
+            {
+                OutSnapshot.AnimationHookApplicationStatus = EWAYAnimationHookApplicationStatus::Limited;
+                OutSnapshot.AnimationHookDetail = TEXT("Animation hook application is limited because no Animation Blueprint is currently assigned.");
+            }
+            else
+            {
+                OutSnapshot.AnimationHookApplicationStatus = EWAYAnimationHookApplicationStatus::Limited;
+                OutSnapshot.AnimationHookDetail = TEXT("Animation hook application is ready, but no current target has driven it yet.");
+            }
+        }
+    }
+
     return true;
 }
 
@@ -514,6 +556,23 @@ void AppendRelationshipProfileLines(FWanaCommandResponse& Response, const AActor
     const EWAYBehaviorExecutionMode ExecutionMode = ProfileComponent && Profile.TargetActor
         ? ProfileComponent->GetBehaviorExecutionModeForTarget(Profile.TargetActor)
         : EWAYBehaviorExecutionMode::Unknown;
+    const FString VisibleBehaviorLabel = ProfileComponent && Profile.TargetActor
+        ? ProfileComponent->GetVisibleBehaviorLabelForTarget(Profile.TargetActor)
+        : FString();
+    const FString BehaviorExecutionDetail = ProfileComponent && Profile.TargetActor
+        ? ProfileComponent->GetBehaviorExecutionDetailForTarget(Profile.TargetActor)
+        : FString();
+    const FWAYAnimationHookState AnimationHookState = ProfileComponent
+        ? ProfileComponent->GetCurrentAnimationHookState()
+        : FWAYAnimationHookState();
+    const bool bAnimationHookMatchesTarget = !Profile.TargetActor
+        || AnimationHookState.TargetActor == Profile.TargetActor;
+    const EWAYAnimationHookApplicationStatus AnimationHookApplicationStatus = bAnimationHookMatchesTarget
+        ? AnimationHookState.ApplicationStatus
+        : EWAYAnimationHookApplicationStatus::Limited;
+    const FString AnimationHookDetail = bAnimationHookMatchesTarget
+        ? AnimationHookState.Detail
+        : TEXT("Animation hook application is ready, but the current target has not driven it yet.");
 
     Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), *SelectedActor->GetActorNameOrLabel()));
     Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), Profile.TargetActor ? *Profile.TargetActor->GetActorNameOrLabel() : TEXT("(none)")));
@@ -521,8 +580,14 @@ void AppendRelationshipProfileLines(FWanaCommandResponse& Response, const AActor
     Response.OutputLines.Add(FString::Printf(TEXT("Reaction: %s"), *GetReactionStateDisplayLabel(ReactionState)));
     Response.OutputLines.Add(FString::Printf(TEXT("Recommended Behavior: %s"), *GetBehaviorPresetDisplayLabel(RecommendedBehavior)));
     Response.OutputLines.Add(FString::Printf(TEXT("Starter Hook: %s"), bStarterHookAvailable ? TEXT("Available") : TEXT("Not Available")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Visible Behavior: %s"), VisibleBehaviorLabel.IsEmpty() ? TEXT("(not applied yet)") : *VisibleBehaviorLabel));
     Response.OutputLines.Add(FString::Printf(TEXT("Last Applied Hook: %s"), *GetBehaviorPresetDisplayLabel(LastAppliedHook)));
     Response.OutputLines.Add(FString::Printf(TEXT("Execution Mode: %s"), *GetBehaviorExecutionModeDisplayLabel(ExecutionMode)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Result Notes: %s"), BehaviorExecutionDetail.IsEmpty() ? TEXT("No visible behavior has been applied to this target yet.") : *BehaviorExecutionDetail));
+    Response.OutputLines.Add(FString::Printf(TEXT("Animation Hook Application: %s"), *GetAnimationHookApplicationStatusDisplayLabel(AnimationHookApplicationStatus)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Facing Hook: %s"), GetAnimationHookRequestDisplayLabel(AnimationHookState.bFacingHookRequested)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Turn-To-Target Hook: %s"), GetAnimationHookRequestDisplayLabel(AnimationHookState.bTurnToTargetRequested)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Animation Hook Notes: %s"), AnimationHookDetail.IsEmpty() ? TEXT("No animation hook notes available.") : *AnimationHookDetail));
     Response.OutputLines.Add(FString::Printf(TEXT("Trust: %.2f"), Profile.Trust));
     Response.OutputLines.Add(FString::Printf(TEXT("Fear: %.2f"), Profile.Fear));
     Response.OutputLines.Add(FString::Printf(TEXT("Respect: %.2f"), Profile.Respect));
@@ -757,8 +822,35 @@ FWanaCommandResponse ExecuteEvaluateActorPairInternal(AActor* ObserverActor, AAc
     Response.OutputLines.Add(FString::Printf(TEXT("Reaction State: %s"), *GetReactionStateDisplayLabel(Evaluation.ReactionState)));
     Response.OutputLines.Add(FString::Printf(TEXT("Recommended Behavior: %s"), *GetBehaviorPresetDisplayLabel(Evaluation.RecommendedBehavior)));
     Response.OutputLines.Add(FString::Printf(TEXT("Starter Hook: %s"), Evaluation.RecommendedBehavior != EWAYBehaviorPreset::None ? TEXT("Available") : TEXT("Not Available")));
+    {
+        const FString VisibleBehaviorLabel = ProfileComponent->GetVisibleBehaviorLabelForTarget(TargetActor).TrimStartAndEnd();
+        Response.OutputLines.Add(FString::Printf(TEXT("Visible Behavior: %s"), VisibleBehaviorLabel.IsEmpty() ? TEXT("(not applied yet)") : *VisibleBehaviorLabel));
+    }
     Response.OutputLines.Add(FString::Printf(TEXT("Last Applied Hook: %s"), *GetBehaviorPresetDisplayLabel(ProfileComponent->GetLastAppliedBehaviorHookForTarget(TargetActor))));
     Response.OutputLines.Add(FString::Printf(TEXT("Execution Mode: %s"), *GetBehaviorExecutionModeDisplayLabel(ProfileComponent->GetBehaviorExecutionModeForTarget(TargetActor))));
+    {
+        const FString BehaviorExecutionDetail = ProfileComponent->GetBehaviorExecutionDetailForTarget(TargetActor);
+        Response.OutputLines.Add(FString::Printf(TEXT("Result Notes: %s"), BehaviorExecutionDetail.IsEmpty() ? TEXT("No visible behavior has been applied to this target yet.") : *BehaviorExecutionDetail));
+    }
+    const FWAYAnimationHookState AnimationHookState = ProfileComponent->GetCurrentAnimationHookState();
+    const bool bAnimationHookMatchesTarget = AnimationHookState.TargetActor == TargetActor;
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Animation Hook Application: %s"),
+        *GetAnimationHookApplicationStatusDisplayLabel(
+            bAnimationHookMatchesTarget
+                ? AnimationHookState.ApplicationStatus
+                : EWAYAnimationHookApplicationStatus::Limited)));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Facing Hook: %s"),
+        GetAnimationHookRequestDisplayLabel(bAnimationHookMatchesTarget && AnimationHookState.bFacingHookRequested)));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Turn-To-Target Hook: %s"),
+        GetAnimationHookRequestDisplayLabel(bAnimationHookMatchesTarget && AnimationHookState.bTurnToTargetRequested)));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Animation Hook Notes: %s"),
+        bAnimationHookMatchesTarget
+            ? (AnimationHookState.Detail.IsEmpty() ? TEXT("No animation hook notes available.") : *AnimationHookState.Detail)
+            : TEXT("Animation hook application is ready, but the current target has not driven it yet.")));
 
     for (const FString& ReadinessNote : ReadinessNotes)
     {
@@ -913,6 +1005,19 @@ bool GetBehaviorResultsSnapshotForActorPair(const AActor* ObserverActor, const A
     OutSnapshot.bStarterHookAvailable = ProfileComponent->HasStarterBehaviorHookForTarget(const_cast<AActor*>(TargetActor));
     OutSnapshot.LastAppliedHook = ProfileComponent->GetLastAppliedBehaviorHookForTarget(const_cast<AActor*>(TargetActor));
     OutSnapshot.ExecutionMode = ProfileComponent->GetBehaviorExecutionModeForTarget(const_cast<AActor*>(TargetActor));
+    OutSnapshot.VisibleBehaviorLabel = ProfileComponent->GetVisibleBehaviorLabelForTarget(const_cast<AActor*>(TargetActor));
+    OutSnapshot.BehaviorExecutionDetail = ProfileComponent->GetBehaviorExecutionDetailForTarget(const_cast<AActor*>(TargetActor));
+    const FWAYAnimationHookState AnimationHookState = ProfileComponent->GetCurrentAnimationHookState();
+    const bool bAnimationHookMatchesTarget = AnimationHookState.TargetActor == TargetActor;
+    OutSnapshot.bAnimationFacingHookRequested = bAnimationHookMatchesTarget && AnimationHookState.bFacingHookRequested;
+    OutSnapshot.bAnimationTurnToTargetRequested = bAnimationHookMatchesTarget && AnimationHookState.bTurnToTargetRequested;
+    OutSnapshot.bAnimationLocomotionHintSafe = bAnimationHookMatchesTarget && AnimationHookState.bLocomotionSafeExecutionHint;
+    OutSnapshot.AnimationHookApplicationStatus = bAnimationHookMatchesTarget
+        ? AnimationHookState.ApplicationStatus
+        : EWAYAnimationHookApplicationStatus::Limited;
+    OutSnapshot.AnimationHookDetail = bAnimationHookMatchesTarget
+        ? AnimationHookState.Detail
+        : TEXT("Animation hook application is ready, but the current target has not driven it yet.");
 
     FWAYRelationshipProfile RelationshipProfile;
 
@@ -920,6 +1025,18 @@ bool GetBehaviorResultsSnapshotForActorPair(const AActor* ObserverActor, const A
     {
         OutSnapshot.bHasRelationshipProfile = true;
         OutSnapshot.RelationshipState = RelationshipProfile.RelationshipState;
+    }
+
+    if (OutSnapshot.VisibleBehaviorLabel.IsEmpty() && OutSnapshot.RecommendedBehavior != EWAYBehaviorPreset::None)
+    {
+        OutSnapshot.VisibleBehaviorLabel = FString::Printf(
+            TEXT("%s (not applied yet)"),
+            *GetBehaviorPresetDisplayLabel(OutSnapshot.RecommendedBehavior));
+    }
+
+    if (OutSnapshot.BehaviorExecutionDetail.IsEmpty())
+    {
+        OutSnapshot.BehaviorExecutionDetail = TEXT("No visible starter or reaction behavior has been applied to this target yet.");
     }
 
     return true;
@@ -2038,8 +2155,14 @@ FWanaCommandResponse ExecuteApplyStarterAndTestTargetCommand(const FString& Pres
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Reaction State:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Recommended Behavior:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Starter Hook:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Visible Behavior:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Last Applied Hook:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Execution Mode:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Result Notes:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Animation Hook Application:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Facing Hook:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Turn-To-Target Hook:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Animation Hook Notes:"));
     AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Compatibility Notes:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Readiness Notes:"));
     return Response;

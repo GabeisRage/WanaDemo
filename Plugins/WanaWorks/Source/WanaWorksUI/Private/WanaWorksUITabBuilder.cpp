@@ -475,6 +475,21 @@ TSharedRef<SWidget> MakeAnimationIntegrationSection(const FWanaWorksUITabBuilder
         LOCTEXT("WanaWorksAnimationIntegrationStatus", "SAFE"));
 }
 
+TSharedRef<SWidget> MakeAnimationHookUsageSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
+{
+    return MakeSection(
+        SectionHeaderFont,
+        LOCTEXT("WanaWorksAnimationHookUsageSection", "Animation Hook Usage"),
+        MakeReadOnlyInfoPanel(
+            LOCTEXT("WanaWorksAnimationHookUsageSummaryLabel", "How To Use The Current Hook State"),
+            [GetAnimationHookUsageText = Args.GetAnimationHookUsageText]()
+            {
+                return GetAnimationHookUsageText ? GetAnimationHookUsageText() : FText::GetEmpty();
+            }),
+        LOCTEXT("WanaWorksAnimationHookUsageDescription", "Read the current hook state from the owner's WAYPlayerProfileComponent inside your existing Anim BP. WanaWorks does not replace the Animation Blueprint here. It only exposes safe, readable hook data."),
+        LOCTEXT("WanaWorksAnimationHookUsageStatus", "READY"));
+}
+
 TSharedRef<SWidget> MakePresetsSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
 {
     return MakeSection(
@@ -1354,6 +1369,13 @@ TSharedRef<SWidget> MakeAIPawnWorkflowSection(const FWanaWorksUITabBuilderArgs& 
     .AutoHeight()
     .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
     [
+        MakeAnimationHookUsageSection(Args, SectionHeaderFont)
+    ];
+
+    Layout->AddSlot()
+    .AutoHeight()
+    .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
+    [
         MakePresetsSection(Args, SectionHeaderFont)
     ];
 
@@ -1538,6 +1560,13 @@ TSharedRef<SWidget> MakeCharacterPawnWorkflowSection(const FWanaWorksUITabBuilde
     .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
     [
         MakeAnimationIntegrationSection(Args, SectionHeaderFont)
+    ];
+
+    Layout->AddSlot()
+    .AutoHeight()
+    .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
+    [
+        MakeAnimationHookUsageSection(Args, SectionHeaderFont)
     ];
 
     Layout->AddSlot()

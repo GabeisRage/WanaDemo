@@ -91,6 +91,21 @@ public:
     UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Behavior", meta = (DisplayName = "Get Behavior Execution Mode For Target", Keywords = "WAY behavior execution mode observer target AI"))
     EWAYBehaviorExecutionMode GetBehaviorExecutionModeForTarget(AActor* TargetActor) const;
 
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Behavior", meta = (DisplayName = "Get Visible Behavior Label For Target", Keywords = "WAY visible behavior label observer target AI"))
+    FString GetVisibleBehaviorLabelForTarget(AActor* TargetActor) const;
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Behavior", meta = (DisplayName = "Get Behavior Execution Detail For Target", Keywords = "WAY behavior execution detail observer target AI"))
+    FString GetBehaviorExecutionDetailForTarget(AActor* TargetActor) const;
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Animation", meta = (DisplayName = "Get Current Animation Hook State", Keywords = "WAY animation hook state anim blueprint"))
+    FWAYAnimationHookState GetCurrentAnimationHookState() const { return CurrentAnimationHookState; }
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Animation", meta = (DisplayName = "Get Animation Hook Application Status", Keywords = "WAY animation hook application anim blueprint"))
+    EWAYAnimationHookApplicationStatus GetAnimationHookApplicationStatus() const { return CurrentAnimationHookState.ApplicationStatus; }
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Animation", meta = (DisplayName = "Has Active Animation Hook State", Keywords = "WAY animation hook active anim blueprint"))
+    bool HasActiveAnimationHookState() const { return CurrentAnimationHookState.ApplicationStatus == EWAYAnimationHookApplicationStatus::Active; }
+
     UFUNCTION(BlueprintPure, Category = "Wana Works|WAY")
     const TArray<FWAYRelationshipProfile>& GetRelationshipProfiles() const { return RelationshipProfiles; }
 
@@ -114,8 +129,17 @@ private:
     UFUNCTION()
     void HandleReactionChanged(AActor* ObserverActor, AActor* TargetActor, EWAYRelationshipState RelationshipState, EWAYReactionState ReactionState);
 
+    void UpdateAnimationHookState(
+        AActor* TargetActor,
+        EWAYReactionState ReactionState,
+        EWAYBehaviorPreset RecommendedBehavior,
+        EWAYBehaviorExecutionMode ExecutionMode,
+        bool bFacingHookRequested,
+        bool bTurnToTargetRequested,
+        const FString& Detail);
+    void CacheBehaviorExecutionResult(AActor* TargetActor, const FString& VisibleBehaviorLabel, const FString& Detail, EWAYBehaviorExecutionMode ExecutionMode);
     bool TryApplyMovementReaction(AActor* TargetActor, EWAYReactionState ReactionState, const FVector& SafeDirection, FString& OutBehaviorDescription, EWAYBehaviorExecutionMode* OutExecutionMode = nullptr);
-    bool StartBasicReactionMovement(AActor* TargetActor, EWAYReactionState ReactionState, FString& OutBehaviorDescription);
+    bool StartBasicReactionMovement(AActor* TargetActor, EWAYReactionState ReactionState, FString& OutBehaviorDescription, float MoveInputScale = 0.9f, float MovePulseDurationOverride = 0.0f);
     void StopBasicReactionMovement();
     int32 FindRelationshipProfileIndex(AActor* TargetActor) const;
     FWAYRelationshipSeed MakeRelationshipSeedForTarget(AActor* TargetActor) const;
@@ -127,13 +151,19 @@ private:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Wana Works|WAY", meta = (AllowPrivateAccess = "true"))
     TArray<FWAYRelationshipProfile> RelationshipProfiles;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|WAY|Animation", meta = (AllowPrivateAccess = "true"))
+    FWAYAnimationHookState CurrentAnimationHookState;
+
     TMap<AActor*, EWAYReactionState> CachedReactionStates;
     TMap<AActor*, EWAYBehaviorPreset> CachedRecommendedBehaviors;
     TMap<AActor*, EWAYBehaviorPreset> CachedLastAppliedBehaviorHooks;
     TMap<AActor*, EWAYBehaviorExecutionMode> CachedBehaviorExecutionModes;
+    TMap<AActor*, FString> CachedVisibleBehaviorLabels;
+    TMap<AActor*, FString> CachedBehaviorExecutionDetails;
     TWeakObjectPtr<AActor> ActiveBasicReactionTarget;
     EWAYReactionState ActiveBasicReactionState = EWAYReactionState::Observational;
     float ActiveBasicReactionTimeRemaining = 0.0f;
+    float ActiveBasicReactionMoveInputScale = 0.9f;
     bool bRestoresRunPhysicsWithNoController = false;
     bool bPreviousRunPhysicsWithNoController = false;
 };

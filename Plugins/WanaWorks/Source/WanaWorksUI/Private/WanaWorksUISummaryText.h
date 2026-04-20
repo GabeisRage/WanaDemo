@@ -12,6 +12,7 @@ namespace WanaWorksUISummaryText
 
     FString BuildSubjectStackSummaryText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot);
     FString BuildAnimationIntegrationSummaryText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot);
+    FString BuildAnimationHookUsageText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot);
     FString BuildWorkflowPresetSummaryText(
         const FString& PresetLabel,
         bool bIsCustomPreset,

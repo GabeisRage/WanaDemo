@@ -48,19 +48,60 @@ FString BuildAnimationIntegrationSummaryText(const FWanaSelectedCharacterEnhance
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("Animation Blueprint: Unknown\nIntegration Status: Unknown\nExisting Anim BP Preserved: Yes\nHook Readiness: Missing\nFacing Hook: Missing\nTurn-To-Target Hook: Missing\nLocomotion Hook: Missing\nReaction Animation Hook: Missing\nNotes: Choose a subject in WanaWorks to inspect safe animation integration.");
+        return TEXT("Animation Blueprint: Unknown\nIntegration Status: Unknown\nExisting Anim BP Preserved: Yes\nHook Application: Not Available\nHook Readiness: Missing\nFacing Hook: Missing\nTurn-To-Target Hook: Missing\nLocomotion Hook: Missing\nReaction Animation Hook: Missing\nNotes: Choose a subject in WanaWorks to inspect safe animation integration.");
     }
 
     return FString::Printf(
-        TEXT("Animation Blueprint: %s\nIntegration Status: %s\nExisting Anim BP Preserved: Yes\nHook Readiness: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s\nLocomotion Hook: %s\nReaction Animation Hook: %s\nNotes: %s"),
+        TEXT("Animation Blueprint: %s\nIntegration Status: %s\nExisting Anim BP Preserved: Yes\nHook Application: %s\nHook Readiness: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s\nLocomotion Hook: %s\nReaction Animation Hook: %s\nNotes: %s"),
         *WanaWorksUIFormattingUtils::GetAnimationBlueprintStatusLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetAnimationIntegrationStatusLabel(*Snapshot),
+        *WanaWorksUIFormattingUtils::GetAnimationHookApplicationStatusLabel(Snapshot->AnimationHookApplicationStatus),
         *WanaWorksUIFormattingUtils::GetAnimationHookReadinessLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetFacingHookReadinessLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetTurnToTargetHookReadinessLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetLocomotionHookReadinessLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetReactionAnimationHookReadinessLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetAnimationIntegrationNotes(*Snapshot));
+}
+
+FString BuildAnimationHookUsageText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot)
+{
+    if (!Snapshot || !Snapshot->bHasSelectedActor)
+    {
+        return TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: Not Available\nCore Fields: bFacingHookRequested, bTurnToTargetRequested, ReactionState, RecommendedBehavior, bLocomotionSafeExecutionHint\nTypical Use: Use facing and turn flags for turn-to-target logic. Use ReactionState for reaction-driven animation branching. Use RecommendedBehavior for higher-level animation intent. Use the locomotion-safe hint to avoid forcing movement-driven animation logic.\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nNotes: Pick a Character Pawn or AI Pawn in WanaWorks to see subject-specific hook guidance.");
+    }
+
+    const FString HookApplicationLabel = WanaWorksUIFormattingUtils::GetAnimationHookApplicationStatusLabel(Snapshot->AnimationHookApplicationStatus);
+    const FString FacingFieldSummary = Snapshot->bAnimationFacingHookRequested
+        ? TEXT("true right now. Good for active face-target or aim-offset style logic.")
+        : TEXT("false right now. Keep facing logic relaxed unless your Anim BP already has another turn driver.");
+    const FString TurnFieldSummary = Snapshot->bAnimationTurnToTargetRequested
+        ? TEXT("true right now. Good for turn-in-place or turn-to-target branching.")
+        : TEXT("false right now. A hard turn request is not currently being pushed.");
+    const FString ReactionFieldSummary = Snapshot->AnimationHookApplicationStatus == EWAYAnimationHookApplicationStatus::NotAvailable
+        ? TEXT("Available once a live WAY-driven subject is present. Use it for reaction-driven animation branching.")
+        : TEXT("Available from the current hook state. Use it for reaction-driven animation branching.");
+    const FString BehaviorFieldSummary = Snapshot->AnimationHookApplicationStatus == EWAYAnimationHookApplicationStatus::Active
+        ? TEXT("Available from the current hook state. Use it as higher-level animation intent.")
+        : TEXT("Available when the subject has a live WAY hook state. Use it as higher-level animation intent.");
+    const FString LocomotionHintSummary = Snapshot->bAnimationLocomotionHintSafe
+        ? TEXT("true right now. Movement-aware animation logic can stay lightweight and compatibility-friendly.")
+        : TEXT("false right now. Prefer facing, turn, or hold-state logic instead of forcing movement-driven animation behavior.");
+    const FString Notes = Snapshot->AnimationHookDetail.IsEmpty()
+        ? TEXT("WanaWorks preserves the current Animation Blueprint and only exposes safe hook state on top.")
+        : Snapshot->AnimationHookDetail;
+
+    return FString::Printf(
+        TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: %s\nCurrent Subject: %s\nDetected Animation Blueprint: %s\nCore Fields:\n- bFacingHookRequested: %s\n- bTurnToTargetRequested: %s\n- ReactionState: %s\n- RecommendedBehavior: %s\n- bLocomotionSafeExecutionHint: %s\nTypical Use: Use facing and turn flags for turn-to-target logic. Use ReactionState for reaction-driven animation branching. Use RecommendedBehavior for higher-level animation intent. Use the locomotion-safe hint to avoid forcing movement-driven animation logic.\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nNotes: %s"),
+        *HookApplicationLabel,
+        *Snapshot->SelectedActorLabel,
+        Snapshot->LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("(not linked)") : *Snapshot->LinkedAnimationBlueprintLabel,
+        *FacingFieldSummary,
+        *TurnFieldSummary,
+        *ReactionFieldSummary,
+        *BehaviorFieldSummary,
+        *LocomotionHintSummary,
+        *Notes);
 }
 
 FString BuildWorkflowPresetSummaryText(
@@ -238,9 +279,12 @@ FString BuildBehaviorResultsText(const FWanaBehaviorResultsSnapshot& Snapshot)
     const FString ExecutionModeLabel = Snapshot.bHasWAYComponent
         ? WanaWorksUIFormattingUtils::GetBehaviorExecutionModeSummaryLabel(Snapshot.ExecutionMode)
         : TEXT("Unknown");
+    const FString AnimationHookApplicationLabel = WanaWorksUIFormattingUtils::GetAnimationHookApplicationStatusLabel(Snapshot.AnimationHookApplicationStatus);
+    const FString FacingHookLabel = WanaWorksUIFormattingUtils::GetAnimationHookRequestSummaryLabel(Snapshot.bAnimationFacingHookRequested);
+    const FString TurnToTargetHookLabel = WanaWorksUIFormattingUtils::GetAnimationHookRequestSummaryLabel(Snapshot.bAnimationTurnToTargetRequested);
 
     return FString::Printf(
-        TEXT("Observer: %s\nTarget: %s%s\nRelationship State: %s\nReaction State: %s\nRecommended Behavior: %s\nStarter Hook Available: %s\nLast Applied Hook: %s\nExecution Mode: %s"),
+        TEXT("Observer: %s\nTarget: %s%s\nRelationship State: %s\nReaction State: %s\nRecommended Behavior: %s\nStarter Hook Available: %s\nLast Applied Hook: %s\nExecution Mode: %s\nAnimation Hook Application: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s"),
         Snapshot.bHasObserverActor ? *Snapshot.ObserverActorLabel : TEXT("(not assigned)"),
         Snapshot.bHasTargetActor ? *Snapshot.TargetActorLabel : TEXT("(not assigned)"),
         Snapshot.bTargetFallsBackToObserver ? TEXT(" (observer fallback)") : TEXT(""),
@@ -249,7 +293,10 @@ FString BuildBehaviorResultsText(const FWanaBehaviorResultsSnapshot& Snapshot)
         *RecommendedBehaviorLabel,
         Snapshot.bStarterHookAvailable ? TEXT("Yes") : TEXT("No"),
         *LastAppliedHookLabel,
-        *ExecutionModeLabel);
+        *ExecutionModeLabel,
+        *AnimationHookApplicationLabel,
+        *FacingHookLabel,
+        *TurnToTargetHookLabel);
 }
 
 FString BuildWITEnvironmentReadinessText(const FWanaEnvironmentReadinessSnapshot& Snapshot)

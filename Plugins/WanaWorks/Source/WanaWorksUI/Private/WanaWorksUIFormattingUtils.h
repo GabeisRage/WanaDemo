@@ -19,12 +19,14 @@ namespace WanaWorksUIFormattingUtils
     FString GetAIControllerPresenceLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetAnimationBlueprintStatusLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetAnimationIntegrationStatusLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
+    FString GetAnimationHookApplicationStatusLabel(EWAYAnimationHookApplicationStatus ApplicationStatus);
     FString GetAnimationHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetFacingHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetTurnToTargetHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetLocomotionHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetReactionAnimationHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetAnimationIntegrationNotes(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
+    FString GetAnimationHookRequestSummaryLabel(bool bRequested);
     FString GetCompatibilityStatusLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     const TCHAR* GetRelationshipStateLabel(EWAYRelationshipState RelationshipState);
     bool TryParseRelationshipStateLabel(const FString& Label, EWAYRelationshipState& OutRelationshipState);
