@@ -13,6 +13,27 @@ enum class EWanaBehaviorDomain : uint8
     Unknown
 };
 
+UENUM(BlueprintType)
+enum class EWanaMovementReadinessLevel : uint8
+{
+    Allowed UMETA(DisplayName = "Movement Allowed"),
+    Limited UMETA(DisplayName = "Movement Limited"),
+    Blocked UMETA(DisplayName = "Movement Blocked"),
+    Unclear UMETA(DisplayName = "Movement Unclear")
+};
+
+UENUM(BlueprintType)
+enum class EWanaPhysicalState : uint8
+{
+    Stable UMETA(DisplayName = "Stable"),
+    Alert UMETA(DisplayName = "Alert"),
+    Staggered UMETA(DisplayName = "Staggered"),
+    OffBalance UMETA(DisplayName = "Off Balance"),
+    Bracing UMETA(DisplayName = "Bracing"),
+    Recovering UMETA(DisplayName = "Recovering"),
+    Panicked UMETA(DisplayName = "Panicked")
+};
+
 USTRUCT(BlueprintType)
 struct WANAWORKSCORE_API FWanaPredictionProfile
 {
@@ -32,6 +53,9 @@ USTRUCT(BlueprintType)
 struct WANAWORKSCORE_API FWanaMovementReadiness
 {
     GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WIT")
+    EWanaMovementReadinessLevel ReadinessLevel = EWanaMovementReadinessLevel::Blocked;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WIT")
     bool bCanAttemptMovement = false;
@@ -55,7 +79,22 @@ struct WANAWORKSCORE_API FWanaMovementReadiness
     bool bAnimationDrivenLocomotionDetected = false;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WIT")
+    bool bObstaclePressureDetected = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WIT")
+    bool bMovementSpaceRestricted = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WIT")
+    bool bLowConfidenceContext = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WIT")
+    bool bPathToTargetObstructed = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WIT")
     float DistanceToTarget = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WIT")
+    float ObstaclePressure = 0.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WIT")
     FString Status = TEXT("Movement blocked");

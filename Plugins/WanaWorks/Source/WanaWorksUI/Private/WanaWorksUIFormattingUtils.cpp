@@ -263,6 +263,19 @@ FString GetAnimationHookRequestSummaryLabel(bool bRequested)
     return bRequested ? TEXT("Requested") : TEXT("Idle");
 }
 
+FString GetPhysicalStateSummaryLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasPhysicalStateComponent)
+    {
+        return TEXT("Not Available");
+    }
+
+    const UEnum* PhysicalStateEnum = StaticEnum<EWanaPhysicalState>();
+    return PhysicalStateEnum
+        ? PhysicalStateEnum->GetDisplayNameTextByValue(static_cast<int64>(Snapshot.PhysicalState)).ToString()
+        : TEXT("Stable");
+}
+
 FString GetCompatibilityStatusLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
 {
     return Snapshot.bHasSkeletalMeshComponent && !Snapshot.bHasAnimBlueprint ? TEXT("Warning") : TEXT("Safe");
@@ -323,6 +336,75 @@ bool TryParseRelationshipStateLabel(const FString& Label, EWAYRelationshipState&
     return false;
 }
 
+FString GetMovementReadinessStatusSummaryLabel(const FWanaMovementReadiness& MovementReadiness)
+{
+    switch (MovementReadiness.ReadinessLevel)
+    {
+    case EWanaMovementReadinessLevel::Allowed:
+        return TEXT("Movement Allowed");
+
+    case EWanaMovementReadinessLevel::Limited:
+        return TEXT("Movement Limited");
+
+    case EWanaMovementReadinessLevel::Unclear:
+        return TEXT("Movement Unclear");
+
+    case EWanaMovementReadinessLevel::Blocked:
+    default:
+        return TEXT("Movement Blocked");
+    }
+}
+
+FString GetObstaclePressureSummaryLabel(const FWanaMovementReadiness& MovementReadiness)
+{
+    if (MovementReadiness.bMovementSpaceRestricted || MovementReadiness.ObstaclePressure >= 0.75f)
+    {
+        return TEXT("High");
+    }
+
+    if (MovementReadiness.bObstaclePressureDetected || MovementReadiness.ObstaclePressure >= 0.34f)
+    {
+        return TEXT("Present");
+    }
+
+    return TEXT("Clear");
+}
+
+FString GetMovementSpaceSummaryLabel(const FWanaMovementReadiness& MovementReadiness)
+{
+    if (MovementReadiness.bMovementSpaceRestricted)
+    {
+        return TEXT("Restricted");
+    }
+
+    if (MovementReadiness.bObstaclePressureDetected || MovementReadiness.bPathToTargetObstructed)
+    {
+        return TEXT("Tight");
+    }
+
+    return TEXT("Open");
+}
+
+FString GetEnvironmentShapingSummaryLabel(const FWanaMovementReadiness& MovementReadiness)
+{
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Blocked)
+    {
+        return TEXT("Fallback chosen because space or environment conditions blocked safe movement.");
+    }
+
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Unclear)
+    {
+        return TEXT("Fallback shaped by a low-confidence movement context.");
+    }
+
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Limited)
+    {
+        return TEXT("Visible behavior was shaped by nearby obstacles, distance, or movement-space limits.");
+    }
+
+    return TEXT("Environment conditions currently support deliberate movement behavior.");
+}
+
 FString GetMovementCapabilitySummaryLabel(const FWanaEnvironmentReadinessSnapshot& Snapshot)
 {
     if (!Snapshot.bHasObserverActor)
@@ -360,7 +442,17 @@ FString GetFallbackModeSummaryLabel(const FWanaEnvironmentReadinessSnapshot& Sna
         return TEXT("Facing Only");
     }
 
-    return Snapshot.MovementReadiness.bCanAttemptMovement ? TEXT("Movement Allowed") : TEXT("Facing Only");
+    if (Snapshot.MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Allowed)
+    {
+        return TEXT("Movement Allowed");
+    }
+
+    if (Snapshot.MovementReadiness.bSupportsDirectActorMove && Snapshot.MovementReadiness.ReadinessLevel != EWanaMovementReadinessLevel::Blocked)
+    {
+        return TEXT("Fallback Active");
+    }
+
+    return TEXT("Facing Only");
 }
 
 FString FormatResponseOutputLine(const FString& Line)

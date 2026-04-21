@@ -92,6 +92,7 @@ private:
     FText GetSubjectStackSummaryText() const;
     FText GetAnimationIntegrationText() const;
     FText GetAnimationHookUsageText() const;
+    FText GetPhysicalStateText() const;
     FText GetSavedSubjectProgressText() const;
     FText GetCharacterEnhancementSummaryText() const;
     FText GetCharacterEnhancementChainText() const;

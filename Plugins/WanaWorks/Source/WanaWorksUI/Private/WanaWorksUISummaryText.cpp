@@ -104,6 +104,34 @@ FString BuildAnimationHookUsageText(const FWanaSelectedCharacterEnhancementSnaps
         *Notes);
 }
 
+FString BuildPhysicalStateSummaryText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot)
+{
+    if (!Snapshot || !Snapshot->bHasSelectedActor)
+    {
+        return TEXT("Physical State: Not Available\nStability Score: --\nRecovery Progress: --\nNotes: Choose a Character Pawn or AI Pawn in WanaWorks to inspect the readable body-state layer.");
+    }
+
+    if (!Snapshot->bHasPhysicalStateComponent)
+    {
+        return TEXT("Physical State: Not Available\nStability Score: --\nRecovery Progress: --\nNotes: Attach UWanaPhysicalStateComponent to this subject to expose a safe, readable body-state layer without replacing the current Character BP, Anim BP, or AI logic.");
+    }
+
+    const FString Notes = Snapshot->bPhysicalNeedsRecovery
+        ? TEXT("Recovery is active. Other systems can read this and stay conservative until the subject settles.")
+        : (Snapshot->bPhysicalBracing
+            ? TEXT("Bracing is active. Other systems can use this as a defensive or hold-posture hint without forcing locomotion.")
+            : TEXT("Body-state layer is readable and stable. Other systems can consume it safely as lightweight physical awareness."));
+
+    return FString::Printf(
+        TEXT("Physical State: %s\nStability Score: %.2f\nRecovery Progress: %d%%\nMovement Commitment: %s\nAttack Commitment: %s\nNotes: %s"),
+        *WanaWorksUIFormattingUtils::GetPhysicalStateSummaryLabel(*Snapshot),
+        Snapshot->PhysicalStabilityScore,
+        FMath::RoundToInt(Snapshot->PhysicalRecoveryProgress * 100.0f),
+        Snapshot->bPhysicalCanCommitToMovement ? TEXT("Ready") : TEXT("Hold"),
+        Snapshot->bPhysicalCanCommitToAttack ? TEXT("Ready") : TEXT("Hold"),
+        *Notes);
+}
+
 FString BuildWorkflowPresetSummaryText(
     const FString& PresetLabel,
     bool bIsCustomPreset,
@@ -285,12 +313,18 @@ FString BuildBehaviorResultsText(const FWanaBehaviorResultsSnapshot& Snapshot)
     const FString ResultNotesLabel = Snapshot.BehaviorExecutionDetail.IsEmpty()
         ? TEXT("No visible behavior has been applied to this target yet.")
         : Snapshot.BehaviorExecutionDetail;
+    const FString MovementConfidenceLabel = (Snapshot.bHasObserverActor && Snapshot.bHasTargetActor)
+        ? WanaWorksUIFormattingUtils::GetMovementReadinessStatusSummaryLabel(Snapshot.MovementReadiness)
+        : TEXT("Unknown");
+    const FString EnvironmentShapingLabel = (Snapshot.bHasObserverActor && Snapshot.bHasTargetActor)
+        ? WanaWorksUIFormattingUtils::GetEnvironmentShapingSummaryLabel(Snapshot.MovementReadiness)
+        : TEXT("No active observer-target pair is shaping visible behavior yet.");
     const FString AnimationHookApplicationLabel = WanaWorksUIFormattingUtils::GetAnimationHookApplicationStatusLabel(Snapshot.AnimationHookApplicationStatus);
     const FString FacingHookLabel = WanaWorksUIFormattingUtils::GetAnimationHookRequestSummaryLabel(Snapshot.bAnimationFacingHookRequested);
     const FString TurnToTargetHookLabel = WanaWorksUIFormattingUtils::GetAnimationHookRequestSummaryLabel(Snapshot.bAnimationTurnToTargetRequested);
 
     return FString::Printf(
-        TEXT("Observer: %s\nTarget: %s%s\nRelationship State: %s\nReaction State: %s\nRecommended Behavior: %s\nStarter Hook Available: %s\nVisible Behavior: %s\nLast Applied Hook: %s\nExecution Mode: %s\nResult Notes: %s\nAnimation Hook Application: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s"),
+        TEXT("Observer: %s\nTarget: %s%s\nRelationship State: %s\nReaction State: %s\nRecommended Behavior: %s\nStarter Hook Available: %s\nVisible Behavior: %s\nLast Applied Hook: %s\nExecution Mode: %s\nMovement Confidence: %s\nEnvironment Shaping: %s\nResult Notes: %s\nAnimation Hook Application: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s"),
         Snapshot.bHasObserverActor ? *Snapshot.ObserverActorLabel : TEXT("(not assigned)"),
         Snapshot.bHasTargetActor ? *Snapshot.TargetActorLabel : TEXT("(not assigned)"),
         Snapshot.bTargetFallsBackToObserver ? TEXT(" (observer fallback)") : TEXT(""),
@@ -301,6 +335,8 @@ FString BuildBehaviorResultsText(const FWanaBehaviorResultsSnapshot& Snapshot)
         *VisibleBehaviorLabel,
         *LastAppliedHookLabel,
         *ExecutionModeLabel,
+        *MovementConfidenceLabel,
+        *EnvironmentShapingLabel,
         *ResultNotesLabel,
         *AnimationHookApplicationLabel,
         *FacingHookLabel,
@@ -309,14 +345,27 @@ FString BuildBehaviorResultsText(const FWanaBehaviorResultsSnapshot& Snapshot)
 
 FString BuildWITEnvironmentReadinessText(const FWanaEnvironmentReadinessSnapshot& Snapshot)
 {
+    const FString MovementConfidenceLabel = (Snapshot.bHasObserverActor && Snapshot.bHasTargetActor)
+        ? WanaWorksUIFormattingUtils::GetMovementReadinessStatusSummaryLabel(Snapshot.MovementReadiness)
+        : TEXT("Unknown");
+    const FString ObstaclePressureLabel = (Snapshot.bHasObserverActor && Snapshot.bHasTargetActor)
+        ? WanaWorksUIFormattingUtils::GetObstaclePressureSummaryLabel(Snapshot.MovementReadiness)
+        : TEXT("Unknown");
+    const FString MovementSpaceLabel = (Snapshot.bHasObserverActor && Snapshot.bHasTargetActor)
+        ? WanaWorksUIFormattingUtils::GetMovementSpaceSummaryLabel(Snapshot.MovementReadiness)
+        : TEXT("Unknown");
+
     return FString::Printf(
-        TEXT("Pair Source: %s\nObserver: %s\nTarget: %s\nMovement Capability: %s\nNavigation Context: %s\nReachability: %s\nFallback Mode: %s\nReadiness Detail: %s"),
+        TEXT("Pair Source: %s\nObserver: %s\nTarget: %s\nMovement Confidence: %s\nMovement Capability: %s\nNavigation Context: %s\nReachability: %s\nObstacle Pressure: %s\nMovement Space: %s\nFallback Mode: %s\nReadiness Detail: %s"),
         Snapshot.PairSourceLabel.IsEmpty() ? TEXT("No active pair") : *Snapshot.PairSourceLabel,
         Snapshot.bHasObserverActor ? *Snapshot.ObserverActorLabel : TEXT("(not assigned)"),
         Snapshot.bHasTargetActor ? *Snapshot.TargetActorLabel : TEXT("(not assigned)"),
+        *MovementConfidenceLabel,
         *WanaWorksUIFormattingUtils::GetMovementCapabilitySummaryLabel(Snapshot),
         *WanaWorksUIFormattingUtils::GetNavigationContextSummaryLabel(Snapshot),
         *WanaWorksUIFormattingUtils::GetReachabilitySummaryLabel(Snapshot),
+        *ObstaclePressureLabel,
+        *MovementSpaceLabel,
         *WanaWorksUIFormattingUtils::GetFallbackModeSummaryLabel(Snapshot),
         Snapshot.MovementReadiness.Detail.IsEmpty() ? TEXT("No readiness details available.") : *Snapshot.MovementReadiness.Detail);
 }

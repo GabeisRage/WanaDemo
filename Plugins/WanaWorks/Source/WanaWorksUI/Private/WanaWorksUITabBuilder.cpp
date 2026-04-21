@@ -490,6 +490,21 @@ TSharedRef<SWidget> MakeAnimationHookUsageSection(const FWanaWorksUITabBuilderAr
         LOCTEXT("WanaWorksAnimationHookUsageStatus", "READY"));
 }
 
+TSharedRef<SWidget> MakePhysicalStateSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
+{
+    return MakeSection(
+        SectionHeaderFont,
+        LOCTEXT("WanaWorksPhysicalStateSection", "Physical State"),
+        MakeReadOnlyInfoPanel(
+            LOCTEXT("WanaWorksPhysicalStateSummaryLabel", "Current Body-State Layer"),
+            [GetPhysicalStateText = Args.GetPhysicalStateText]()
+            {
+                return GetPhysicalStateText ? GetPhysicalStateText() : FText::GetEmpty();
+            }),
+        LOCTEXT("WanaWorksPhysicalStateDescription", "This is a lightweight, readable body-state layer for characters. WanaWorks does not replace locomotion, the current Anim BP, or AI control here."),
+        LOCTEXT("WanaWorksPhysicalStateStatus", "ACTIVE"));
+}
+
 TSharedRef<SWidget> MakePresetsSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
 {
     return MakeSection(
@@ -1376,6 +1391,13 @@ TSharedRef<SWidget> MakeAIPawnWorkflowSection(const FWanaWorksUITabBuilderArgs& 
     .AutoHeight()
     .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
     [
+        MakePhysicalStateSection(Args, SectionHeaderFont)
+    ];
+
+    Layout->AddSlot()
+    .AutoHeight()
+    .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
+    [
         MakePresetsSection(Args, SectionHeaderFont)
     ];
 
@@ -1567,6 +1589,13 @@ TSharedRef<SWidget> MakeCharacterPawnWorkflowSection(const FWanaWorksUITabBuilde
     .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
     [
         MakeAnimationHookUsageSection(Args, SectionHeaderFont)
+    ];
+
+    Layout->AddSlot()
+    .AutoHeight()
+    .Padding(0.0f, 0.0f, 0.0f, WanaAISubsectionSpacing)
+    [
+        MakePhysicalStateSection(Args, SectionHeaderFont)
     ];
 
     Layout->AddSlot()

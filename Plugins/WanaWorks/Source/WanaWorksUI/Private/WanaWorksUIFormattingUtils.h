@@ -27,9 +27,14 @@ namespace WanaWorksUIFormattingUtils
     FString GetReactionAnimationHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetAnimationIntegrationNotes(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetAnimationHookRequestSummaryLabel(bool bRequested);
+    FString GetPhysicalStateSummaryLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetCompatibilityStatusLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     const TCHAR* GetRelationshipStateLabel(EWAYRelationshipState RelationshipState);
     bool TryParseRelationshipStateLabel(const FString& Label, EWAYRelationshipState& OutRelationshipState);
+    FString GetMovementReadinessStatusSummaryLabel(const FWanaMovementReadiness& MovementReadiness);
+    FString GetObstaclePressureSummaryLabel(const FWanaMovementReadiness& MovementReadiness);
+    FString GetMovementSpaceSummaryLabel(const FWanaMovementReadiness& MovementReadiness);
+    FString GetEnvironmentShapingSummaryLabel(const FWanaMovementReadiness& MovementReadiness);
     FString GetMovementCapabilitySummaryLabel(const FWanaEnvironmentReadinessSnapshot& Snapshot);
     FString GetNavigationContextSummaryLabel(const FWanaEnvironmentReadinessSnapshot& Snapshot);
     FString GetReachabilitySummaryLabel(const FWanaEnvironmentReadinessSnapshot& Snapshot);

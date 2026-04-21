@@ -27,6 +27,7 @@ struct FWanaSelectedCharacterEnhancementSnapshot
     bool bHasIdentityComponent = false;
     bool bHasWAIComponent = false;
     bool bHasWAYComponent = false;
+    bool bHasPhysicalStateComponent = false;
     bool bIsPawnActor = false;
     bool bHasAIControllerClass = false;
     bool bAutoPossessAIEnabled = false;
@@ -46,6 +47,13 @@ struct FWanaSelectedCharacterEnhancementSnapshot
     bool bAnimationLocomotionHintSafe = false;
     EWAYAnimationHookApplicationStatus AnimationHookApplicationStatus = EWAYAnimationHookApplicationStatus::NotAvailable;
     FString AnimationHookDetail;
+    EWanaPhysicalState PhysicalState = EWanaPhysicalState::Stable;
+    float PhysicalStabilityScore = 1.0f;
+    float PhysicalRecoveryProgress = 1.0f;
+    bool bPhysicalBracing = false;
+    bool bPhysicalCanCommitToMovement = true;
+    bool bPhysicalCanCommitToAttack = true;
+    bool bPhysicalNeedsRecovery = false;
 };
 
 struct FWanaSelectedRelationshipContextSnapshot
@@ -93,6 +101,7 @@ struct FWanaBehaviorResultsSnapshot
     EWAYBehaviorExecutionMode ExecutionMode = EWAYBehaviorExecutionMode::Unknown;
     FString VisibleBehaviorLabel;
     FString BehaviorExecutionDetail;
+    FWanaMovementReadiness MovementReadiness;
     bool bAnimationFacingHookRequested = false;
     bool bAnimationTurnToTargetRequested = false;
     bool bAnimationLocomotionHintSafe = false;

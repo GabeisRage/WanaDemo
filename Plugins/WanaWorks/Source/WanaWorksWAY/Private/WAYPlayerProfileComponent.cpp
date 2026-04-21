@@ -862,12 +862,12 @@ EWAYBehaviorPreset UWAYPlayerProfileComponent::ResolveRecommendedBehaviorForReac
 
 EWAYBehaviorExecutionMode UWAYPlayerProfileComponent::ResolveBehaviorExecutionModeForMovementReadiness(const FWanaMovementReadiness& MovementReadiness)
 {
-    if (!MovementReadiness.bCanAttemptMovement)
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Blocked)
     {
         return EWAYBehaviorExecutionMode::FacingOnly;
     }
 
-    if (MovementReadiness.bSupportsLocomotionPulse)
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Allowed && MovementReadiness.bSupportsLocomotionPulse)
     {
         return EWAYBehaviorExecutionMode::MovementAllowed;
     }
@@ -1050,10 +1050,44 @@ bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, E
         return false;
     }
 
-    if (!MovementReadiness.bCanAttemptMovement)
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Blocked)
     {
         StopBasicReactionMovement();
         OutBehaviorDescription += FString::Printf(TEXT(" Movement blocked. %s Falling back to a stronger facing and hold response."), *MovementReadiness.Detail);
+        return false;
+    }
+
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Unclear)
+    {
+        if (MovementReadiness.bSupportsDirectActorMove && ObserverActor)
+        {
+            const FVector FallbackOffset = ReactionState == EWAYReactionState::Hostile
+                ? SafeDirection * GetFallbackMoveDistance(ReactionState, MovementReadiness.DistanceToTarget)
+                : ReactionState == EWAYReactionState::Cautious
+                    ? -SafeDirection * GetFallbackMoveDistance(ReactionState, MovementReadiness.DistanceToTarget)
+                    : SafeDirection * GetFallbackMoveDistance(ReactionState, MovementReadiness.DistanceToTarget);
+
+            if (TryMoveActor(ObserverActor, FallbackOffset))
+            {
+                if (OutExecutionMode)
+                {
+                    *OutExecutionMode = EWAYBehaviorExecutionMode::FallbackActive;
+                }
+
+                OutBehaviorDescription += FString::Printf(TEXT(" Environment confidence was low, so WanaWorks used a small direct fallback move instead of a locomotion pulse. %s"), *MovementReadiness.Detail);
+                return true;
+            }
+        }
+
+        StopBasicReactionMovement();
+        OutBehaviorDescription += FString::Printf(TEXT(" Movement stayed in a facing-only response because the environment context is low-confidence. %s"), *MovementReadiness.Detail);
+        return false;
+    }
+
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Limited && !MovementReadiness.bSupportsDirectActorMove)
+    {
+        StopBasicReactionMovement();
+        OutBehaviorDescription += FString::Printf(TEXT(" Movement stayed limited to facing behavior because the surrounding space is constrained. %s"), *MovementReadiness.Detail);
         return false;
     }
 
@@ -1061,7 +1095,8 @@ bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, E
         ? BasicReactionRetreatMoveInputScale
         : BasicReactionMoveInputScale;
 
-    if (StartBasicReactionMovement(TargetActor, ReactionState, OutBehaviorDescription, MoveInputScale))
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Allowed
+        && StartBasicReactionMovement(TargetActor, ReactionState, OutBehaviorDescription, MoveInputScale))
     {
         if (OutExecutionMode)
         {
@@ -1092,13 +1127,13 @@ bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, E
                 : ReactionState == EWAYReactionState::Cautious
                     ? TEXT("Held attention on the target and backed away with a readable safe actor fallback.")
                     : TEXT("Closed distance with a safe actor fallback, then settled into a clearer guard-ready stance.");
-            OutBehaviorDescription += FString::Printf(TEXT(" Fallback movement was used. %s"), *MovementReadiness.Detail);
+            OutBehaviorDescription += FString::Printf(TEXT(" Fallback movement was used because the environment limited full movement execution. %s"), *MovementReadiness.Detail);
             return true;
         }
     }
 
     StopBasicReactionMovement();
-    OutBehaviorDescription += TEXT(" Movement was requested, but no locomotion-compatible path could be applied, so the actor stayed in a stronger facing-only response.");
+    OutBehaviorDescription += FString::Printf(TEXT(" Movement was requested, but the current environment only supported a stronger facing-only response. %s"), *MovementReadiness.Detail);
     return false;
 }
 

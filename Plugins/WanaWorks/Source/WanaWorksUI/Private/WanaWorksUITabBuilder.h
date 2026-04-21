@@ -14,6 +14,7 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<FText(void)> GetSubjectStackSummaryText;
     TFunction<FText(void)> GetAnimationIntegrationText;
     TFunction<FText(void)> GetAnimationHookUsageText;
+    TFunction<FText(void)> GetPhysicalStateText;
     TFunction<FText(void)> GetSavedSubjectProgressText;
     TFunction<FText(void)> GetCharacterEnhancementSummaryText;
     TFunction<FText(void)> GetCharacterEnhancementChainText;

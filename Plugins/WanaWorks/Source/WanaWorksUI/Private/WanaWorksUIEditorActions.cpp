@@ -17,7 +17,9 @@
 #include "UObject/SoftObjectPath.h"
 #include "WAIPersonalityComponent.h"
 #include "WAYPlayerProfileComponent.h"
+#include "WanaPhysicalStateComponent.h"
 #include "WanaIdentityComponent.h"
+#include "WanaWorksUIFormattingUtils.h"
 #include "WanaWorksWeatherController.h"
 #include "WITBlueprintLibrary.h"
 
@@ -420,6 +422,18 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
         }
     }
 
+    if (const UWanaPhysicalStateComponent* PhysicalStateComponent = Actor->FindComponentByClass<UWanaPhysicalStateComponent>())
+    {
+        OutSnapshot.bHasPhysicalStateComponent = true;
+        OutSnapshot.PhysicalState = PhysicalStateComponent->PhysicalState;
+        OutSnapshot.PhysicalStabilityScore = PhysicalStateComponent->StabilityScore;
+        OutSnapshot.PhysicalRecoveryProgress = PhysicalStateComponent->RecoveryProgress;
+        OutSnapshot.bPhysicalBracing = PhysicalStateComponent->bBracing;
+        OutSnapshot.bPhysicalCanCommitToMovement = PhysicalStateComponent->bCanCommitToMovement;
+        OutSnapshot.bPhysicalCanCommitToAttack = PhysicalStateComponent->bCanCommitToAttack;
+        OutSnapshot.bPhysicalNeedsRecovery = PhysicalStateComponent->bNeedsRecovery;
+    }
+
     OutSnapshot.ActorTypeLabel = GetActorTypeLabel(
         Actor,
         OutSnapshot.bHasAIControllerClass,
@@ -562,6 +576,9 @@ void AppendRelationshipProfileLines(FWanaCommandResponse& Response, const AActor
     const FString BehaviorExecutionDetail = ProfileComponent && Profile.TargetActor
         ? ProfileComponent->GetBehaviorExecutionDetailForTarget(Profile.TargetActor)
         : FString();
+    const FWanaMovementReadiness MovementReadiness = (SelectedActor && Profile.TargetActor)
+        ? UWITBlueprintLibrary::GetMovementReadinessForObserverTarget(const_cast<AActor*>(SelectedActor), Profile.TargetActor)
+        : FWanaMovementReadiness();
     const FWAYAnimationHookState AnimationHookState = ProfileComponent
         ? ProfileComponent->GetCurrentAnimationHookState()
         : FWAYAnimationHookState();
@@ -583,7 +600,10 @@ void AppendRelationshipProfileLines(FWanaCommandResponse& Response, const AActor
     Response.OutputLines.Add(FString::Printf(TEXT("Visible Behavior: %s"), VisibleBehaviorLabel.IsEmpty() ? TEXT("(not applied yet)") : *VisibleBehaviorLabel));
     Response.OutputLines.Add(FString::Printf(TEXT("Last Applied Hook: %s"), *GetBehaviorPresetDisplayLabel(LastAppliedHook)));
     Response.OutputLines.Add(FString::Printf(TEXT("Execution Mode: %s"), *GetBehaviorExecutionModeDisplayLabel(ExecutionMode)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Environment Shaping: %s"), *WanaWorksUIFormattingUtils::GetEnvironmentShapingSummaryLabel(MovementReadiness)));
     Response.OutputLines.Add(FString::Printf(TEXT("Result Notes: %s"), BehaviorExecutionDetail.IsEmpty() ? TEXT("No visible behavior has been applied to this target yet.") : *BehaviorExecutionDetail));
+    Response.OutputLines.Add(FString::Printf(TEXT("Movement Confidence: %s"), *WanaWorksUIFormattingUtils::GetMovementReadinessStatusSummaryLabel(MovementReadiness)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Environment Shaping: %s"), *WanaWorksUIFormattingUtils::GetEnvironmentShapingSummaryLabel(MovementReadiness)));
     Response.OutputLines.Add(FString::Printf(TEXT("Animation Hook Application: %s"), *GetAnimationHookApplicationStatusDisplayLabel(AnimationHookApplicationStatus)));
     Response.OutputLines.Add(FString::Printf(TEXT("Facing Hook: %s"), GetAnimationHookRequestDisplayLabel(AnimationHookState.bFacingHookRequested)));
     Response.OutputLines.Add(FString::Printf(TEXT("Turn-To-Target Hook: %s"), GetAnimationHookRequestDisplayLabel(AnimationHookState.bTurnToTargetRequested)));
@@ -677,14 +697,27 @@ FString GetFallbackModeLabel(const FWanaMovementReadiness& MovementReadiness, bo
         return TEXT("Facing Only");
     }
 
-    return MovementReadiness.bCanAttemptMovement ? TEXT("Movement Allowed") : TEXT("Facing Only");
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Allowed)
+    {
+        return TEXT("Movement Allowed");
+    }
+
+    if (MovementReadiness.bSupportsDirectActorMove && MovementReadiness.ReadinessLevel != EWanaMovementReadinessLevel::Blocked)
+    {
+        return TEXT("Fallback Active");
+    }
+
+    return TEXT("Facing Only");
 }
 
 void AppendEnvironmentReadinessLines(FWanaCommandResponse& Response, const FWanaEnvironmentReadinessSnapshot& Snapshot)
 {
+    Response.OutputLines.Add(FString::Printf(TEXT("Movement Confidence: %s"), *WanaWorksUIFormattingUtils::GetMovementReadinessStatusSummaryLabel(Snapshot.MovementReadiness)));
     Response.OutputLines.Add(FString::Printf(TEXT("Movement Capability: %s"), *GetMovementCapabilityLabel(Snapshot.MovementReadiness, Snapshot.bHasObserverActor)));
     Response.OutputLines.Add(FString::Printf(TEXT("Navigation Context: %s"), *GetNavigationContextLabel(Snapshot.MovementReadiness, Snapshot.bHasObserverActor)));
     Response.OutputLines.Add(FString::Printf(TEXT("Reachability: %s"), *GetReachabilityLabel(Snapshot.MovementReadiness, Snapshot.bHasObserverActor, Snapshot.bHasTargetActor)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Obstacle Pressure: %s"), *WanaWorksUIFormattingUtils::GetObstaclePressureSummaryLabel(Snapshot.MovementReadiness)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Movement Space: %s"), *WanaWorksUIFormattingUtils::GetMovementSpaceSummaryLabel(Snapshot.MovementReadiness)));
     Response.OutputLines.Add(FString::Printf(TEXT("Fallback Mode: %s"), *GetFallbackModeLabel(Snapshot.MovementReadiness, Snapshot.bHasObserverActor, Snapshot.bHasTargetActor)));
 
     if (!Snapshot.PairSourceLabel.IsEmpty())
@@ -709,6 +742,19 @@ void AppendEnvironmentReadinessLines(FWanaCommandResponse& Response, const FWana
     if (!Snapshot.MovementReadiness.Detail.IsEmpty())
     {
         Response.OutputLines.Add(FString::Printf(TEXT("Readiness Notes: %s"), *Snapshot.MovementReadiness.Detail));
+    }
+
+    if (Snapshot.MovementReadiness.bMovementSpaceRestricted)
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: Nearby space is restricted, so visible behaviors should stay small or fall back to facing-only responses."));
+    }
+    else if (Snapshot.MovementReadiness.bObstaclePressureDetected)
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: Nearby obstacle pressure was detected, so movement should stay deliberate and short."));
+    }
+    else if (Snapshot.MovementReadiness.bLowConfidenceContext)
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: Movement context confidence is lower than normal, so fallback behavior may be safer than locomotion."));
     }
 }
 
@@ -828,6 +874,7 @@ FWanaCommandResponse ExecuteEvaluateActorPairInternal(AActor* ObserverActor, AAc
     }
     Response.OutputLines.Add(FString::Printf(TEXT("Last Applied Hook: %s"), *GetBehaviorPresetDisplayLabel(ProfileComponent->GetLastAppliedBehaviorHookForTarget(TargetActor))));
     Response.OutputLines.Add(FString::Printf(TEXT("Execution Mode: %s"), *GetBehaviorExecutionModeDisplayLabel(ProfileComponent->GetBehaviorExecutionModeForTarget(TargetActor))));
+    Response.OutputLines.Add(FString::Printf(TEXT("Environment Shaping: %s"), *WanaWorksUIFormattingUtils::GetEnvironmentShapingSummaryLabel(ReadinessSnapshot.MovementReadiness)));
     {
         const FString BehaviorExecutionDetail = ProfileComponent->GetBehaviorExecutionDetailForTarget(TargetActor);
         Response.OutputLines.Add(FString::Printf(TEXT("Result Notes: %s"), BehaviorExecutionDetail.IsEmpty() ? TEXT("No visible behavior has been applied to this target yet.") : *BehaviorExecutionDetail));
@@ -992,6 +1039,13 @@ bool GetBehaviorResultsSnapshotForActorPair(const AActor* ObserverActor, const A
         OutSnapshot.TargetActorLabel = TargetActor->GetActorNameOrLabel();
     }
 
+    if (ObserverActor || TargetActor)
+    {
+        OutSnapshot.MovementReadiness = UWITBlueprintLibrary::GetMovementReadinessForObserverTarget(
+            const_cast<AActor*>(ObserverActor),
+            const_cast<AActor*>(TargetActor));
+    }
+
     const UWAYPlayerProfileComponent* ProfileComponent = ObserverActor ? ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>() : nullptr;
 
     if (!ProfileComponent || !TargetActor)
@@ -1007,6 +1061,7 @@ bool GetBehaviorResultsSnapshotForActorPair(const AActor* ObserverActor, const A
     OutSnapshot.ExecutionMode = ProfileComponent->GetBehaviorExecutionModeForTarget(const_cast<AActor*>(TargetActor));
     OutSnapshot.VisibleBehaviorLabel = ProfileComponent->GetVisibleBehaviorLabelForTarget(const_cast<AActor*>(TargetActor));
     OutSnapshot.BehaviorExecutionDetail = ProfileComponent->GetBehaviorExecutionDetailForTarget(const_cast<AActor*>(TargetActor));
+    OutSnapshot.MovementReadiness = UWITBlueprintLibrary::GetMovementReadinessForObserverTarget(const_cast<AActor*>(ObserverActor), const_cast<AActor*>(TargetActor));
     const FWAYAnimationHookState AnimationHookState = ProfileComponent->GetCurrentAnimationHookState();
     const bool bAnimationHookMatchesTarget = AnimationHookState.TargetActor == TargetActor;
     OutSnapshot.bAnimationFacingHookRequested = bAnimationHookMatchesTarget && AnimationHookState.bFacingHookRequested;
@@ -2146,9 +2201,12 @@ FWanaCommandResponse ExecuteApplyStarterAndTestTargetCommand(const FString& Pres
     AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Preset Used:"));
     AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Components Added:"));
     AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Already Present:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Movement Confidence:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Movement Capability:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Navigation Context:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Reachability:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Obstacle Pressure:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Movement Space:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Fallback Mode:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Identity Seed:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Relationship State:"));
@@ -2158,6 +2216,7 @@ FWanaCommandResponse ExecuteApplyStarterAndTestTargetCommand(const FString& Pres
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Visible Behavior:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Last Applied Hook:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Execution Mode:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Environment Shaping:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Result Notes:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Animation Hook Application:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Facing Hook:"));
