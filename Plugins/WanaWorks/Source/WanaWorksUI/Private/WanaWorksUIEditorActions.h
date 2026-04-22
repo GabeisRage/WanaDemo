@@ -50,6 +50,9 @@ struct FWanaSelectedCharacterEnhancementSnapshot
     EWanaPhysicalState PhysicalState = EWanaPhysicalState::Stable;
     float PhysicalStabilityScore = 1.0f;
     float PhysicalRecoveryProgress = 1.0f;
+    float PhysicalInstabilityAlpha = 0.0f;
+    FVector PhysicalLastImpactDirection = FVector::ZeroVector;
+    float PhysicalLastImpactStrength = 0.0f;
     bool bPhysicalBracing = false;
     bool bPhysicalCanCommitToMovement = true;
     bool bPhysicalCanCommitToAttack = true;

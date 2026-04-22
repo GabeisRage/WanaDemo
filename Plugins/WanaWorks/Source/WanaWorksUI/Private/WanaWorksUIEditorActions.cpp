@@ -428,6 +428,9 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
         OutSnapshot.PhysicalState = PhysicalStateComponent->PhysicalState;
         OutSnapshot.PhysicalStabilityScore = PhysicalStateComponent->StabilityScore;
         OutSnapshot.PhysicalRecoveryProgress = PhysicalStateComponent->RecoveryProgress;
+        OutSnapshot.PhysicalInstabilityAlpha = PhysicalStateComponent->InstabilityAlpha;
+        OutSnapshot.PhysicalLastImpactDirection = PhysicalStateComponent->LastImpactDirection;
+        OutSnapshot.PhysicalLastImpactStrength = PhysicalStateComponent->LastImpactStrength;
         OutSnapshot.bPhysicalBracing = PhysicalStateComponent->bBracing;
         OutSnapshot.bPhysicalCanCommitToMovement = PhysicalStateComponent->bCanCommitToMovement;
         OutSnapshot.bPhysicalCanCommitToAttack = PhysicalStateComponent->bCanCommitToAttack;

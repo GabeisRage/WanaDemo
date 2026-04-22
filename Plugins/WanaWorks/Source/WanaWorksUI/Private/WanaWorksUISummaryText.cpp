@@ -1,9 +1,87 @@
 #include "WanaWorksUISummaryText.h"
 
+#include "GameFramework/Actor.h"
 #include "WanaWorksUIFormattingUtils.h"
 
 namespace WanaWorksUISummaryText
 {
+namespace
+{
+FString GetImpactSourceDirectionLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (Snapshot.PhysicalLastImpactStrength <= KINDA_SMALL_NUMBER || Snapshot.PhysicalLastImpactDirection.IsNearlyZero())
+    {
+        return TEXT("No active impact");
+    }
+
+    const FVector ImpactDirection = Snapshot.PhysicalLastImpactDirection.GetSafeNormal();
+    const AActor* SubjectActor = Snapshot.SelectedActor.Get();
+
+    if (SubjectActor)
+    {
+        const float RightDot = FVector::DotProduct(ImpactDirection, SubjectActor->GetActorRightVector().GetSafeNormal());
+        const float ForwardDot = FVector::DotProduct(ImpactDirection, SubjectActor->GetActorForwardVector().GetSafeNormal());
+
+        if (FMath::Abs(RightDot) >= FMath::Abs(ForwardDot))
+        {
+            return RightDot >= 0.0f ? TEXT("From Left") : TEXT("From Right");
+        }
+
+        return ForwardDot >= 0.0f ? TEXT("From Behind") : TEXT("From Front");
+    }
+
+    return TEXT("Directional impact recorded");
+}
+
+FString GetImpactEffectSummaryText(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (Snapshot.PhysicalLastImpactStrength <= KINDA_SMALL_NUMBER)
+    {
+        return TEXT("No active impact effect");
+    }
+
+    const FString StrengthLabel = Snapshot.PhysicalLastImpactStrength < 0.18f
+        ? TEXT("Light")
+        : (Snapshot.PhysicalLastImpactStrength < 0.42f
+            ? TEXT("Medium")
+            : (Snapshot.PhysicalLastImpactStrength < 0.72f
+                ? TEXT("Strong")
+                : TEXT("Severe")));
+
+    FString StateLabel;
+
+    switch (Snapshot.PhysicalState)
+    {
+    case EWanaPhysicalState::Bracing:
+        StateLabel = TEXT("brace response");
+        break;
+    case EWanaPhysicalState::Alert:
+        StateLabel = TEXT("alerted impact response");
+        break;
+    case EWanaPhysicalState::Staggered:
+        StateLabel = TEXT("directional stagger");
+        break;
+    case EWanaPhysicalState::OffBalance:
+        StateLabel = TEXT("off-balance disruption");
+        break;
+    case EWanaPhysicalState::Panicked:
+        StateLabel = TEXT("severe destabilization");
+        break;
+    case EWanaPhysicalState::Recovering:
+        StateLabel = TEXT("recovery posture");
+        break;
+    case EWanaPhysicalState::Stable:
+    default:
+        StateLabel = TEXT("light physical disturbance");
+        break;
+    }
+
+    return Snapshot.bPhysicalNeedsRecovery
+        ? FString::Printf(TEXT("%s %s with active recovery"), *StrengthLabel, *StateLabel)
+        : FString::Printf(TEXT("%s %s"), *StrengthLabel, *StateLabel);
+}
+}
+
 FString BuildSubjectSetupSummaryText(
     const FWanaSelectedCharacterEnhancementSnapshot* Snapshot,
     const FString& WorkflowLabel,
@@ -68,7 +146,7 @@ FString BuildAnimationHookUsageText(const FWanaSelectedCharacterEnhancementSnaps
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: Not Available\nCore Fields: bFacingHookRequested, bTurnToTargetRequested, ReactionState, RecommendedBehavior, bLocomotionSafeExecutionHint\nTypical Use: Use facing and turn flags for turn-to-target logic. Use ReactionState for reaction-driven animation branching. Use RecommendedBehavior for higher-level animation intent. Use the locomotion-safe hint to avoid forcing movement-driven animation logic.\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nNotes: Pick a Character Pawn or AI Pawn in WanaWorks to see subject-specific hook guidance.");
+        return TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: Not Available\nCore Fields: bFacingHookRequested, bTurnToTargetRequested, ReactionState, RecommendedBehavior, bLocomotionSafeExecutionHint\nTypical Use: Use facing and turn flags for turn-to-target logic. Use ReactionState for reaction-driven animation branching. Use RecommendedBehavior for higher-level animation intent. Use the locomotion-safe hint to avoid forcing movement-driven animation logic.\nPhysical State Bridge: Read UWanaPhysicalStateComponent for PhysicalState, StabilityScore, RecoveryProgress, LastImpactDirection, LastImpactStrength, bBracing, bNeedsRecovery, bCanCommitToMovement, bCanCommitToAttack, and InstabilityAlpha.\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nPhysical Example: Get Owning Actor -> Get Component By Class (UWanaPhysicalStateComponent) -> Read LastImpactDirection and InstabilityAlpha for directional stagger or recovery pose blending.\nNotes: Pick a Character Pawn or AI Pawn in WanaWorks to see subject-specific hook guidance.");
     }
 
     const FString HookApplicationLabel = WanaWorksUIFormattingUtils::GetAnimationHookApplicationStatusLabel(Snapshot->AnimationHookApplicationStatus);
@@ -87,12 +165,19 @@ FString BuildAnimationHookUsageText(const FWanaSelectedCharacterEnhancementSnaps
     const FString LocomotionHintSummary = Snapshot->bAnimationLocomotionHintSafe
         ? TEXT("true right now. Movement-aware animation logic can stay lightweight and compatibility-friendly.")
         : TEXT("false right now. Prefer facing, turn, or hold-state logic instead of forcing movement-driven animation behavior.");
+    const FString PhysicalBridgeSummary = Snapshot->bHasPhysicalStateComponent
+        ? FString::Printf(
+            TEXT("PhysicalState is %s right now. Use InstabilityAlpha %.2f for stagger or recovery blending. Use LastImpactDirection plus LastImpactStrength %.2f for directional lean or hit-reaction branching. Use bBracing and bNeedsRecovery to gate brace and recovery postures."),
+            *WanaWorksUIFormattingUtils::GetPhysicalStateSummaryLabel(*Snapshot),
+            Snapshot->PhysicalInstabilityAlpha,
+            Snapshot->PhysicalLastImpactStrength)
+        : TEXT("Attach UWanaPhysicalStateComponent if you want existing Anim BPs to read directional impact, stagger, recovery need, and commitment reduction without replacing the Anim BP.");
     const FString Notes = Snapshot->AnimationHookDetail.IsEmpty()
         ? TEXT("WanaWorks preserves the current Animation Blueprint and only exposes safe hook state on top.")
         : Snapshot->AnimationHookDetail;
 
     return FString::Printf(
-        TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: %s\nCurrent Subject: %s\nDetected Animation Blueprint: %s\nCore Fields:\n- bFacingHookRequested: %s\n- bTurnToTargetRequested: %s\n- ReactionState: %s\n- RecommendedBehavior: %s\n- bLocomotionSafeExecutionHint: %s\nTypical Use: Use facing and turn flags for turn-to-target logic. Use ReactionState for reaction-driven animation branching. Use RecommendedBehavior for higher-level animation intent. Use the locomotion-safe hint to avoid forcing movement-driven animation logic.\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nNotes: %s"),
+        TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: %s\nCurrent Subject: %s\nDetected Animation Blueprint: %s\nCore Fields:\n- bFacingHookRequested: %s\n- bTurnToTargetRequested: %s\n- ReactionState: %s\n- RecommendedBehavior: %s\n- bLocomotionSafeExecutionHint: %s\nTypical Use: Use facing and turn flags for turn-to-target logic. Use ReactionState for reaction-driven animation branching. Use RecommendedBehavior for higher-level animation intent. Use the locomotion-safe hint to avoid forcing movement-driven animation logic.\nPhysical State Bridge: %s\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nPhysical Example: Get Owning Actor -> Get Component By Class (UWanaPhysicalStateComponent) -> Read PhysicalState, InstabilityAlpha, LastImpactDirection, and LastImpactStrength\nNotes: %s"),
         *HookApplicationLabel,
         *Snapshot->SelectedActorLabel,
         Snapshot->LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("(not linked)") : *Snapshot->LinkedAnimationBlueprintLabel,
@@ -101,6 +186,7 @@ FString BuildAnimationHookUsageText(const FWanaSelectedCharacterEnhancementSnaps
         *ReactionFieldSummary,
         *BehaviorFieldSummary,
         *LocomotionHintSummary,
+        *PhysicalBridgeSummary,
         *Notes);
 }
 
@@ -108,12 +194,12 @@ FString BuildPhysicalStateSummaryText(const FWanaSelectedCharacterEnhancementSna
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("Physical State: Not Available\nStability Score: --\nRecovery Progress: --\nNotes: Choose a Character Pawn or AI Pawn in WanaWorks to inspect the readable body-state layer.");
+        return TEXT("Physical State: Not Available\nStability Score: --\nRecovery Progress: --\nInstability Alpha: --\nCurrent Impact: --\nImpact Effect: --\nNotes: Choose a Character Pawn or AI Pawn in WanaWorks to inspect the readable body-state layer.");
     }
 
     if (!Snapshot->bHasPhysicalStateComponent)
     {
-        return TEXT("Physical State: Not Available\nStability Score: --\nRecovery Progress: --\nNotes: Attach UWanaPhysicalStateComponent to this subject to expose a safe, readable body-state layer without replacing the current Character BP, Anim BP, or AI logic.");
+        return TEXT("Physical State: Not Available\nStability Score: --\nRecovery Progress: --\nInstability Alpha: --\nCurrent Impact: --\nImpact Effect: --\nNotes: Attach UWanaPhysicalStateComponent to this subject to expose a safe, readable body-state layer without replacing the current Character BP, Anim BP, or AI logic.");
     }
 
     const FString Notes = Snapshot->bPhysicalNeedsRecovery
@@ -121,12 +207,24 @@ FString BuildPhysicalStateSummaryText(const FWanaSelectedCharacterEnhancementSna
         : (Snapshot->bPhysicalBracing
             ? TEXT("Bracing is active. Other systems can use this as a defensive or hold-posture hint without forcing locomotion.")
             : TEXT("Body-state layer is readable and stable. Other systems can consume it safely as lightweight physical awareness."));
+    const FString DisruptionLabel = Snapshot->PhysicalState == EWanaPhysicalState::Staggered
+        ? TEXT("Yes - staggered")
+        : (Snapshot->PhysicalState == EWanaPhysicalState::OffBalance
+            ? TEXT("Yes - off balance")
+            : (Snapshot->PhysicalState == EWanaPhysicalState::Panicked
+                ? TEXT("Yes - highly disrupted")
+                : TEXT("No")));
 
     return FString::Printf(
-        TEXT("Physical State: %s\nStability Score: %.2f\nRecovery Progress: %d%%\nMovement Commitment: %s\nAttack Commitment: %s\nNotes: %s"),
+        TEXT("Physical State: %s\nStability Score: %.2f\nRecovery Progress: %d%%\nInstability Alpha: %.2f\nCurrent Impact: %s (%.2f)\nImpact Effect: %s\nDisrupted Posture: %s\nMovement Commitment: %s\nAttack Commitment: %s\nNotes: %s"),
         *WanaWorksUIFormattingUtils::GetPhysicalStateSummaryLabel(*Snapshot),
         Snapshot->PhysicalStabilityScore,
         FMath::RoundToInt(Snapshot->PhysicalRecoveryProgress * 100.0f),
+        Snapshot->PhysicalInstabilityAlpha,
+        *GetImpactSourceDirectionLabel(*Snapshot),
+        Snapshot->PhysicalLastImpactStrength,
+        *GetImpactEffectSummaryText(*Snapshot),
+        *DisruptionLabel,
         Snapshot->bPhysicalCanCommitToMovement ? TEXT("Ready") : TEXT("Hold"),
         Snapshot->bPhysicalCanCommitToAttack ? TEXT("Ready") : TEXT("Hold"),
         *Notes);

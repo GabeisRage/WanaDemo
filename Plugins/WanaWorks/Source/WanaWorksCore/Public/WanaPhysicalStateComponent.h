@@ -52,6 +52,9 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Physical State", meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float RecoveryProgress = 1.0f;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Physical State", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float InstabilityAlpha = 0.0f;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|Physical State", meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float FearInfluence = 0.0f;
 
@@ -95,4 +98,8 @@ protected:
 private:
     void BroadcastPhysicalStateChanged(EWanaPhysicalState PreviousState, EWanaPhysicalState NewState);
     void UpdateDerivedFlags();
+
+    float ActiveRecoveryDuration = 1.25f;
+    float ActiveRecoverySeverity = 0.0f;
+    float RecoveryTargetStability = 0.9f;
 };
