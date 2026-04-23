@@ -42,6 +42,12 @@ struct FWanaSelectedCharacterEnhancementSnapshot
     FString LinkedAIControllerLabel;
     FString AnimationCompatibilitySummary;
     FString AIReadinessSummary;
+    bool bHasAutomaticAnimationIntegrationComponent = false;
+    bool bAnimationAutoAttachSucceeded = false;
+    bool bAnimationAutoWireSucceeded = false;
+    EWAYAutomaticAnimationIntegrationStatus AnimationAutomaticIntegrationStatus = EWAYAutomaticAnimationIntegrationStatus::NotSupported;
+    FString AnimationIntegrationTargetLabel;
+    FString AnimationAutomaticIntegrationDetail;
     bool bAnimationFacingHookRequested = false;
     bool bAnimationTurnToTargetRequested = false;
     bool bAnimationLocomotionHintSafe = false;
@@ -138,6 +144,7 @@ namespace WanaWorksUIEditorActions
     FWanaCommandResponse ExecuteCreateSandboxDuplicateCommand();
     FWanaCommandResponse ExecuteCreateSandboxSubjectFromAssetCommand(const UObject* SubjectObject, const UAnimBlueprint* AnimationBlueprintOverride = nullptr);
     FWanaCommandResponse ExecuteCreateFinalizedBuildSubjectFromAssetCommand(const UObject* SubjectObject, const UAnimBlueprint* AnimationBlueprintOverride = nullptr);
+    FWanaCommandResponse ExecuteCreateFinalizedBuildAssetFromActorCommand(AActor* SourceActor);
     FWanaCommandResponse ExecutePrepareSelectedActorForAITestCommand();
     FWanaCommandResponse ExecuteEvaluateLiveTargetCommand();
     FWanaCommandResponse ExecuteEvaluateActorPairCommand(AActor* ObserverActor, AActor* TargetActor, bool bTargetFallsBackToObserver = false);

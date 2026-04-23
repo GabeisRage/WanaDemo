@@ -275,6 +275,28 @@ AActor* ResolveSavedActorPath(const FString& SavedActorPath)
     const FSoftObjectPath SoftPath(SavedActorPath);
     return Cast<AActor>(SoftPath.ResolveObject());
 }
+
+UObject* ResolvePreviewAssetFromActor(const AActor* Actor)
+{
+    if (!Actor)
+    {
+        return nullptr;
+    }
+
+    const UClass* ActorClass = Actor->GetClass();
+
+    if (!ActorClass)
+    {
+        return nullptr;
+    }
+
+    if (UBlueprint* BlueprintAsset = Cast<UBlueprint>(ActorClass->ClassGeneratedBy))
+    {
+        return BlueprintAsset;
+    }
+
+    return const_cast<UClass*>(ActorClass);
+}
 }
 
 const FName FWanaWorksUIModule::WanaWorksTabName(TEXT("WanaWorksTab"));
@@ -284,12 +306,14 @@ IMPLEMENT_MODULE(FWanaWorksUIModule, WanaWorksUI)
 void FWanaWorksUIModule::StartupModule()
 {
     StatusMessage = TEXT("Status: Wana Works Initialized");
+    SelectedWorkspaceLabel = TEXT("AI");
+    SelectedPreviewStageViewLabel = TEXT("Overview");
     CommandText.Reset();
     LogOutput = TEXT("Wana Works Initialized");
     IdentityFactionTagText.Reset();
     SelectedWorkflowPresetLabel = TEXT("Full WanaAI Starter");
     SelectedEnhancementPresetLabel = TEXT("Identity Only");
-    SelectedEnhancementWorkflowLabel = TEXT("Use Original Character");
+    SelectedEnhancementWorkflowLabel = TEXT("Create Working Copy");
     SelectedCharacterPawnAssetLabel.Reset();
     SelectedAIPawnAssetLabel.Reset();
     LastEnhancementResultsActor.Reset();
@@ -352,7 +376,7 @@ void FWanaWorksUIModule::StartupModule()
     EnhancementWorkflowOptions =
     {
         MakeShared<FString>(TEXT("Use Original Character")),
-        MakeShared<FString>(TEXT("Create Sandbox Duplicate")),
+        MakeShared<FString>(TEXT("Create Working Copy")),
         MakeShared<FString>(TEXT("Convert to AI-Ready Test Subject"))
     };
     RelationshipStateOptions =
@@ -421,6 +445,24 @@ void FWanaWorksUIModule::HandleEditorSelectionChanged(UObject* NewSelection)
 void FWanaWorksUIModule::HandleCommandTextChanged(const FText& NewText)
 {
     CommandText = NewText.ToString();
+}
+
+void FWanaWorksUIModule::HandleWorkspaceSelected(const FString& WorkspaceLabel)
+{
+    if (!WorkspaceLabel.IsEmpty())
+    {
+        SelectedWorkspaceLabel = WorkspaceLabel;
+        RefreshReactiveUI(true);
+    }
+}
+
+void FWanaWorksUIModule::HandlePreviewStageViewSelected(const FString& PreviewViewLabel)
+{
+    if (!PreviewViewLabel.IsEmpty())
+    {
+        SelectedPreviewStageViewLabel = PreviewViewLabel;
+        RefreshReactiveUI(true);
+    }
 }
 
 void FWanaWorksUIModule::HandleIdentityFactionTagTextChanged(const FText& NewText)
@@ -512,7 +554,10 @@ void FWanaWorksUIModule::UpdateEnhancementResultsState(
     LastEnhancementWAYResult = UIFmt::GetEnhancementComponentResultLabel(EffectiveSnapshot->bHasWAYComponent, bWAYAdded);
     LastEnhancementWAIResult = UIFmt::GetEnhancementComponentResultLabel(EffectiveSnapshot->bHasWAIComponent, bWAIAdded);
     LastEnhancementAIReadyResult = UIFmt::IsAIReadyForLightweightTesting(*EffectiveSnapshot) ? TEXT("Yes") : TEXT("No");
-    LastEnhancementAnimationResult = UIFmt::GetAnimationReadinessResultLabel(EffectiveSnapshot->bHasSkeletalMeshComponent, EffectiveSnapshot->bHasAnimBlueprint);
+    LastEnhancementAnimationResult =
+        EffectiveSnapshot->AnimationAutomaticIntegrationStatus != EWAYAutomaticAnimationIntegrationStatus::NotSupported
+            ? UIFmt::GetAutomaticAnimationIntegrationStatusLabel(EffectiveSnapshot->AnimationAutomaticIntegrationStatus)
+            : UIFmt::GetAnimationReadinessResultLabel(EffectiveSnapshot->bHasSkeletalMeshComponent, EffectiveSnapshot->bHasAnimBlueprint);
 
     if (bUpdateWorkflowMetadata)
     {
@@ -678,6 +723,7 @@ void FWanaWorksUIModule::HandleCharacterPawnAssetOptionSelected(TSharedPtr<FStri
     if (!SelectedCharacterPawnAssetLabel.IsEmpty())
     {
         SelectedAIPawnAssetLabel.Reset();
+        SelectedWorkspaceLabel = TEXT("Character Building");
     }
 
     RefreshReactiveUI(true);
@@ -695,6 +741,7 @@ void FWanaWorksUIModule::HandleAIPawnAssetOptionSelected(TSharedPtr<FString> Sel
     if (!SelectedAIPawnAssetLabel.IsEmpty())
     {
         SelectedCharacterPawnAssetLabel.Reset();
+        SelectedWorkspaceLabel = TEXT("AI");
     }
 
     RefreshReactiveUI(true);
@@ -760,7 +807,14 @@ UObject* FWanaWorksUIModule::LoadSelectedSubjectAssetObject() const
         return nullptr;
     }
 
-    return FSoftObjectPath(SubjectAssetPath).TryLoad();
+    const FSoftObjectPath SubjectSoftPath(SubjectAssetPath);
+
+    if (UObject* ResolvedObject = SubjectSoftPath.ResolveObject())
+    {
+        return ResolvedObject;
+    }
+
+    return SubjectSoftPath.TryLoad();
 }
 
 UClass* FWanaWorksUIModule::LoadSelectedSubjectActorClass() const
@@ -789,6 +843,27 @@ FString FWanaWorksUIModule::GetSelectedSubjectAssetPath() const
     }
 
     return FString();
+}
+
+UObject* FWanaWorksUIModule::GetSandboxPreviewObject() const
+{
+    FString PreviewModeLabel;
+    AActor* PreviewActor = nullptr;
+
+    if (ResolvePreferredSandboxPreviewActor(PreviewActor, PreviewModeLabel))
+    {
+        if (UObject* PreviewAsset = ResolvePreviewAssetFromActor(PreviewActor))
+        {
+            return PreviewAsset;
+        }
+    }
+
+    if (UObject* PickedSubjectAsset = LoadSelectedSubjectAssetObject())
+    {
+        return PickedSubjectAsset;
+    }
+
+    return nullptr;
 }
 
 bool FWanaWorksUIModule::ResolvePickedSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const
@@ -835,6 +910,44 @@ bool FWanaWorksUIModule::ResolvePreferredSubjectSnapshot(FWanaSelectedCharacterE
     }
 
     OutSnapshot = FWanaSelectedCharacterEnhancementSnapshot();
+    return false;
+}
+
+bool FWanaWorksUIModule::ResolvePreferredSandboxPreviewActor(AActor*& OutActor, FString& OutPreviewModeLabel) const
+{
+    OutActor = nullptr;
+    OutPreviewModeLabel = TEXT("Picked subject preview");
+
+    if (LastEnhancementResultsActor.IsValid())
+    {
+        OutActor = LastEnhancementResultsActor.Get();
+        const FString ActorLabel = OutActor->GetActorNameOrLabel();
+        OutPreviewModeLabel = ActorLabel.StartsWith(TEXT("WW_Final_"))
+            ? TEXT("Finalized build preview")
+            : TEXT("Working/generated subject preview");
+        return true;
+    }
+
+    if (SandboxObserverActor.IsValid())
+    {
+        OutActor = SandboxObserverActor.Get();
+        OutPreviewModeLabel = TEXT("Working subject preview");
+        return true;
+    }
+
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+
+    if (ResolvePreferredSubjectSnapshot(Snapshot)
+        && Snapshot.bHasSelectedActor
+        && Snapshot.SelectedActor.IsValid())
+    {
+        OutActor = Snapshot.SelectedActor.Get();
+        OutPreviewModeLabel = Snapshot.bIsProjectAsset
+            ? TEXT("Picked asset match preview")
+            : TEXT("Editor selection fallback preview");
+        return true;
+    }
+
     return false;
 }
 
@@ -1082,7 +1195,7 @@ void FWanaWorksUIModule::CreateAIReadyController()
 
     if (bSpawnedFromPicker)
     {
-        Response.OutputLines.Insert(TEXT("Readiness Notes: WanaWorks created a sandbox subject from the project picker before applying AI-ready prep."), 2);
+        Response.OutputLines.Insert(TEXT("Readiness Notes: WanaWorks created a working subject from the project picker before applying AI-ready prep."), 2);
     }
 
     ApplyResponse(Response);
@@ -1135,7 +1248,7 @@ void FWanaWorksUIModule::ConvertSelectedSubjectToAIReady()
 
     if (bSpawnedFromPicker)
     {
-        Response.OutputLines.Insert(TEXT("Readiness Notes: WanaWorks created a sandbox subject from the project picker before converting it for AI-ready testing."), 2);
+        Response.OutputLines.Insert(TEXT("Readiness Notes: WanaWorks created a working subject from the project picker before converting it for AI-ready testing."), 2);
     }
 
     ApplyResponse(Response);
@@ -1180,7 +1293,7 @@ void FWanaWorksUIModule::SaveSubjectProgress()
     Response.OutputLines.Add(FString::Printf(TEXT("WAY: %s"), *LastSavedSubjectWAYResult));
     Response.OutputLines.Add(FString::Printf(TEXT("AI-Ready: %s"), *LastSavedSubjectAIReadyResult));
     Response.OutputLines.Add(TEXT("Readiness Notes: This snapshot is stored in the project's editor settings so you can reuse it across editor sessions."));
-    Response.OutputLines.Add(TEXT("Readiness Notes: Use Restore Last Saved State to bring back the saved workflow choices and sandbox assignments when they are still available."));
+    Response.OutputLines.Add(TEXT("Readiness Notes: Use Restore Last Saved State to bring back the saved workflow choices and working-pair assignments when they are still available."));
     ApplyResponse(Response);
     RefreshReactiveUI(true);
 }
@@ -1406,7 +1519,8 @@ void FWanaWorksUIModule::ApplySelectedWorkflowPreset()
     FWanaCommandResponse IdentityResponse;
     FWanaCommandResponse RelationshipResponse;
     FWanaCommandResponse PreparationResponse;
-    const bool bUseSandboxDuplicate = Config.WorkflowLabel == TEXT("Create Sandbox Duplicate");
+    const bool bUseSandboxDuplicate = Config.WorkflowLabel == TEXT("Create Sandbox Duplicate")
+        || Config.WorkflowLabel == TEXT("Create Working Copy");
     const bool bUseAIReadyPrep = Config.WorkflowLabel == TEXT("Convert to AI-Ready Test Subject");
     bool bSpawnedFromPicker = false;
 
@@ -1509,7 +1623,7 @@ void FWanaWorksUIModule::ApplySelectedWorkflowPreset()
     Response.OutputLines.Add(FString::Printf(TEXT("Workflow Path: %s"), *Config.WorkflowLabel));
     Response.OutputLines.Add(FString::Printf(
         TEXT("Original Or Duplicate: %s"),
-        (bUseSandboxDuplicate || bSpawnedFromPicker) ? TEXT("Sandbox subject") : TEXT("Original actor")));
+        (bUseSandboxDuplicate || bSpawnedFromPicker) ? TEXT("Working subject") : TEXT("Original actor")));
     Response.OutputLines.Add(FString::Printf(TEXT("Starter Preset: %s"), *Config.EnhancementPresetLabel));
     Response.OutputLines.Add(FString::Printf(TEXT("Identity Seed: %s"), UIFmt::GetRelationshipStateLabel(Config.IdentitySeedState)));
     Response.OutputLines.Add(FString::Printf(TEXT("Relationship Default: %s"), UIFmt::GetRelationshipStateLabel(Config.RelationshipState)));
@@ -1529,14 +1643,28 @@ void FWanaWorksUIModule::ApplySelectedWorkflowPreset()
 
     if (bSpawnedFromPicker)
     {
-        Response.OutputLines.Add(TEXT("Readiness Notes: WanaWorks created a sandbox-first subject from the project picker before applying the preset."));
+        Response.OutputLines.Add(TEXT("Readiness Notes: WanaWorks created a working subject from the project picker before applying the preset."));
         UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Picked Subject Asset:"));
         UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Picked Animation Blueprint:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Detected Source Anim BP:"));
         UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Animation Override Applied:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Workspace Animation Integration Target:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Automatic Anim Integration:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Auto-Attach:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Auto-Wire:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Generated Runtime Layer:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Animation Integration Notes:"));
     }
     else if (bUseSandboxDuplicate)
     {
-        Response.OutputLines.Add(TEXT("Readiness Notes: WanaWorks created a sandbox duplicate before applying the preset."));
+        Response.OutputLines.Add(TEXT("Readiness Notes: WanaWorks created a working copy before applying the preset."));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Detected Source Anim BP:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Workspace Animation Integration Target:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Automatic Anim Integration:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Auto-Attach:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Auto-Wire:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Generated Runtime Layer:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Animation Integration Notes:"));
     }
 
     if (bUseAIReadyPrep)
@@ -1581,6 +1709,62 @@ void FWanaWorksUIModule::ApplySelectedWorkflowPreset()
     RefreshReactiveUI(true);
 }
 
+void FWanaWorksUIModule::CreateWorkingCopy()
+{
+    FWanaSelectedCharacterEnhancementSnapshot BeforeSnapshot;
+    const bool bHasBeforeSnapshot = ResolvePreferredSubjectSnapshot(BeforeSnapshot) && BeforeSnapshot.bHasSelectedActor;
+    FWanaCommandResponse PreparationResponse;
+    bool bSpawnedFromPicker = false;
+
+    if (!PreparePickerDrivenSubjectForWorkflow(TEXT("Create Copy"), PreparationResponse, bSpawnedFromPicker))
+    {
+        ApplyResponse(PreparationResponse);
+        RefreshReactiveUI(true);
+        return;
+    }
+
+    FWanaCommandResponse Response;
+
+    if (bSpawnedFromPicker)
+    {
+        Response = PreparationResponse;
+        Response.StatusMessage = TEXT("Status: Created working copy.");
+        Response.OutputLines.Insert(TEXT("Workspace Action: Create Copy"), 0);
+        Response.OutputLines.Add(TEXT("Workspace Notes: WanaWorks created a working subject from the picked project asset so the original source stays untouched."));
+    }
+    else
+    {
+        Response = WanaWorksUIEditorActions::ExecuteCreateSandboxDuplicateCommand();
+
+        if (bHasBeforeSnapshot)
+        {
+            Response.OutputLines.Insert(FString::Printf(TEXT("Selected Subject: %s"), *BeforeSnapshot.SelectedActorLabel), 0);
+            Response.OutputLines.Insert(TEXT("Workspace Action: Create Copy"), 1);
+        }
+
+        if (Response.bSucceeded)
+        {
+            Response.StatusMessage = TEXT("Status: Created working copy.");
+            Response.OutputLines.Add(TEXT("Workspace Notes: WanaWorks created a working copy inside the workspace so the original actor remains preserved."));
+        }
+    }
+
+    if (Response.bSucceeded)
+    {
+        FWanaSelectedCharacterEnhancementSnapshot WorkingSnapshot;
+
+        if (WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(WorkingSnapshot)
+            && WorkingSnapshot.bHasSelectedActor
+            && WorkingSnapshot.SelectedActor.IsValid())
+        {
+            SandboxObserverActor = WorkingSnapshot.SelectedActor.Get();
+        }
+    }
+
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
 void FWanaWorksUIModule::ApplyCharacterEnhancement()
 {
     FWanaSelectedCharacterEnhancementSnapshot SourceSnapshot;
@@ -1592,7 +1776,8 @@ void FWanaWorksUIModule::ApplyCharacterEnhancement()
     FWanaCommandResponse EnhancementResponse;
     FWanaCommandResponse AIReadyResponse;
     FWanaCommandResponse PreparationResponse;
-    const bool bUseSandboxDuplicate = WorkflowLabel == TEXT("Create Sandbox Duplicate");
+    const bool bUseSandboxDuplicate = WorkflowLabel == TEXT("Create Sandbox Duplicate")
+        || WorkflowLabel == TEXT("Create Working Copy");
     const bool bUseAIReadyPrep = WorkflowLabel == TEXT("Convert to AI-Ready Test Subject");
     bool bSpawnedFromPicker = false;
 
@@ -1653,7 +1838,7 @@ void FWanaWorksUIModule::ApplyCharacterEnhancement()
     FWanaCommandResponse Response;
     Response.bSucceeded = true;
     Response.StatusMessage = bUseSandboxDuplicate
-        ? TEXT("Status: Prepared sandbox duplicate for WanaAI testing.")
+        ? TEXT("Status: Prepared working copy for WanaAI testing.")
         : (bUseAIReadyPrep
             ? (bAIReadyNotApplicable
                 ? TEXT("Status: Applied WanaAI enhancement with AI-ready notes.")
@@ -1663,7 +1848,7 @@ void FWanaWorksUIModule::ApplyCharacterEnhancement()
     Response.OutputLines.Add(FString::Printf(TEXT("Workflow Path: %s"), *WorkflowLabel));
     Response.OutputLines.Add(FString::Printf(
         TEXT("Original Or Duplicate: %s"),
-        (bUseSandboxDuplicate || bSpawnedFromPicker) ? TEXT("Sandbox subject") : TEXT("Original actor")));
+        (bUseSandboxDuplicate || bSpawnedFromPicker) ? TEXT("Working subject") : TEXT("Original actor")));
     Response.OutputLines.Add(FString::Printf(TEXT("Active Subject: %s"), bHasActiveSnapshot ? *ActiveSnapshot.SelectedActorLabel : *SourceSnapshot.SelectedActorLabel));
 
     if (bHasActiveSnapshot)
@@ -1683,14 +1868,28 @@ void FWanaWorksUIModule::ApplyCharacterEnhancement()
     if (bUseSandboxDuplicate && !bSpawnedFromPicker)
     {
         UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Compatibility Notes:"));
-        Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox observer was updated to the prepared subject."));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Detected Source Anim BP:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Workspace Animation Integration Target:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Automatic Anim Integration:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Auto-Attach:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Auto-Wire:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Generated Runtime Layer:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Animation Integration Notes:"));
+        Response.OutputLines.Add(TEXT("Readiness Notes: The working subject was updated as the active observer."));
     }
     else if (bSpawnedFromPicker)
     {
-        Response.OutputLines.Add(TEXT("Readiness Notes: WanaWorks created a sandbox-first subject from the project picker before applying enhancement."));
+        Response.OutputLines.Add(TEXT("Readiness Notes: WanaWorks created a working subject from the project picker before applying enhancement."));
         UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Picked Subject Asset:"));
         UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Picked Animation Blueprint:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Detected Source Anim BP:"));
         UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Animation Override Applied:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Workspace Animation Integration Target:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Automatic Anim Integration:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Auto-Attach:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Auto-Wire:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Generated Runtime Layer:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Animation Integration Notes:"));
     }
 
     if (bUseAIReadyPrep)
@@ -1775,7 +1974,7 @@ bool FWanaWorksUIModule::ResolvePreferredWITReadinessPair(AActor*& OutObserverAc
     {
         OutObserverActor = SandboxObserverActor.Get();
         OutTargetActor = SandboxTargetActor.Get();
-        OutPairSourceLabel = TEXT("Sandbox pair");
+        OutPairSourceLabel = TEXT("Working pair");
         return true;
     }
 
@@ -1794,7 +1993,7 @@ bool FWanaWorksUIModule::ResolvePreferredWITReadinessPair(AActor*& OutObserverAc
     {
         OutObserverActor = SandboxObserverActor.Get();
         OutTargetActor = SandboxTargetActor.Get();
-        OutPairSourceLabel = TEXT("Sandbox assignments");
+        OutPairSourceLabel = TEXT("Working-pair assignments");
         return true;
     }
 
@@ -1850,7 +2049,7 @@ void FWanaWorksUIModule::UseSelectedActorAsSandboxObserver()
     if (!WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) || !Snapshot.bHasSelectedActor)
     {
         FWanaCommandResponse Response;
-        Response.StatusMessage = TEXT("Status: No selected actor to assign as sandbox observer.");
+        Response.StatusMessage = TEXT("Status: No selected actor to assign as the working observer.");
         Response.OutputLines.Add(TEXT("Select an actor in the editor, then click Use Selected as Observer."));
         ApplyResponse(Response);
         RefreshReactiveUI(true);
@@ -1862,14 +2061,14 @@ void FWanaWorksUIModule::UseSelectedActorAsSandboxObserver()
 
     FWanaCommandResponse Response;
     Response.bSucceeded = true;
-    Response.StatusMessage = TEXT("Status: Sandbox observer assigned.");
+    Response.StatusMessage = TEXT("Status: Working observer assigned.");
     Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), *Snapshot.SelectedActorLabel));
     Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), SandboxTargetActor.IsValid() ? *SandboxTargetActor->GetActorNameOrLabel() : TEXT("(not assigned)")));
-    Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox observer was assigned from the current editor selection."));
+    Response.OutputLines.Add(TEXT("Readiness Notes: The working observer was assigned from the current editor selection."));
 
     if (!SandboxTargetActor.IsValid())
     {
-        Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox target is still missing. Use Selected as Target before evaluating the pair."));
+        Response.OutputLines.Add(TEXT("Readiness Notes: The working target is still missing. Use Selected as Target before evaluating the pair."));
     }
     else if (bSelfTargetDebugPair)
     {
@@ -1888,7 +2087,7 @@ void FWanaWorksUIModule::UseSelectedActorAsSandboxTarget()
     if (!WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(Snapshot) || !Snapshot.bHasSelectedActor)
     {
         FWanaCommandResponse Response;
-        Response.StatusMessage = TEXT("Status: No selected actor to assign as sandbox target.");
+        Response.StatusMessage = TEXT("Status: No selected actor to assign as the working target.");
         Response.OutputLines.Add(TEXT("Select an actor in the editor, then click Use Selected as Target."));
         ApplyResponse(Response);
         RefreshReactiveUI(true);
@@ -1900,14 +2099,14 @@ void FWanaWorksUIModule::UseSelectedActorAsSandboxTarget()
 
     FWanaCommandResponse Response;
     Response.bSucceeded = true;
-    Response.StatusMessage = TEXT("Status: Sandbox target assigned.");
+    Response.StatusMessage = TEXT("Status: Working target assigned.");
     Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), SandboxObserverActor.IsValid() ? *SandboxObserverActor->GetActorNameOrLabel() : TEXT("(not assigned)")));
     Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), *Snapshot.SelectedActorLabel));
-    Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox target was assigned from the current editor selection."));
+    Response.OutputLines.Add(TEXT("Readiness Notes: The working target was assigned from the current editor selection."));
 
     if (!SandboxObserverActor.IsValid())
     {
-        Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox observer is still missing. Use Selected as Observer before evaluating the pair."));
+        Response.OutputLines.Add(TEXT("Readiness Notes: The working observer is still missing. Use Selected as Observer before evaluating the pair."));
     }
     else if (bSelfTargetDebugPair)
     {
@@ -1915,7 +2114,7 @@ void FWanaWorksUIModule::UseSelectedActorAsSandboxTarget()
     }
     else
     {
-        Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox pair is ready to evaluate with separate observer and target assignments."));
+    Response.OutputLines.Add(TEXT("Readiness Notes: The working pair is ready to evaluate with separate observer and target assignments."));
     }
 
     if (SandboxObserverActor.IsValid())
@@ -1945,14 +2144,14 @@ void FWanaWorksUIModule::EvaluateSandboxPair()
     if (!ObserverActor || !TargetActor)
     {
         Response.StatusMessage = !ObserverActor
-            ? TEXT("Status: Sandbox observer is missing.")
-            : TEXT("Status: Sandbox target is missing.");
+            ? TEXT("Status: Working observer is missing.")
+            : TEXT("Status: Working target is missing.");
         Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), ObserverActor ? *ObserverActor->GetActorNameOrLabel() : TEXT("(not assigned)")));
         Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), TargetActor ? *TargetActor->GetActorNameOrLabel() : TEXT("(not assigned)")));
-        Response.OutputLines.Add(TEXT("Readiness Notes: Sandbox evaluation uses explicit assignments only."));
+        Response.OutputLines.Add(TEXT("Readiness Notes: Working-pair evaluation uses explicit assignments only."));
         Response.OutputLines.Add(!ObserverActor
-            ? TEXT("Readiness Notes: Use Selected as Observer before evaluating the sandbox pair.")
-            : TEXT("Readiness Notes: Use Selected as Target before evaluating the sandbox pair."));
+            ? TEXT("Readiness Notes: Use Selected as Observer before evaluating the working pair.")
+            : TEXT("Readiness Notes: Use Selected as Target before evaluating the working pair."));
         ApplyResponse(Response);
         RefreshReactiveUI(true);
         return;
@@ -1963,8 +2162,8 @@ void FWanaWorksUIModule::EvaluateSandboxPair()
 
     if (Response.bSucceeded)
     {
-        Response.OutputLines.Add(TEXT("Readiness Notes: Observer Source: Stored sandbox observer."));
-        Response.OutputLines.Add(TEXT("Readiness Notes: Target Source: Stored sandbox target."));
+    Response.OutputLines.Add(TEXT("Readiness Notes: Observer Source: Stored working observer."));
+    Response.OutputLines.Add(TEXT("Readiness Notes: Target Source: Stored working target."));
         Response.OutputLines.Add(bIsSelfTargetDebugPair
             ? TEXT("Readiness Notes: Self-target evaluation is active as a debug case.")
             : TEXT("Readiness Notes: Explicit observer-target pair evaluated."));
@@ -1987,170 +2186,70 @@ void FWanaWorksUIModule::EvaluateSandboxPair()
 
 void FWanaWorksUIModule::FinalizeSandboxBuild()
 {
-    FWanaSelectedCharacterEnhancementSnapshot WorkflowSnapshot;
-    const bool bHasWorkflowSnapshot = ResolvePreferredSubjectSnapshot(WorkflowSnapshot) && WorkflowSnapshot.bHasSelectedActor;
+    FWanaCommandResponse PreparationResponse;
+    bool bSpawnedFromPicker = false;
 
-    FWanaSelectedCharacterEnhancementSnapshot SandboxSnapshot;
-    const bool bHasSandboxSnapshot =
-        SandboxObserverActor.IsValid()
-        && WanaWorksUIEditorActions::GetCharacterEnhancementSnapshotForActor(SandboxObserverActor.Get(), SandboxSnapshot)
-        && SandboxSnapshot.bHasSelectedActor;
-
-    UObject* BuildSourceObject = LoadSelectedSubjectAssetObject();
-    FString SourceAssetLabel;
-    FString SourceAssetPath = GetSelectedSubjectAssetPath();
-
-    if (BuildSourceObject)
+    if (!PreparePickerDrivenSubjectForWorkflow(TEXT("Build Final"), PreparationResponse, bSpawnedFromPicker))
     {
-        SourceAssetLabel = BuildSourceObject->GetName();
-    }
-    else if (bHasSandboxSnapshot && SandboxSnapshot.SelectedActor.IsValid())
-    {
-        BuildSourceObject = SandboxSnapshot.SelectedActor->GetClass();
-        SourceAssetLabel = FString::Printf(TEXT("%s (sandbox workflow fallback)"), *SandboxSnapshot.SelectedActor->GetClass()->GetName());
-    }
-    else if (bHasWorkflowSnapshot && WorkflowSnapshot.SelectedActor.IsValid())
-    {
-        BuildSourceObject = WorkflowSnapshot.SelectedActor->GetClass();
-        SourceAssetLabel = FString::Printf(TEXT("%s (selection fallback)"), *WorkflowSnapshot.SelectedActor->GetClass()->GetName());
+        ApplyResponse(PreparationResponse);
+        RefreshReactiveUI(true);
+        return;
     }
 
-    if (!BuildSourceObject)
+    FWanaSelectedCharacterEnhancementSnapshot WorkingSnapshot;
+    const bool bHasWorkingSnapshot =
+        WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(WorkingSnapshot)
+        && WorkingSnapshot.bHasSelectedActor
+        && WorkingSnapshot.SelectedActor.IsValid();
+
+    AActor* BuildSourceActor = nullptr;
+
+    if (SandboxObserverActor.IsValid())
+    {
+        BuildSourceActor = SandboxObserverActor.Get();
+    }
+    else if (bHasWorkingSnapshot)
+    {
+        BuildSourceActor = WorkingSnapshot.SelectedActor.Get();
+    }
+
+    if (!BuildSourceActor)
     {
         FWanaCommandResponse Response;
-        Response.StatusMessage = TEXT("Status: No sandbox build source available.");
-        Response.OutputLines.Add(TEXT("Choose a Character Pawn or AI Pawn in the WanaWorks picker, or prepare a sandbox subject first, before building a final version."));
+        Response.StatusMessage = TEXT("Status: No working subject available for build.");
+        Response.OutputLines.Add(TEXT("Create or select a working copy in WanaWorks before building the final output asset."));
         ApplyResponse(Response);
         RefreshReactiveUI(true);
         return;
     }
 
-    const FString BuildSourceLabel = SourceAssetLabel.IsEmpty() ? BuildSourceObject->GetName() : SourceAssetLabel;
-    const FString WorkflowLabel = UIFmt::GetCharacterEnhancementWorkflowLabel(SelectedEnhancementWorkflowLabel);
-    const bool bShouldPrepareAIReady =
-        WorkflowLabel == TEXT("Convert to AI-Ready Test Subject")
-        || (bHasSandboxSnapshot && SandboxSnapshot.bAutoPossessAIEnabled);
+    FWanaCommandResponse BuildResponse = WanaWorksUIEditorActions::ExecuteCreateFinalizedBuildAssetFromActorCommand(BuildSourceActor);
 
-    FWanaCommandResponse BuildResponse = WanaWorksUIEditorActions::ExecuteCreateFinalizedBuildSubjectFromAssetCommand(
-        BuildSourceObject,
-        nullptr);
-
-    if (!BuildResponse.bSucceeded)
+    if (bSpawnedFromPicker)
     {
-        ApplyResponse(BuildResponse);
+        BuildResponse.OutputLines.Insert(TEXT("Workspace Notes: WanaWorks created a working subject from the project picker before building the final asset."), 1);
+    }
+
+    ApplyResponse(BuildResponse);
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::FocusSandboxPreviewSubject()
+{
+    FString PreviewModeLabel;
+    AActor* PreviewActor = nullptr;
+
+    if (ResolvePreferredSandboxPreviewActor(PreviewActor, PreviewModeLabel) && PreviewActor)
+    {
+        const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteFocusActorCommand(PreviewActor, TEXT("Preview Subject"));
+        ApplyResponse(Response);
         RefreshReactiveUI(true);
         return;
-    }
-
-    FWanaSelectedCharacterEnhancementSnapshot BuildBeforeSnapshot;
-    const bool bHasBuildBeforeSnapshot =
-        WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(BuildBeforeSnapshot)
-        && BuildBeforeSnapshot.bHasSelectedActor;
-
-    FWanaCommandResponse EnhancementResponse = WanaWorksUIEditorActions::ExecuteApplyCharacterEnhancementCommand(SelectedEnhancementPresetLabel);
-
-    if (!EnhancementResponse.bSucceeded)
-    {
-        EnhancementResponse.OutputLines.Insert(FString::Printf(TEXT("Build Source: %s"), *BuildSourceLabel), 0);
-        UIFmt::AppendLinesWithPrefix(EnhancementResponse, BuildResponse, TEXT("Finalized Output:"));
-        ApplyResponse(EnhancementResponse);
-        RefreshReactiveUI(true);
-        return;
-    }
-
-    FWanaCommandResponse AIReadyResponse;
-
-    if (bShouldPrepareAIReady)
-    {
-        AIReadyResponse = WanaWorksUIEditorActions::ExecutePrepareSelectedActorForAITestCommand();
-
-        if (!AIReadyResponse.bSucceeded)
-        {
-            AIReadyResponse.OutputLines.Insert(FString::Printf(TEXT("Build Source: %s"), *BuildSourceLabel), 0);
-            UIFmt::AppendLinesWithPrefix(AIReadyResponse, BuildResponse, TEXT("Finalized Output:"));
-            ApplyResponse(AIReadyResponse);
-            RefreshReactiveUI(true);
-            return;
-        }
-    }
-
-    FWanaCommandResponse IdentityResponse = WanaWorksUIEditorActions::ExecuteApplyIdentityCommand(IdentityFactionTagText, SelectedIdentitySeedState);
-
-    if (!IdentityResponse.bSucceeded)
-    {
-        IdentityResponse.OutputLines.Insert(FString::Printf(TEXT("Build Source: %s"), *BuildSourceLabel), 0);
-        UIFmt::AppendLinesWithPrefix(IdentityResponse, BuildResponse, TEXT("Finalized Output:"));
-        ApplyResponse(IdentityResponse);
-        RefreshReactiveUI(true);
-        return;
-    }
-
-    FWanaSelectedCharacterEnhancementSnapshot BuildAfterSnapshot;
-    const bool bHasBuildAfterSnapshot =
-        WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(BuildAfterSnapshot)
-        && BuildAfterSnapshot.bHasSelectedActor;
-
-    UpdateEnhancementResultsState(
-        bHasBuildBeforeSnapshot ? &BuildBeforeSnapshot : nullptr,
-        bHasBuildAfterSnapshot ? &BuildAfterSnapshot : (bHasBuildBeforeSnapshot ? &BuildBeforeSnapshot : nullptr),
-        TEXT("Finalize Sandbox Build"),
-        true,
-        false,
-        true);
-
-    FString FinalizedOutputPath = TEXT("WanaWorks/Builds");
-
-    if (bHasBuildAfterSnapshot && BuildAfterSnapshot.SelectedActor.IsValid())
-    {
-        const FString OutputFolder = BuildAfterSnapshot.SelectedActor->GetFolderPath().ToString();
-        FinalizedOutputPath = OutputFolder.IsEmpty()
-            ? BuildAfterSnapshot.SelectedActorLabel
-            : FString::Printf(TEXT("%s/%s"), *OutputFolder, *BuildAfterSnapshot.SelectedActorLabel);
     }
 
     FWanaCommandResponse Response;
-    Response.bSucceeded = true;
-    Response.StatusMessage = TEXT("Status: Built finalized WanaWorks subject.");
-    Response.OutputLines.Add(FString::Printf(TEXT("Source Asset: %s"), *BuildSourceLabel));
-    Response.OutputLines.Add(FString::Printf(
-        TEXT("Sandbox Subject: %s"),
-        bHasSandboxSnapshot ? *SandboxSnapshot.SelectedActorLabel : TEXT("(not assigned - built from current workflow state)")));
-    Response.OutputLines.Add(FString::Printf(
-        TEXT("Finalized Output: %s"),
-        bHasBuildAfterSnapshot ? *BuildAfterSnapshot.SelectedActorLabel : TEXT("(created)")));
-    Response.OutputLines.Add(FString::Printf(TEXT("Finalized Output Path: %s"), *FinalizedOutputPath));
-    Response.OutputLines.Add(TEXT("Workflow Path: Sandbox Subject -> Final Build"));
-    Response.OutputLines.Add(FString::Printf(TEXT("Starter Preset: %s"), UIFmt::GetCharacterEnhancementPresetLabel(SelectedEnhancementPresetLabel)));
-    Response.OutputLines.Add(FString::Printf(TEXT("Build Workflow State: %s"), *WorkflowLabel));
-    UIFmt::AppendLinesWithPrefix(Response, BuildResponse, TEXT("Picked Animation Blueprint:"));
-    UIFmt::AppendLinesWithPrefix(Response, BuildResponse, TEXT("Animation Override Applied:"));
-    UIFmt::AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Components Added:"));
-    UIFmt::AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Already Present:"));
-    UIFmt::AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Compatibility Notes:"));
-
-    if (bShouldPrepareAIReady)
-    {
-        UIFmt::AppendLinesWithPrefix(Response, AIReadyResponse, TEXT("AI-Ready Preparation:"));
-        UIFmt::AppendLinesWithPrefix(Response, AIReadyResponse, TEXT("AI Controller Class:"));
-    }
-    else
-    {
-        Response.OutputLines.Add(TEXT("AI-Ready Preparation: Not requested for this finalized build."));
-    }
-
-    const FString TrimmedFactionTag = IdentityFactionTagText.TrimStartAndEnd();
-    Response.OutputLines.Add(FString::Printf(
-        TEXT("Identity Defaults: Faction Tag=%s | Seed=%s"),
-        TrimmedFactionTag.IsEmpty() ? TEXT("(none)") : *TrimmedFactionTag,
-        UIFmt::GetRelationshipStateLabel(SelectedIdentitySeedState)));
-    Response.OutputLines.Add(TEXT("Preserved: The original source asset and the sandbox working subject were both left untouched."));
-    Response.OutputLines.Add(TEXT("Built: A separate finalized upgraded subject was created under WanaWorks/Builds for the next stage of use."));
-
-    if (!SourceAssetPath.IsEmpty())
-    {
-        Response.OutputLines.Add(FString::Printf(TEXT("Source Asset Path: %s"), *SourceAssetPath));
-    }
-
+    Response.StatusMessage = TEXT("Status: No live preview subject is available.");
+    Response.OutputLines.Add(TEXT("The embedded preview is currently showing a picker-driven asset card. Generate or select a working subject to focus it in the main editor viewport."));
     ApplyResponse(Response);
     RefreshReactiveUI(true);
 }
@@ -2375,6 +2474,16 @@ FText FWanaWorksUIModule::GetStatusText() const
     return FText::FromString(StatusMessage);
 }
 
+FString FWanaWorksUIModule::GetSelectedWorkspaceLabel() const
+{
+    return SelectedWorkspaceLabel.IsEmpty() ? TEXT("AI") : SelectedWorkspaceLabel;
+}
+
+FString FWanaWorksUIModule::GetSelectedPreviewStageViewLabel() const
+{
+    return SelectedPreviewStageViewLabel.IsEmpty() ? TEXT("Overview") : SelectedPreviewStageViewLabel;
+}
+
 FText FWanaWorksUIModule::GetCommandText() const
 {
     return FText::FromString(CommandText);
@@ -2430,6 +2539,23 @@ FText FWanaWorksUIModule::GetSubjectStackSummaryText() const
     FWanaSelectedCharacterEnhancementSnapshot Snapshot;
     const bool bHasSnapshot = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
     return FText::FromString(UISummary::BuildSubjectStackSummaryText(bHasSnapshot ? &Snapshot : nullptr));
+}
+
+FText FWanaWorksUIModule::GetSandboxPreviewSummaryText() const
+{
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+    const bool bHasSnapshot = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
+    FString PreviewModeLabel;
+    AActor* PreviewActor = nullptr;
+    const bool bHasLivePreviewSubject = ResolvePreferredSandboxPreviewActor(PreviewActor, PreviewModeLabel) && PreviewActor != nullptr;
+    UObject* PreviewObject = GetSandboxPreviewObject();
+    const FString PreviewAssetLabel = PreviewObject ? PreviewObject->GetName() : FString();
+
+    return FText::FromString(UISummary::BuildSandboxPreviewSummaryText(
+        bHasSnapshot ? &Snapshot : nullptr,
+        PreviewModeLabel,
+        PreviewAssetLabel,
+        bHasLivePreviewSubject));
 }
 
 FText FWanaWorksUIModule::GetAnimationIntegrationText() const
@@ -2646,12 +2772,16 @@ FText FWanaWorksUIModule::GetIdentityFactionTagText()
 TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& SpawnTabArgs)
 {
     FWanaWorksUITabBuilderArgs BuilderArgs;
+    BuilderArgs.GetSelectedWorkspaceLabel = [this]() { return GetSelectedWorkspaceLabel(); };
+    BuilderArgs.GetSelectedPreviewViewLabel = [this]() { return GetSelectedPreviewStageViewLabel(); };
     BuilderArgs.GetStatusText = [this]() { return GetStatusText(); };
     BuilderArgs.GetCommandText = [this]() { return GetCommandText(); };
     BuilderArgs.GetLogText = [this]() { return GetLogText(); };
     BuilderArgs.GetWorkflowPresetSummaryText = [this]() { return GetWorkflowPresetSummaryText(); };
     BuilderArgs.GetSubjectSetupSummaryText = [this]() { return GetSubjectSetupSummaryText(); };
     BuilderArgs.GetSubjectStackSummaryText = [this]() { return GetSubjectStackSummaryText(); };
+    BuilderArgs.GetSandboxPreviewSummaryText = [this]() { return GetSandboxPreviewSummaryText(); };
+    BuilderArgs.GetSandboxPreviewObject = [this]() { return GetSandboxPreviewObject(); };
     BuilderArgs.GetAnimationIntegrationText = [this]() { return GetAnimationIntegrationText(); };
     BuilderArgs.GetAnimationHookUsageText = [this]() { return GetAnimationHookUsageText(); };
     BuilderArgs.GetPhysicalStateText = [this]() { return GetPhysicalStateText(); };
@@ -2683,6 +2813,8 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetSelectedRelationshipStateOption = [this]() { return GetSelectedRelationshipStateOption(); };
     BuilderArgs.OnCommandTextChanged = [this](const FText& NewText) { HandleCommandTextChanged(NewText); };
     BuilderArgs.OnIdentityFactionTagTextChanged = [this](const FText& NewText) { HandleIdentityFactionTagTextChanged(NewText); };
+    BuilderArgs.OnWorkspaceSelected = [this](const FString& WorkspaceLabel) { HandleWorkspaceSelected(WorkspaceLabel); };
+    BuilderArgs.OnPreviewViewSelected = [this](const FString& PreviewViewLabel) { HandlePreviewStageViewSelected(PreviewViewLabel); };
     BuilderArgs.OnCharacterPawnAssetOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterPawnAssetOptionSelected(SelectedOption); };
     BuilderArgs.OnAIPawnAssetOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleAIPawnAssetOptionSelected(SelectedOption); };
     BuilderArgs.OnWorkflowPresetOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleWorkflowPresetOptionSelected(SelectedOption); };
@@ -2701,6 +2833,7 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.OnApplyWorkflowPreset = [this]() { ApplySelectedWorkflowPreset(); };
     BuilderArgs.OnSaveWorkflowPreset = [this]() { SaveCurrentStateAsWorkflowPreset(); };
     BuilderArgs.OnShowWorkflowPresetSummary = [this]() { ShowSelectedWorkflowPresetSummary(); };
+    BuilderArgs.OnCreateWorkingCopy = [this]() { CreateWorkingCopy(); };
     BuilderArgs.OnApplyCharacterEnhancement = [this]() { ApplyCharacterEnhancement(); };
     BuilderArgs.OnApplyStarterAndTestTarget = [this]() { ApplyStarterAndTestTarget(); };
     BuilderArgs.OnScanEnvironmentReadiness = [this]() { ScanEnvironmentReadiness(); };
@@ -2709,6 +2842,7 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.OnUseSelectedAsSandboxTarget = [this]() { UseSelectedActorAsSandboxTarget(); };
     BuilderArgs.OnEvaluateSandboxPair = [this]() { EvaluateSandboxPair(); };
     BuilderArgs.OnFinalizeSandboxBuild = [this]() { FinalizeSandboxBuild(); };
+    BuilderArgs.OnFocusSandboxPreviewSubject = [this]() { FocusSandboxPreviewSubject(); };
     BuilderArgs.OnFocusSandboxObserver = [this]() { FocusSandboxObserver(); };
     BuilderArgs.OnFocusSandboxTarget = [this]() { FocusSandboxTarget(); };
     BuilderArgs.OnApplyRelationshipState = [this]() { ApplySelectedRelationshipState(); };

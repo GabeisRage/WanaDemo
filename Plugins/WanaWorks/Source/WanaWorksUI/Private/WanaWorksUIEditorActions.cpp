@@ -13,10 +13,14 @@
 #include "Engine/Blueprint.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
+#include "Kismet2/KismetEditorUtilities.h"
+#include "Misc/PackageName.h"
+#include "ObjectTools.h"
 #include "ScopedTransaction.h"
 #include "UObject/SoftObjectPath.h"
 #include "WAIPersonalityComponent.h"
 #include "WAYPlayerProfileComponent.h"
+#include "WanaAutoAnimationIntegrationComponent.h"
 #include "WanaPhysicalStateComponent.h"
 #include "WanaIdentityComponent.h"
 #include "WanaWorksUIFormattingUtils.h"
@@ -75,10 +79,31 @@ FString GetAnimationHookApplicationStatusDisplayLabel(EWAYAnimationHookApplicati
         : TEXT("Not Available");
 }
 
+FString GetAutomaticAnimationIntegrationStatusDisplayLabel(EWAYAutomaticAnimationIntegrationStatus IntegrationStatus)
+{
+    const UEnum* IntegrationStatusEnum = StaticEnum<EWAYAutomaticAnimationIntegrationStatus>();
+    return IntegrationStatusEnum
+        ? IntegrationStatusEnum->GetDisplayNameTextByValue(static_cast<int64>(IntegrationStatus)).ToString()
+        : TEXT("Not Supported");
+}
+
 const TCHAR* GetAnimationHookRequestDisplayLabel(bool bRequested)
 {
     return bRequested ? TEXT("Requested") : TEXT("Idle");
 }
+
+struct FWanaAutomaticAnimationPreparationResult
+{
+    bool bHasSkeletalAnimationStack = false;
+    bool bAutoAttachSucceeded = false;
+    bool bAutoWireSucceeded = false;
+    bool bAddedPhysicalStateComponent = false;
+    bool bAddedAutomaticIntegrationComponent = false;
+    FString DetectedSourceAnimBlueprintLabel;
+    FString IntegrationTargetLabel;
+    FString Detail;
+    EWAYAutomaticAnimationIntegrationStatus IntegrationStatus = EWAYAutomaticAnimationIntegrationStatus::NotSupported;
+};
 
 bool TryParseRelationshipState(const FString& RelationshipStateText, EWAYRelationshipState& OutRelationshipState)
 {
@@ -265,6 +290,192 @@ UWanaIdentityComponent* FindOrAddIdentityComponent(AActor* Actor)
     return NewComponent;
 }
 
+UWanaPhysicalStateComponent* FindOrAddPhysicalStateComponent(AActor* Actor)
+{
+    if (!Actor)
+    {
+        return nullptr;
+    }
+
+    if (UWanaPhysicalStateComponent* ExistingComponent = Actor->FindComponentByClass<UWanaPhysicalStateComponent>())
+    {
+        ExistingComponent->SetFlags(RF_Transactional);
+        return ExistingComponent;
+    }
+
+    Actor->Modify();
+
+    UWanaPhysicalStateComponent* NewComponent = NewObject<UWanaPhysicalStateComponent>(Actor, UWanaPhysicalStateComponent::StaticClass(), NAME_None, RF_Transactional);
+
+    if (!NewComponent)
+    {
+        return nullptr;
+    }
+
+    NewComponent->SetFlags(RF_Transactional);
+    Actor->AddInstanceComponent(NewComponent);
+    NewComponent->OnComponentCreated();
+    NewComponent->RegisterComponent();
+    NewComponent->RefreshPhysicalReadiness();
+    return NewComponent;
+}
+
+UWanaAutoAnimationIntegrationComponent* FindOrAddAutomaticAnimationIntegrationComponent(AActor* Actor)
+{
+    if (!Actor)
+    {
+        return nullptr;
+    }
+
+    if (UWanaAutoAnimationIntegrationComponent* ExistingComponent = Actor->FindComponentByClass<UWanaAutoAnimationIntegrationComponent>())
+    {
+        ExistingComponent->SetFlags(RF_Transactional);
+        return ExistingComponent;
+    }
+
+    Actor->Modify();
+
+    UWanaAutoAnimationIntegrationComponent* NewComponent = NewObject<UWanaAutoAnimationIntegrationComponent>(Actor, UWanaAutoAnimationIntegrationComponent::StaticClass(), NAME_None, RF_Transactional);
+
+    if (!NewComponent)
+    {
+        return nullptr;
+    }
+
+    NewComponent->SetFlags(RF_Transactional);
+    Actor->AddInstanceComponent(NewComponent);
+    NewComponent->OnComponentCreated();
+    NewComponent->RegisterComponent();
+    return NewComponent;
+}
+
+FWanaAutomaticAnimationPreparationResult PrepareAutomaticAnimationIntegrationForActor(AActor* Actor)
+{
+    FWanaAutomaticAnimationPreparationResult Result;
+
+    if (!Actor)
+    {
+        Result.Detail = TEXT("Automatic Anim BP integration could not be prepared because no working subject was available.");
+        return Result;
+    }
+
+    TArray<USkeletalMeshComponent*> SkeletalMeshComponents;
+    Actor->GetComponents<USkeletalMeshComponent>(SkeletalMeshComponents);
+    Result.bHasSkeletalAnimationStack = SkeletalMeshComponents.Num() > 0;
+
+    if (!Result.bHasSkeletalAnimationStack)
+    {
+        Result.Detail = TEXT("Automatic Anim BP integration is not supported for this subject because no skeletal animation stack was detected.");
+        Result.IntegrationTargetLabel = FString::Printf(TEXT("%s -> (no skeletal animation stack)"), *Actor->GetActorNameOrLabel());
+        return Result;
+    }
+
+    bool bHasLinkedAnimationClass = false;
+
+    for (USkeletalMeshComponent* SkeletalMeshComponent : SkeletalMeshComponents)
+    {
+        if (!SkeletalMeshComponent)
+        {
+            continue;
+        }
+
+        if (UClass* AnimClass = SkeletalMeshComponent->GetAnimClass())
+        {
+            Result.DetectedSourceAnimBlueprintLabel = AnimClass->GetName();
+            Result.IntegrationTargetLabel = FString::Printf(TEXT("%s -> %s"), *SkeletalMeshComponent->GetName(), *AnimClass->GetName());
+            bHasLinkedAnimationClass = true;
+            break;
+        }
+
+        if (UAnimInstance* AnimInstance = SkeletalMeshComponent->GetAnimInstance())
+        {
+            Result.DetectedSourceAnimBlueprintLabel = AnimInstance->GetClass()->GetName();
+            Result.IntegrationTargetLabel = FString::Printf(TEXT("%s -> %s"), *SkeletalMeshComponent->GetName(), *AnimInstance->GetClass()->GetName());
+            bHasLinkedAnimationClass = true;
+            break;
+        }
+    }
+
+    if (!bHasLinkedAnimationClass)
+    {
+        Result.IntegrationTargetLabel = FString::Printf(TEXT("%s -> (no Animation Blueprint detected)"), *Actor->GetActorNameOrLabel());
+        Result.IntegrationStatus = EWAYAutomaticAnimationIntegrationStatus::NotSupported;
+        Result.Detail = TEXT("Automatic Anim BP integration is not supported yet because the working subject has no linked Animation Blueprint.");
+        return Result;
+    }
+
+    const bool bHadPhysicalStateComponent = Actor->FindComponentByClass<UWanaPhysicalStateComponent>() != nullptr;
+    const bool bHadAutomaticIntegrationComponent = Actor->FindComponentByClass<UWanaAutoAnimationIntegrationComponent>() != nullptr;
+
+    UWanaPhysicalStateComponent* PhysicalStateComponent = FindOrAddPhysicalStateComponent(Actor);
+    UWanaAutoAnimationIntegrationComponent* AutomaticIntegrationComponent = FindOrAddAutomaticAnimationIntegrationComponent(Actor);
+
+    if (!PhysicalStateComponent || !AutomaticIntegrationComponent)
+    {
+        Result.IntegrationStatus = EWAYAutomaticAnimationIntegrationStatus::Limited;
+        Result.Detail = TEXT("Automatic Anim BP integration could only be prepared partially because a required WanaWorks runtime helper component could not be attached.");
+        Result.bAutoAttachSucceeded = PhysicalStateComponent != nullptr || AutomaticIntegrationComponent != nullptr;
+        return Result;
+    }
+
+    Result.bAddedPhysicalStateComponent = !bHadPhysicalStateComponent;
+    Result.bAddedAutomaticIntegrationComponent = !bHadAutomaticIntegrationComponent;
+    Result.bAutoAttachSucceeded = true;
+
+    PhysicalStateComponent->RefreshPhysicalReadiness();
+    AutomaticIntegrationComponent->RefreshAutomaticAnimationIntegration();
+
+    Result.bAutoWireSucceeded = AutomaticIntegrationComponent->bAutoWireSucceeded;
+    Result.IntegrationStatus = AutomaticIntegrationComponent->AutomaticIntegrationStatus;
+
+    if (!AutomaticIntegrationComponent->SourceAnimationBlueprintLabel.IsEmpty())
+    {
+        Result.DetectedSourceAnimBlueprintLabel = AutomaticIntegrationComponent->SourceAnimationBlueprintLabel;
+    }
+
+    if (!AutomaticIntegrationComponent->IntegrationTargetLabel.IsEmpty())
+    {
+        Result.IntegrationTargetLabel = AutomaticIntegrationComponent->IntegrationTargetLabel;
+    }
+
+    Result.Detail = AutomaticIntegrationComponent->Detail;
+    return Result;
+}
+
+void AppendAutomaticAnimationIntegrationLines(FWanaCommandResponse& Response, const FWanaAutomaticAnimationPreparationResult& Result)
+{
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Detected Source Anim BP: %s"),
+        Result.DetectedSourceAnimBlueprintLabel.IsEmpty() ? TEXT("(not detected)") : *Result.DetectedSourceAnimBlueprintLabel));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Workspace Animation Integration Target: %s"),
+        Result.IntegrationTargetLabel.IsEmpty() ? TEXT("(not prepared)") : *Result.IntegrationTargetLabel));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Automatic Anim Integration: %s"),
+        *GetAutomaticAnimationIntegrationStatusDisplayLabel(Result.IntegrationStatus)));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Auto-Attach: %s"),
+        Result.bAutoAttachSucceeded ? TEXT("Yes") : TEXT("No")));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Auto-Wire: %s"),
+        Result.bAutoWireSucceeded ? TEXT("Yes") : TEXT("No")));
+
+    if (Result.bAddedPhysicalStateComponent)
+    {
+        Response.OutputLines.Add(TEXT("Generated Runtime Layer: Added UWanaPhysicalStateComponent to the working subject."));
+    }
+
+    if (Result.bAddedAutomaticIntegrationComponent)
+    {
+        Response.OutputLines.Add(TEXT("Generated Runtime Layer: Added UWanaAutoAnimationIntegrationComponent to the working subject."));
+    }
+
+    if (!Result.Detail.IsEmpty())
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Animation Integration Notes: %s"), *Result.Detail));
+    }
+}
+
 FString MakeReputationTagsSummary(const TArray<FName>& ReputationTags)
 {
     return ReputationTags.Num() > 0
@@ -339,12 +550,59 @@ FString GetAIControllerLabelFromActor(const AActor* Actor)
     return Pawn->AIControllerClass->GetName();
 }
 
+bool IsSandboxOrFinalizedWanaWorksActor(const AActor* Actor)
+{
+    if (!Actor)
+    {
+        return false;
+    }
+
+    const FString ActorLabel = Actor->GetActorNameOrLabel();
+    const FString FolderPath = Actor->GetFolderPath().ToString();
+
+    return ActorLabel.StartsWith(TEXT("WW_Sandbox_"))
+        || ActorLabel.StartsWith(TEXT("WW_Final_"))
+        || FolderPath.StartsWith(TEXT("WanaWorks/Sandbox"))
+        || FolderPath.StartsWith(TEXT("WanaWorks/Builds"));
+}
+
 FString BuildFinalizedActorLabel(const FString& SourceLabel)
 {
     FString BaseLabel = SourceLabel;
     BaseLabel.RemoveFromStart(TEXT("WW_Sandbox_"));
     BaseLabel.RemoveFromStart(TEXT("WW_Final_"));
     return FString::Printf(TEXT("WW_Final_%s"), *BaseLabel);
+}
+
+FString BuildFinalizedAssetName(const FString& SourceLabel)
+{
+    FString BaseLabel = SourceLabel;
+    BaseLabel.RemoveFromStart(TEXT("WW_Sandbox_"));
+    BaseLabel.RemoveFromStart(TEXT("WW_Final_"));
+    BaseLabel = ObjectTools::SanitizeObjectName(BaseLabel);
+
+    if (BaseLabel.IsEmpty())
+    {
+        BaseLabel = TEXT("Subject");
+    }
+
+    return FString::Printf(TEXT("WW_Final_%s"), *BaseLabel);
+}
+
+FString BuildUniqueFinalizedAssetPath(const FString& SourceLabel)
+{
+    const FString BaseAssetName = BuildFinalizedAssetName(SourceLabel);
+    FString CandidateAssetName = BaseAssetName;
+    FString CandidateAssetPath = FString::Printf(TEXT("/Game/WanaWorks/Builds/%s"), *CandidateAssetName);
+    int32 SuffixIndex = 1;
+
+    while (FPackageName::DoesPackageExist(CandidateAssetPath))
+    {
+        CandidateAssetName = FString::Printf(TEXT("%s_%02d"), *BaseAssetName, SuffixIndex++);
+        CandidateAssetPath = FString::Printf(TEXT("/Game/WanaWorks/Builds/%s"), *CandidateAssetName);
+    }
+
+    return CandidateAssetPath;
 }
 
 FString MakeAnimationCompatibilitySummary(bool bHasSkeletalMeshComponent, bool bHasAnimBlueprint)
@@ -447,6 +705,43 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
     OutSnapshot.AnimationCompatibilitySummary = MakeAnimationCompatibilitySummary(OutSnapshot.bHasSkeletalMeshComponent, OutSnapshot.bHasAnimBlueprint);
     OutSnapshot.AIReadinessSummary = MakeAIReadinessSummary(OutSnapshot.bIsPawnActor, OutSnapshot.bAutoPossessAIEnabled, OutSnapshot.bHasAIControllerClass);
 
+    if (UWanaAutoAnimationIntegrationComponent* AutomaticIntegrationComponent = const_cast<AActor*>(Actor)->FindComponentByClass<UWanaAutoAnimationIntegrationComponent>())
+    {
+        AutomaticIntegrationComponent->RefreshAutomaticAnimationIntegration();
+        OutSnapshot.bHasAutomaticAnimationIntegrationComponent = true;
+        OutSnapshot.bAnimationAutoAttachSucceeded = AutomaticIntegrationComponent->bAutoAttachSucceeded;
+        OutSnapshot.bAnimationAutoWireSucceeded = AutomaticIntegrationComponent->bAutoWireSucceeded;
+        OutSnapshot.AnimationAutomaticIntegrationStatus = AutomaticIntegrationComponent->AutomaticIntegrationStatus;
+        OutSnapshot.AnimationIntegrationTargetLabel = AutomaticIntegrationComponent->IntegrationTargetLabel;
+        OutSnapshot.AnimationAutomaticIntegrationDetail = AutomaticIntegrationComponent->Detail;
+
+        if (!AutomaticIntegrationComponent->SourceAnimationBlueprintLabel.IsEmpty())
+        {
+            OutSnapshot.LinkedAnimationBlueprintLabel = AutomaticIntegrationComponent->SourceAnimationBlueprintLabel;
+        }
+    }
+    else if (!OutSnapshot.bHasSkeletalMeshComponent)
+    {
+        OutSnapshot.AnimationAutomaticIntegrationStatus = EWAYAutomaticAnimationIntegrationStatus::NotSupported;
+        OutSnapshot.AnimationIntegrationTargetLabel = FString::Printf(TEXT("%s -> (no skeletal animation stack)"), *OutSnapshot.SelectedActorLabel);
+        OutSnapshot.AnimationAutomaticIntegrationDetail = TEXT("Automatic Anim BP integration is not supported because this subject has no skeletal animation stack.");
+    }
+    else if (!OutSnapshot.bHasAnimBlueprint)
+    {
+        OutSnapshot.AnimationAutomaticIntegrationStatus = EWAYAutomaticAnimationIntegrationStatus::Limited;
+        OutSnapshot.AnimationIntegrationTargetLabel = FString::Printf(TEXT("%s -> (no Animation Blueprint detected)"), *OutSnapshot.SelectedActorLabel);
+        OutSnapshot.AnimationAutomaticIntegrationDetail = TEXT("Automatic Anim BP integration is limited because no linked Animation Blueprint was detected for this subject yet.");
+    }
+    else
+    {
+        OutSnapshot.AnimationAutomaticIntegrationStatus = EWAYAutomaticAnimationIntegrationStatus::Ready;
+        OutSnapshot.AnimationIntegrationTargetLabel = FString::Printf(
+            TEXT("%s -> %s"),
+            *OutSnapshot.SelectedActorLabel,
+            OutSnapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("(linked Animation Blueprint)") : *OutSnapshot.LinkedAnimationBlueprintLabel);
+        OutSnapshot.AnimationAutomaticIntegrationDetail = TEXT("Automatic Anim BP integration is ready for the working-copy or finalized workflow. WanaWorks will auto-attach its safe animation bridge there without touching the original source asset.");
+    }
+
     if (const UWAYPlayerProfileComponent* WAYComponent = Actor->FindComponentByClass<UWAYPlayerProfileComponent>())
     {
         const FWAYAnimationHookState AnimationHookState = WAYComponent->GetCurrentAnimationHookState();
@@ -512,6 +807,20 @@ bool BuildCharacterEnhancementSnapshotFromSubjectObject(const UObject* SubjectOb
     OutSnapshot.SubjectSourceLabel = TEXT("Project Asset Picker");
     OutSnapshot.SubjectAssetPath = FSoftObjectPath(SubjectObject).ToString();
     OutSnapshot.SelectedActorLabel = SubjectObject->GetName();
+
+    if (!OutSnapshot.bHasAutomaticAnimationIntegrationComponent)
+    {
+        OutSnapshot.AnimationIntegrationTargetLabel = FString::Printf(
+            TEXT("%s -> %s"),
+            *OutSnapshot.SelectedActorLabel,
+            OutSnapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("(linked Animation Blueprint)") : *OutSnapshot.LinkedAnimationBlueprintLabel);
+
+        if (OutSnapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Ready)
+        {
+        OutSnapshot.AnimationAutomaticIntegrationDetail = TEXT("Automatic Anim BP integration is ready for the picker-driven workspace workflow. WanaWorks will attach the runtime bridge on the generated working or finalized subject instead of changing the original asset.");
+        }
+    }
+
     return true;
 }
 
@@ -1664,6 +1973,9 @@ FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& Pres
     bool bNeedsRelationship = false;
     bool bNeedsWAI = false;
     FString ResolvedPresetLabel;
+    const bool bShouldPrepareAutomaticAnimationIntegration = IsSandboxOrFinalizedWanaWorksActor(SelectedActor);
+    bool bHasAutomaticAnimationPreparation = false;
+    FWanaAutomaticAnimationPreparationResult AutomaticAnimationPreparation;
 
     if (!TryResolveCharacterEnhancementPreset(PresetLabel, bNeedsIdentity, bNeedsRelationship, bNeedsWAI, ResolvedPresetLabel))
     {
@@ -1699,6 +2011,13 @@ FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& Pres
         (!bNeedsRelationship || bHadRelationship) &&
         (!bNeedsWAI || bHadWAI))
     {
+        if (bShouldPrepareAutomaticAnimationIntegration)
+        {
+            AutomaticAnimationPreparation = PrepareAutomaticAnimationIntegrationForActor(SelectedActor);
+            bHasAutomaticAnimationPreparation = true;
+            SelectedActor->MarkPackageDirty();
+        }
+
         FWanaCommandResponse Response;
         Response.bSucceeded = true;
         Response.StatusMessage = TEXT("Status: WanaAI enhancement already applied.");
@@ -1711,6 +2030,12 @@ FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& Pres
         if (bNeedsWAI)
         {
             Response.OutputLines.Add(TEXT("Compatibility Notes: Full WanaAI Starter uses UWAIPersonalityComponent as the current WAI starter component."));
+        }
+
+        if (bHasAutomaticAnimationPreparation)
+        {
+            AppendAutomaticAnimationIntegrationLines(Response, AutomaticAnimationPreparation);
+    Response.OutputLines.Add(TEXT("Compatibility Notes: Automatic Anim BP integration stays on the working or finalized subject and does not overwrite the original source asset."));
         }
 
         return Response;
@@ -1752,6 +2077,22 @@ FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& Pres
         AddedComponents.Add(TEXT("UWAIPersonalityComponent"));
     }
 
+    if (bShouldPrepareAutomaticAnimationIntegration)
+    {
+        AutomaticAnimationPreparation = PrepareAutomaticAnimationIntegrationForActor(SelectedActor);
+        bHasAutomaticAnimationPreparation = true;
+
+        if (AutomaticAnimationPreparation.bAddedPhysicalStateComponent)
+        {
+            AddedComponents.Add(TEXT("UWanaPhysicalStateComponent"));
+        }
+
+        if (AutomaticAnimationPreparation.bAddedAutomaticIntegrationComponent)
+        {
+            AddedComponents.Add(TEXT("UWanaAutoAnimationIntegrationComponent"));
+        }
+    }
+
     SelectedActor->MarkPackageDirty();
 
     CompatibilityNotes.Add(TEXT("Existing setup preserved. No existing components were replaced."));
@@ -1760,6 +2101,11 @@ FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& Pres
     if (bNeedsWAI)
     {
         CompatibilityNotes.Add(TEXT("Full WanaAI Starter uses UWAIPersonalityComponent as the current WAI starter component."));
+    }
+
+    if (bHasAutomaticAnimationPreparation)
+    {
+    CompatibilityNotes.Add(TEXT("Automatic Anim BP integration was prepared on the working or finalized subject only, so the original source pawn and Anim BP stay untouched."));
     }
 
     FWanaCommandResponse Response;
@@ -1775,6 +2121,11 @@ FWanaCommandResponse ExecuteApplyCharacterEnhancementCommand(const FString& Pres
         Response.OutputLines.Add(FString::Printf(TEXT("Compatibility Notes: %s"), *CompatibilityNote));
     }
 
+    if (bHasAutomaticAnimationPreparation)
+    {
+        AppendAutomaticAnimationIntegrationLines(Response, AutomaticAnimationPreparation);
+    }
+
     return Response;
 }
 
@@ -1784,33 +2135,35 @@ FWanaCommandResponse ExecuteCreateSandboxDuplicateCommand()
 
     if (!SelectedActor)
     {
-        return MakeEditorFailureResponse(TEXT("Status: No actors selected."), TEXT("Select a character or pawn before creating a sandbox duplicate."));
+        return MakeEditorFailureResponse(TEXT("Status: No actors selected."), TEXT("Select a character or pawn before creating a working copy."));
     }
 
     UWorld* EditorWorld = SelectedActor->GetWorld();
 
     if (!GEditor || !EditorWorld || !SelectedActor->GetLevel())
     {
-        return MakeEditorFailureResponse(TEXT("Status: Sandbox duplicate failed."), TEXT("Could not access the editor world for sandbox duplication."));
+        return MakeEditorFailureResponse(TEXT("Status: Working copy failed."), TEXT("Could not access the editor world for working-copy creation."));
     }
 
     const FTransform SourceTransform = SelectedActor->GetActorTransform();
     FTransform DuplicateTransform = SourceTransform;
     DuplicateTransform.AddToTranslation(FVector(180.0f, 0.0f, 0.0f));
 
-    FScopedTransaction Transaction(LOCTEXT("WanaWorksCreateSandboxDuplicateTransaction", "Create WanaWorks Sandbox Duplicate"));
+    FScopedTransaction Transaction(LOCTEXT("WanaWorksCreateSandboxDuplicateTransaction", "Create WanaWorks Working Copy"));
     AActor* DuplicateActor = GEditor->AddActor(SelectedActor->GetLevel(), SelectedActor->GetClass(), DuplicateTransform);
 
     if (!DuplicateActor)
     {
         Transaction.Cancel();
-        return MakeEditorFailureResponse(TEXT("Status: Sandbox duplicate failed."), TEXT("Could not create a sandbox duplicate for the selected actor."));
+        return MakeEditorFailureResponse(TEXT("Status: Working copy failed."), TEXT("Could not create a working copy for the selected actor."));
     }
 
     DuplicateActor->SetFlags(RF_Transactional);
     DuplicateActor->Modify();
     DuplicateActor->SetActorLabel(FString::Printf(TEXT("WW_Sandbox_%s"), *SelectedActor->GetActorNameOrLabel()), true);
     DuplicateActor->SetFolderPath(FName(TEXT("WanaWorks/Sandbox")));
+
+    const FWanaAutomaticAnimationPreparationResult AutomaticAnimationPreparation = PrepareAutomaticAnimationIntegrationForActor(DuplicateActor);
     DuplicateActor->MarkPackageDirty();
 
     GEditor->SelectNone(false, true, false);
@@ -1819,13 +2172,15 @@ FWanaCommandResponse ExecuteCreateSandboxDuplicateCommand()
 
     FWanaCommandResponse Response;
     Response.bSucceeded = true;
-    Response.StatusMessage = TEXT("Status: Created sandbox duplicate.");
+    Response.StatusMessage = TEXT("Status: Created working copy.");
     Response.OutputLines.Add(FString::Printf(TEXT("Selected Actor: %s"), *SelectedActor->GetActorNameOrLabel()));
-    Response.OutputLines.Add(TEXT("Workflow Path: Create Sandbox Duplicate"));
-    Response.OutputLines.Add(TEXT("Subject Mode: Sandbox duplicate"));
+    Response.OutputLines.Add(TEXT("Workflow Path: Create Working Copy"));
+    Response.OutputLines.Add(TEXT("Subject Mode: Working copy"));
     Response.OutputLines.Add(FString::Printf(TEXT("Active Subject: %s"), *DuplicateActor->GetActorNameOrLabel()));
+    AppendAutomaticAnimationIntegrationLines(Response, AutomaticAnimationPreparation);
     Response.OutputLines.Add(TEXT("Compatibility Notes: The original actor was left untouched."));
-    Response.OutputLines.Add(TEXT("Compatibility Notes: The sandbox copy was placed in the WanaWorks/Sandbox folder and selected for continued setup."));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: The working copy was placed in the WanaWorks workspace area and selected for continued setup."));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: Automatic Anim BP integration, when supported, was prepared on the working copy only."));
     return Response;
 }
 
@@ -1833,7 +2188,7 @@ FWanaCommandResponse ExecuteCreateSandboxSubjectFromAssetCommand(const UObject* 
 {
     if (!SubjectObject)
     {
-        return MakeEditorFailureResponse(TEXT("Status: No subject asset selected."), TEXT("Choose a Character Pawn or AI Pawn asset in Wana Works before creating a sandbox subject."));
+        return MakeEditorFailureResponse(TEXT("Status: No subject asset selected."), TEXT("Choose a Character Pawn or AI Pawn asset in Wana Works before creating a working subject."));
     }
 
     const UBlueprint* SubjectBlueprint = Cast<UBlueprint>(SubjectObject);
@@ -1846,14 +2201,14 @@ FWanaCommandResponse ExecuteCreateSandboxSubjectFromAssetCommand(const UObject* 
 
     if (!GEditor)
     {
-        return MakeEditorFailureResponse(TEXT("Status: Editor world is unavailable."), TEXT("Could not create a sandbox subject because GEditor is unavailable."));
+        return MakeEditorFailureResponse(TEXT("Status: Editor world is unavailable."), TEXT("Could not create a working subject because GEditor is unavailable."));
     }
 
     UWorld* EditorWorld = GEditor->GetEditorWorldContext().World();
 
     if (!EditorWorld)
     {
-        return MakeEditorFailureResponse(TEXT("Status: Editor world is unavailable."), TEXT("Could not resolve the current editor world for sandbox subject creation."));
+        return MakeEditorFailureResponse(TEXT("Status: Editor world is unavailable."), TEXT("Could not resolve the current editor world for working-subject creation."));
     }
 
     ULevel* TargetLevel = EditorWorld->GetCurrentLevel();
@@ -1865,7 +2220,7 @@ FWanaCommandResponse ExecuteCreateSandboxSubjectFromAssetCommand(const UObject* 
 
     if (!TargetLevel)
     {
-        return MakeEditorFailureResponse(TEXT("Status: Sandbox subject failed."), TEXT("Could not resolve a target editor level for sandbox subject creation."));
+        return MakeEditorFailureResponse(TEXT("Status: Working subject failed."), TEXT("Could not resolve a target editor level for working-subject creation."));
     }
 
     FTransform SpawnTransform(FRotator::ZeroRotator, FVector(0.0f, 0.0f, 120.0f));
@@ -1876,13 +2231,13 @@ FWanaCommandResponse ExecuteCreateSandboxSubjectFromAssetCommand(const UObject* 
         SpawnTransform.AddToTranslation(FVector(180.0f, 0.0f, 0.0f));
     }
 
-    FScopedTransaction Transaction(LOCTEXT("WanaWorksCreateSandboxSubjectFromAssetTransaction", "Create WanaWorks Sandbox Subject From Asset"));
+    FScopedTransaction Transaction(LOCTEXT("WanaWorksCreateSandboxSubjectFromAssetTransaction", "Create WanaWorks Working Subject From Asset"));
     AActor* SpawnedActor = GEditor->AddActor(TargetLevel, const_cast<UClass*>(SubjectClass), SpawnTransform);
 
     if (!SpawnedActor)
     {
         Transaction.Cancel();
-        return MakeEditorFailureResponse(TEXT("Status: Sandbox subject failed."), TEXT("Could not spawn a sandbox subject from the selected project asset."));
+        return MakeEditorFailureResponse(TEXT("Status: Working subject failed."), TEXT("Could not spawn a working subject from the selected project asset."));
     }
 
     SpawnedActor->SetFlags(RF_Transactional);
@@ -1911,6 +2266,8 @@ FWanaCommandResponse ExecuteCreateSandboxSubjectFromAssetCommand(const UObject* 
         }
     }
 
+    const FWanaAutomaticAnimationPreparationResult AutomaticAnimationPreparation = PrepareAutomaticAnimationIntegrationForActor(SpawnedActor);
+
     SpawnedActor->MarkPackageDirty();
 
     GEditor->SelectNone(false, true, false);
@@ -1919,12 +2276,14 @@ FWanaCommandResponse ExecuteCreateSandboxSubjectFromAssetCommand(const UObject* 
 
     FWanaCommandResponse Response;
     Response.bSucceeded = true;
-    Response.StatusMessage = TEXT("Status: Created sandbox subject from project asset.");
+    Response.StatusMessage = TEXT("Status: Created working subject from project asset.");
     Response.OutputLines.Add(FString::Printf(TEXT("Picked Subject Asset: %s"), *SubjectObject->GetName()));
-    Response.OutputLines.Add(TEXT("Workflow Path: Project Asset Picker -> Sandbox Subject"));
+    Response.OutputLines.Add(TEXT("Workflow Path: Project Asset Picker -> Working Subject"));
     Response.OutputLines.Add(FString::Printf(TEXT("Active Subject: %s"), *SpawnedActor->GetActorNameOrLabel()));
-    Response.OutputLines.Add(TEXT("Subject Mode: Sandbox subject"));
-    Response.OutputLines.Add(TEXT("Compatibility Notes: WanaWorks created a sandbox-first subject from the picked project asset without changing the original asset."));
+    Response.OutputLines.Add(TEXT("Subject Mode: Working subject"));
+    AppendAutomaticAnimationIntegrationLines(Response, AutomaticAnimationPreparation);
+    Response.OutputLines.Add(TEXT("Compatibility Notes: WanaWorks created a working subject from the picked project asset without changing the original asset."));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: Automatic Anim BP integration, when supported, was applied to the workspace path only."));
 
     if (AnimationBlueprintOverride)
     {
@@ -1941,11 +2300,57 @@ FWanaCommandResponse ExecuteCreateSandboxSubjectFromAssetCommand(const UObject* 
     return Response;
 }
 
+FWanaCommandResponse ExecuteCreateFinalizedBuildAssetFromActorCommand(AActor* SourceActor)
+{
+    if (!SourceActor)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: No working subject available for build."), TEXT("Create or select a working copy in WanaWorks before building the final output asset."));
+    }
+
+    if (!GEditor)
+    {
+        return MakeEditorFailureResponse(TEXT("Status: Editor tools are unavailable."), TEXT("Could not build a finalized asset because GEditor is unavailable."));
+    }
+
+    const FString FinalAssetPath = BuildUniqueFinalizedAssetPath(SourceActor->GetActorNameOrLabel());
+
+    FKismetEditorUtilities::FCreateBlueprintFromActorParams CreateParams;
+    CreateParams.bReplaceActor = false;
+    CreateParams.bKeepMobility = true;
+    CreateParams.bOpenBlueprint = false;
+
+    FScopedTransaction Transaction(LOCTEXT("WanaWorksCreateFinalizedBuildAssetTransaction", "Create WanaWorks Finalized Build Asset"));
+    UBlueprint* FinalizedBlueprint = FKismetEditorUtilities::CreateBlueprintFromActor(FinalAssetPath, SourceActor, CreateParams);
+
+    if (!FinalizedBlueprint)
+    {
+        Transaction.Cancel();
+        return MakeEditorFailureResponse(TEXT("Status: Final build failed."), TEXT("Could not create a finalized WanaWorks Blueprint asset from the current working subject."));
+    }
+
+    FinalizedBlueprint->MarkPackageDirty();
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = true;
+    Response.StatusMessage = TEXT("Status: Final build completed quietly.");
+    Response.OutputLines.Add(FString::Printf(TEXT("Source Working Subject: %s"), *SourceActor->GetActorNameOrLabel()));
+    Response.OutputLines.Add(TEXT("Workflow Path: Working Copy -> Final Asset"));
+    Response.OutputLines.Add(FString::Printf(TEXT("Finalized Output: %s"), *FinalizedBlueprint->GetName()));
+    Response.OutputLines.Add(FString::Printf(TEXT("Finalized Output Path: %s"), *FinalAssetPath));
+    Response.OutputLines.Add(TEXT("Build Mode: Finalized Blueprint asset"));
+    Response.OutputLines.Add(TEXT("Workspace Notice: The final asset was saved in the background so WanaWorks could keep the workspace flow focused."));
+    Response.OutputLines.Add(TEXT("Workspace Notice: You can find the result later in /Game/WanaWorks/Builds without the Content Browser interrupting the current session."));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: The original source asset was left untouched."));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: The working copy remains available in WanaWorks for additional testing or revisions."));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: Build Final now creates a clean asset result in /Game/WanaWorks/Builds instead of spawning another world actor as the primary output."));
+    return Response;
+}
+
 FWanaCommandResponse ExecuteCreateFinalizedBuildSubjectFromAssetCommand(const UObject* SubjectObject, const UAnimBlueprint* AnimationBlueprintOverride)
 {
     if (!SubjectObject)
     {
-        return MakeEditorFailureResponse(TEXT("Status: No subject available for build."), TEXT("Choose a Character Pawn or AI Pawn in Wana Works, or prepare a sandbox subject first, before building a final version."));
+        return MakeEditorFailureResponse(TEXT("Status: No subject available for build."), TEXT("Choose a Character Pawn or AI Pawn in Wana Works, or prepare a working subject first, before building a final version."));
     }
 
     const UBlueprint* SubjectBlueprint = Cast<UBlueprint>(SubjectObject);
@@ -1953,7 +2358,7 @@ FWanaCommandResponse ExecuteCreateFinalizedBuildSubjectFromAssetCommand(const UO
 
     if (!SubjectClass || !SubjectClass->IsChildOf(AActor::StaticClass()))
     {
-        return MakeEditorFailureResponse(TEXT("Status: Invalid build source."), TEXT("The current sandbox workflow source is not a Character Pawn or AI Pawn that can be built into the editor world."));
+        return MakeEditorFailureResponse(TEXT("Status: Invalid build source."), TEXT("The current workspace source is not a Character Pawn or AI Pawn that can be built into a final asset."));
     }
 
     if (!GEditor)
@@ -1994,7 +2399,7 @@ FWanaCommandResponse ExecuteCreateFinalizedBuildSubjectFromAssetCommand(const UO
     if (!SpawnedActor)
     {
         Transaction.Cancel();
-        return MakeEditorFailureResponse(TEXT("Status: Final build failed."), TEXT("Could not create the finalized build output from the current sandbox workflow source."));
+        return MakeEditorFailureResponse(TEXT("Status: Final build failed."), TEXT("Could not create the finalized build output from the current workspace source."));
     }
 
     SpawnedActor->SetFlags(RF_Transactional);
@@ -2023,6 +2428,8 @@ FWanaCommandResponse ExecuteCreateFinalizedBuildSubjectFromAssetCommand(const UO
         }
     }
 
+    const FWanaAutomaticAnimationPreparationResult AutomaticAnimationPreparation = PrepareAutomaticAnimationIntegrationForActor(SpawnedActor);
+
     SpawnedActor->MarkPackageDirty();
 
     GEditor->SelectNone(false, true, false);
@@ -2039,12 +2446,14 @@ FWanaCommandResponse ExecuteCreateFinalizedBuildSubjectFromAssetCommand(const UO
     Response.bSucceeded = true;
     Response.StatusMessage = TEXT("Status: Created finalized build output.");
     Response.OutputLines.Add(FString::Printf(TEXT("Source Asset: %s"), *SubjectObject->GetName()));
-    Response.OutputLines.Add(TEXT("Workflow Path: Sandbox Subject -> Final Build"));
+    Response.OutputLines.Add(TEXT("Workflow Path: Working Subject -> Final Build"));
     Response.OutputLines.Add(FString::Printf(TEXT("Finalized Output: %s"), *SpawnedActor->GetActorNameOrLabel()));
     Response.OutputLines.Add(FString::Printf(TEXT("Finalized Output Path: %s"), *OutputPath));
     Response.OutputLines.Add(TEXT("Build Mode: Finalized upgraded subject"));
+    AppendAutomaticAnimationIntegrationLines(Response, AutomaticAnimationPreparation);
     Response.OutputLines.Add(TEXT("Compatibility Notes: The original source was left untouched."));
-    Response.OutputLines.Add(TEXT("Compatibility Notes: The sandbox working subject remains available for continued testing."));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: The working subject remains available for continued testing."));
+    Response.OutputLines.Add(TEXT("Compatibility Notes: Automatic Anim BP integration, when supported, was prepared on the finalized output only."));
 
     if (AnimationBlueprintOverride)
     {
@@ -2160,7 +2569,7 @@ FWanaCommandResponse ExecuteFocusActorCommand(AActor* Actor, const FString& Role
     {
         return MakeEditorFailureResponse(
             FString::Printf(TEXT("Status: No %s is assigned."), *RoleLabel.ToLower()),
-            FString::Printf(TEXT("Assign a %s in the sandbox before focusing it."), *RoleLabel.ToLower()));
+        FString::Printf(TEXT("Assign a %s in the workspace before focusing it."), *RoleLabel.ToLower()));
     }
 
     GEditor->MoveViewportCamerasToActor(*Actor, false);
@@ -2169,7 +2578,7 @@ FWanaCommandResponse ExecuteFocusActorCommand(AActor* Actor, const FString& Role
     Response.bSucceeded = true;
     Response.StatusMessage = FString::Printf(TEXT("Status: Focused %s."), *RoleLabel.ToLower());
     Response.OutputLines.Add(FString::Printf(TEXT("%s: %s"), *RoleLabel, *Actor->GetActorNameOrLabel()));
-    Response.OutputLines.Add(TEXT("Readiness Notes: Viewport camera moved to the assigned sandbox actor."));
+    Response.OutputLines.Add(TEXT("Readiness Notes: Viewport camera moved to the assigned workspace actor."));
     return Response;
 }
 

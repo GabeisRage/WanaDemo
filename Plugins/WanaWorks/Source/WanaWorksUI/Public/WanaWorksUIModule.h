@@ -25,6 +25,8 @@ private:
     void HandleEditorSelectionChanged(UObject* NewSelection);
     void HandleCommandTextChanged(const FText& NewText);
     void HandleIdentityFactionTagTextChanged(const FText& NewText);
+    void HandleWorkspaceSelected(const FString& WorkspaceLabel);
+    void HandlePreviewStageViewSelected(const FString& PreviewViewLabel);
     void HandleIdentitySeedStateOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleWorkflowPresetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleEnhancementPresetOptionSelected(TSharedPtr<FString> SelectedOption);
@@ -50,6 +52,7 @@ private:
     void ApplySelectedWorkflowPreset();
     void SaveCurrentStateAsWorkflowPreset();
     void ShowSelectedWorkflowPresetSummary();
+    void CreateWorkingCopy();
     void ApplyCharacterEnhancement();
     void ApplyStarterAndTestTarget();
     void ScanEnvironmentReadiness();
@@ -58,6 +61,7 @@ private:
     void UseSelectedActorAsSandboxTarget();
     void EvaluateSandboxPair();
     void FinalizeSandboxBuild();
+    void FocusSandboxPreviewSubject();
     void FocusSandboxObserver();
     void FocusSandboxTarget();
     void ApplySelectedRelationshipState();
@@ -78,18 +82,23 @@ private:
     void RefreshProjectAssetPickerOptions();
     bool ResolvePreferredSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const;
     bool ResolvePickedSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const;
+    bool ResolvePreferredSandboxPreviewActor(AActor*& OutActor, FString& OutPreviewModeLabel) const;
     bool PreparePickerDrivenSubjectForWorkflow(const FString& WorkflowContextLabel, FWanaCommandResponse& OutPreparationResponse, bool& bOutSpawnedFromPicker);
     UObject* LoadSelectedSubjectAssetObject() const;
     UClass* LoadSelectedSubjectActorClass() const;
     FString GetSelectedSubjectAssetPath() const;
+    UObject* GetSandboxPreviewObject() const;
     bool RestoreSubjectPickerFromAssetPath(const FString& AssetPath);
 
     FText GetStatusText() const;
+    FString GetSelectedWorkspaceLabel() const;
+    FString GetSelectedPreviewStageViewLabel() const;
     FText GetCommandText() const;
     FText GetLogText() const;
     FText GetWorkflowPresetSummaryText() const;
     FText GetSubjectSetupSummaryText() const;
     FText GetSubjectStackSummaryText() const;
+    FText GetSandboxPreviewSummaryText() const;
     FText GetAnimationIntegrationText() const;
     FText GetAnimationHookUsageText() const;
     FText GetPhysicalStateText() const;
@@ -111,6 +120,8 @@ private:
     TSharedRef<SDockTab> SpawnWanaWorksTab(const FSpawnTabArgs& SpawnTabArgs);
 
     FString StatusMessage;
+    FString SelectedWorkspaceLabel;
+    FString SelectedPreviewStageViewLabel;
     FString CommandText;
     FString LogOutput;
     FString IdentityFactionTagText;

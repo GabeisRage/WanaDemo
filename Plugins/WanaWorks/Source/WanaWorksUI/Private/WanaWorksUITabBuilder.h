@@ -6,12 +6,16 @@ class SWidget;
 
 struct FWanaWorksUITabBuilderArgs
 {
+    TFunction<FString(void)> GetSelectedWorkspaceLabel;
+    TFunction<FString(void)> GetSelectedPreviewViewLabel;
     TFunction<FText(void)> GetStatusText;
     TFunction<FText(void)> GetCommandText;
     TFunction<FText(void)> GetLogText;
     TFunction<FText(void)> GetWorkflowPresetSummaryText;
     TFunction<FText(void)> GetSubjectSetupSummaryText;
     TFunction<FText(void)> GetSubjectStackSummaryText;
+    TFunction<FText(void)> GetSandboxPreviewSummaryText;
+    TFunction<UObject*(void)> GetSandboxPreviewObject;
     TFunction<FText(void)> GetAnimationIntegrationText;
     TFunction<FText(void)> GetAnimationHookUsageText;
     TFunction<FText(void)> GetPhysicalStateText;
@@ -43,6 +47,8 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<TSharedPtr<FString>(void)> GetSelectedRelationshipStateOption;
     TFunction<void(const FText&)> OnCommandTextChanged;
     TFunction<void(const FText&)> OnIdentityFactionTagTextChanged;
+    TFunction<void(const FString&)> OnWorkspaceSelected;
+    TFunction<void(const FString&)> OnPreviewViewSelected;
     TFunction<void(TSharedPtr<FString>)> OnCharacterPawnAssetOptionSelected;
     TFunction<void(TSharedPtr<FString>)> OnAIPawnAssetOptionSelected;
     TFunction<void(TSharedPtr<FString>)> OnWorkflowPresetOptionSelected;
@@ -61,6 +67,7 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<void(void)> OnApplyWorkflowPreset;
     TFunction<void(void)> OnSaveWorkflowPreset;
     TFunction<void(void)> OnShowWorkflowPresetSummary;
+    TFunction<void(void)> OnCreateWorkingCopy;
     TFunction<void(void)> OnApplyCharacterEnhancement;
     TFunction<void(void)> OnApplyStarterAndTestTarget;
     TFunction<void(void)> OnScanEnvironmentReadiness;
@@ -69,6 +76,7 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<void(void)> OnUseSelectedAsSandboxTarget;
     TFunction<void(void)> OnEvaluateSandboxPair;
     TFunction<void(void)> OnFinalizeSandboxBuild;
+    TFunction<void(void)> OnFocusSandboxPreviewSubject;
     TFunction<void(void)> OnFocusSandboxObserver;
     TFunction<void(void)> OnFocusSandboxTarget;
     TFunction<void(void)> OnApplyRelationshipState;

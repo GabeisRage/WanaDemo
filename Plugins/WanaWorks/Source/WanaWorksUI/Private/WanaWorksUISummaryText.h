@@ -11,6 +11,11 @@ namespace WanaWorksUISummaryText
         const FString& PresetLabel);
 
     FString BuildSubjectStackSummaryText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot);
+    FString BuildSandboxPreviewSummaryText(
+        const FWanaSelectedCharacterEnhancementSnapshot* Snapshot,
+        const FString& PreviewModeLabel,
+        const FString& PreviewAssetLabel,
+        bool bHasLivePreviewSubject);
     FString BuildAnimationIntegrationSummaryText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot);
     FString BuildAnimationHookUsageText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot);
     FString BuildPhysicalStateSummaryText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot);

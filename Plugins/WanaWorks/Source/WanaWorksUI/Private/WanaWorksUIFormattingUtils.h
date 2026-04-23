@@ -19,6 +19,9 @@ namespace WanaWorksUIFormattingUtils
     FString GetAIControllerPresenceLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetAnimationBlueprintStatusLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetAnimationIntegrationStatusLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
+    FString GetAutomaticAnimationIntegrationStatusLabel(EWAYAutomaticAnimationIntegrationStatus IntegrationStatus);
+    FString GetAutomaticAnimationAttachSummaryLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
+    FString GetAutomaticAnimationWireSummaryLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetAnimationHookApplicationStatusLabel(EWAYAnimationHookApplicationStatus ApplicationStatus);
     FString GetAnimationHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
     FString GetFacingHookReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);

@@ -52,6 +52,15 @@ enum class EWAYAnimationHookApplicationStatus : uint8
     Active UMETA(DisplayName = "Active")
 };
 
+UENUM(BlueprintType)
+enum class EWAYAutomaticAnimationIntegrationStatus : uint8
+{
+    Ready UMETA(DisplayName = "Ready"),
+    Applied UMETA(DisplayName = "Applied"),
+    Limited UMETA(DisplayName = "Limited"),
+    NotSupported UMETA(DisplayName = "Not Supported")
+};
+
 USTRUCT(BlueprintType)
 struct WANAWORKSWAY_API FWAYRelationshipSeed
 {

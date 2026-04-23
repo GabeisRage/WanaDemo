@@ -62,9 +62,9 @@ const TCHAR* GetCharacterEnhancementPresetLabel(const FString& PresetLabel)
 
 const TCHAR* GetCharacterEnhancementWorkflowLabel(const FString& WorkflowLabel)
 {
-    if (WorkflowLabel.Equals(TEXT("Create Sandbox Duplicate")))
+    if (WorkflowLabel.Equals(TEXT("Create Sandbox Duplicate")) || WorkflowLabel.Equals(TEXT("Create Working Copy")))
     {
-        return TEXT("Create Sandbox Duplicate");
+        return TEXT("Create Working Copy");
     }
 
     if (WorkflowLabel.Equals(TEXT("Convert to AI-Ready Test Subject")))
@@ -77,9 +77,9 @@ const TCHAR* GetCharacterEnhancementWorkflowLabel(const FString& WorkflowLabel)
 
 FString GetCharacterEnhancementResultsWorkflowLabel(const FString& WorkflowLabel)
 {
-    if (WorkflowLabel.Equals(TEXT("Create Sandbox Duplicate")))
+    if (WorkflowLabel.Equals(TEXT("Create Sandbox Duplicate")) || WorkflowLabel.Equals(TEXT("Create Working Copy")))
     {
-        return TEXT("Sandbox Duplicate");
+        return TEXT("Working Copy");
     }
 
     if (WorkflowLabel.Equals(TEXT("Convert to AI-Ready Test Subject")))
@@ -142,12 +142,67 @@ FString GetAnimationIntegrationStatusLabel(const FWanaSelectedCharacterEnhanceme
         return TEXT("Unknown");
     }
 
+    if (Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Applied
+        || Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Ready)
+    {
+        return TEXT("Compatible");
+    }
+
+    if (Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Limited)
+    {
+        return TEXT("Limited");
+    }
+
     if (Snapshot.AnimationHookApplicationStatus == EWAYAnimationHookApplicationStatus::Active)
     {
         return TEXT("Compatible");
     }
 
     return Snapshot.bHasAnimBlueprint ? TEXT("Compatible") : TEXT("Limited");
+}
+
+FString GetAutomaticAnimationIntegrationStatusLabel(EWAYAutomaticAnimationIntegrationStatus IntegrationStatus)
+{
+    const UEnum* IntegrationStatusEnum = StaticEnum<EWAYAutomaticAnimationIntegrationStatus>();
+    return IntegrationStatusEnum
+        ? IntegrationStatusEnum->GetDisplayNameTextByValue(static_cast<int64>(IntegrationStatus)).ToString()
+        : TEXT("Not Supported");
+}
+
+FString GetAutomaticAnimationAttachSummaryLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::NotSupported)
+    {
+        return TEXT("Not Supported");
+    }
+
+    if (Snapshot.bAnimationAutoAttachSucceeded)
+    {
+        return TEXT("Applied");
+    }
+
+    return Snapshot.bHasAnimBlueprint ? TEXT("Pending") : TEXT("Limited");
+}
+
+FString GetAutomaticAnimationWireSummaryLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Applied
+        || Snapshot.bAnimationAutoWireSucceeded)
+    {
+        return TEXT("Applied");
+    }
+
+    if (Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Ready)
+    {
+        return TEXT("Ready");
+    }
+
+    if (Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Limited)
+    {
+        return TEXT("Limited");
+    }
+
+    return TEXT("Not Supported");
 }
 
 FString GetAnimationHookApplicationStatusLabel(EWAYAnimationHookApplicationStatus ApplicationStatus)
@@ -243,6 +298,11 @@ FString GetAnimationIntegrationNotes(const FWanaSelectedCharacterEnhancementSnap
     if (!Snapshot.bHasSkeletalMeshComponent)
     {
         return TEXT("No skeletal animation stack was detected yet, so WanaWorks keeps animation integration in a safe visibility-only state.");
+    }
+
+    if (!Snapshot.AnimationAutomaticIntegrationDetail.IsEmpty())
+    {
+        return Snapshot.AnimationAutomaticIntegrationDetail;
     }
 
     if (Snapshot.bHasAnimBlueprint)

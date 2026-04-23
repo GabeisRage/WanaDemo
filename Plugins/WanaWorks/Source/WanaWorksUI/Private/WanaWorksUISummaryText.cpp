@@ -106,7 +106,7 @@ FString BuildSubjectStackSummaryText(const FWanaSelectedCharacterEnhancementSnap
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("AI Controller: Missing\nLinked AI Controller: (not linked)\nAnimation Blueprint: Unknown\nLinked Animation Blueprint: (not linked)\nIdentity: Missing\nWAI: Missing\nWAY: Missing\nAI-Ready: No\nCompatibility Notes: Pick a project asset to inspect the stack before you create a sandbox subject.");
+        return TEXT("AI Controller: Missing\nLinked AI Controller: (not linked)\nAnimation Blueprint: Unknown\nLinked Animation Blueprint: (not linked)\nIdentity: Missing\nWAI: Missing\nWAY: Missing\nAI-Ready: No\nCompatibility Notes: Pick a project asset to inspect the stack before you create a working copy.");
     }
 
     return FString::Printf(
@@ -122,17 +122,50 @@ FString BuildSubjectStackSummaryText(const FWanaSelectedCharacterEnhancementSnap
         *Snapshot->AIReadinessSummary);
 }
 
+FString BuildSandboxPreviewSummaryText(
+    const FWanaSelectedCharacterEnhancementSnapshot* Snapshot,
+    const FString& PreviewModeLabel,
+    const FString& PreviewAssetLabel,
+    bool bHasLivePreviewSubject)
+{
+    if (!Snapshot || !Snapshot->bHasSelectedActor)
+    {
+        return TEXT("Stage Status: Waiting for subject\nStage Mode: Picker-ready workspace\nAnimation: (not available)\nNext Step: Choose an AI Pawn or Character Pawn to wake the studio stage.");
+    }
+
+    const FString StageSubjectLabel = FString::Printf(
+        TEXT("%s (%s)"),
+        *Snapshot->SelectedActorLabel,
+        Snapshot->ActorTypeLabel.IsEmpty() ? TEXT("Subject") : *Snapshot->ActorTypeLabel);
+    const FString NextStep = bHasLivePreviewSubject
+        ? TEXT("Live working subject is active. Use Focus Subject for full in-world inspection while the studio stage stays synced.")
+        : TEXT("Showing the picked asset until a live working subject becomes active through enhancement or testing.");
+
+    return FString::Printf(
+        TEXT("Stage Subject: %s\nStage Mode: %s\nAnimation: %s\nNext Step: %s"),
+        *StageSubjectLabel,
+        PreviewModeLabel.IsEmpty() ? TEXT("Subject preview") : *PreviewModeLabel,
+        Snapshot->LinkedAnimationBlueprintLabel.IsEmpty()
+            ? (PreviewAssetLabel.IsEmpty() ? TEXT("(not linked)") : *PreviewAssetLabel)
+            : *Snapshot->LinkedAnimationBlueprintLabel,
+        *NextStep);
+}
+
 FString BuildAnimationIntegrationSummaryText(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot)
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("Animation Blueprint: Unknown\nIntegration Status: Unknown\nExisting Anim BP Preserved: Yes\nHook Application: Not Available\nHook Readiness: Missing\nFacing Hook: Missing\nTurn-To-Target Hook: Missing\nLocomotion Hook: Missing\nReaction Animation Hook: Missing\nNotes: Choose a subject in WanaWorks to inspect safe animation integration.");
+        return TEXT("Animation Blueprint: Unknown\nIntegration Status: Unknown\nExisting Anim BP Preserved: Yes\nAutomatic Integration: Not Supported\nAuto-Attach: Not Supported\nAuto-Wire: Not Supported\nIntegration Target: (not prepared)\nHook Application: Not Available\nHook Readiness: Missing\nFacing Hook: Missing\nTurn-To-Target Hook: Missing\nLocomotion Hook: Missing\nReaction Animation Hook: Missing\nNotes: Choose a subject in WanaWorks to inspect safe animation integration.");
     }
 
     return FString::Printf(
-        TEXT("Animation Blueprint: %s\nIntegration Status: %s\nExisting Anim BP Preserved: Yes\nHook Application: %s\nHook Readiness: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s\nLocomotion Hook: %s\nReaction Animation Hook: %s\nNotes: %s"),
+        TEXT("Animation Blueprint: %s\nIntegration Status: %s\nExisting Anim BP Preserved: Yes\nAutomatic Integration: %s\nAuto-Attach: %s\nAuto-Wire: %s\nIntegration Target: %s\nHook Application: %s\nHook Readiness: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s\nLocomotion Hook: %s\nReaction Animation Hook: %s\nNotes: %s"),
         *WanaWorksUIFormattingUtils::GetAnimationBlueprintStatusLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetAnimationIntegrationStatusLabel(*Snapshot),
+        *WanaWorksUIFormattingUtils::GetAutomaticAnimationIntegrationStatusLabel(Snapshot->AnimationAutomaticIntegrationStatus),
+        *WanaWorksUIFormattingUtils::GetAutomaticAnimationAttachSummaryLabel(*Snapshot),
+        *WanaWorksUIFormattingUtils::GetAutomaticAnimationWireSummaryLabel(*Snapshot),
+        Snapshot->AnimationIntegrationTargetLabel.IsEmpty() ? TEXT("(not prepared)") : *Snapshot->AnimationIntegrationTargetLabel,
         *WanaWorksUIFormattingUtils::GetAnimationHookApplicationStatusLabel(Snapshot->AnimationHookApplicationStatus),
         *WanaWorksUIFormattingUtils::GetAnimationHookReadinessLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetFacingHookReadinessLabel(*Snapshot),
@@ -146,7 +179,7 @@ FString BuildAnimationHookUsageText(const FWanaSelectedCharacterEnhancementSnaps
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: Not Available\nCore Fields: bFacingHookRequested, bTurnToTargetRequested, ReactionState, RecommendedBehavior, bLocomotionSafeExecutionHint\nTypical Use: Use facing and turn flags for turn-to-target logic. Use ReactionState for reaction-driven animation branching. Use RecommendedBehavior for higher-level animation intent. Use the locomotion-safe hint to avoid forcing movement-driven animation logic.\nPhysical State Bridge: Read UWanaPhysicalStateComponent for PhysicalState, StabilityScore, RecoveryProgress, LastImpactDirection, LastImpactStrength, bBracing, bNeedsRecovery, bCanCommitToMovement, bCanCommitToAttack, and InstabilityAlpha.\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nPhysical Example: Get Owning Actor -> Get Component By Class (UWanaPhysicalStateComponent) -> Read LastImpactDirection and InstabilityAlpha for directional stagger or recovery pose blending.\nNotes: Pick a Character Pawn or AI Pawn in WanaWorks to see subject-specific hook guidance.");
+        return TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: Not Available\nAutomatic Pass: WanaWorks can auto-attach a supported working-subject animation bridge when a subject is prepared through the workspace or finalized workflow.\nCore Fields: bFacingHookRequested, bTurnToTargetRequested, ReactionState, RecommendedBehavior, bLocomotionSafeExecutionHint\nTypical Use: Use facing and turn flags for turn-to-target logic. Use ReactionState for reaction-driven animation branching. Use RecommendedBehavior for higher-level animation intent. Use the locomotion-safe hint to avoid forcing movement-driven animation logic.\nPhysical State Bridge: Read UWanaPhysicalStateComponent for PhysicalState, StabilityScore, RecoveryProgress, LastImpactDirection, LastImpactStrength, bBracing, bNeedsRecovery, bCanCommitToMovement, bCanCommitToAttack, and InstabilityAlpha.\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nPhysical Example: Get Owning Actor -> Get Component By Class (UWanaPhysicalStateComponent) -> Read LastImpactDirection and InstabilityAlpha for directional stagger or recovery pose blending.\nNotes: Pick a Character Pawn or AI Pawn in WanaWorks to see subject-specific hook guidance.");
     }
 
     const FString HookApplicationLabel = WanaWorksUIFormattingUtils::GetAnimationHookApplicationStatusLabel(Snapshot->AnimationHookApplicationStatus);
@@ -172,13 +205,16 @@ FString BuildAnimationHookUsageText(const FWanaSelectedCharacterEnhancementSnaps
             Snapshot->PhysicalInstabilityAlpha,
             Snapshot->PhysicalLastImpactStrength)
         : TEXT("Attach UWanaPhysicalStateComponent if you want existing Anim BPs to read directional impact, stagger, recovery need, and commitment reduction without replacing the Anim BP.");
-    const FString Notes = Snapshot->AnimationHookDetail.IsEmpty()
-        ? TEXT("WanaWorks preserves the current Animation Blueprint and only exposes safe hook state on top.")
-        : Snapshot->AnimationHookDetail;
+    const FString Notes = !Snapshot->AnimationAutomaticIntegrationDetail.IsEmpty()
+        ? Snapshot->AnimationAutomaticIntegrationDetail
+        : (Snapshot->AnimationHookDetail.IsEmpty()
+            ? TEXT("WanaWorks preserves the current Animation Blueprint and layers safe hook state plus workspace-only auto integration on top when supported.")
+            : Snapshot->AnimationHookDetail);
 
     return FString::Printf(
-        TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: %s\nCurrent Subject: %s\nDetected Animation Blueprint: %s\nCore Fields:\n- bFacingHookRequested: %s\n- bTurnToTargetRequested: %s\n- ReactionState: %s\n- RecommendedBehavior: %s\n- bLocomotionSafeExecutionHint: %s\nTypical Use: Use facing and turn flags for turn-to-target logic. Use ReactionState for reaction-driven animation branching. Use RecommendedBehavior for higher-level animation intent. Use the locomotion-safe hint to avoid forcing movement-driven animation logic.\nPhysical State Bridge: %s\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nPhysical Example: Get Owning Actor -> Get Component By Class (UWanaPhysicalStateComponent) -> Read PhysicalState, InstabilityAlpha, LastImpactDirection, and LastImpactStrength\nNotes: %s"),
+        TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: %s\nAutomatic Pass: %s\nCurrent Subject: %s\nDetected Animation Blueprint: %s\nCore Fields:\n- bFacingHookRequested: %s\n- bTurnToTargetRequested: %s\n- ReactionState: %s\n- RecommendedBehavior: %s\n- bLocomotionSafeExecutionHint: %s\nTypical Use: Use facing and turn flags for turn-to-target logic. Use ReactionState for reaction-driven animation branching. Use RecommendedBehavior for higher-level animation intent. Use the locomotion-safe hint to avoid forcing movement-driven animation logic.\nPhysical State Bridge: %s\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nPhysical Example: Get Owning Actor -> Get Component By Class (UWanaPhysicalStateComponent) -> Read PhysicalState, InstabilityAlpha, LastImpactDirection, and LastImpactStrength\nNotes: %s"),
         *HookApplicationLabel,
+        *WanaWorksUIFormattingUtils::GetAutomaticAnimationIntegrationStatusLabel(Snapshot->AnimationAutomaticIntegrationStatus),
         *Snapshot->SelectedActorLabel,
         Snapshot->LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("(not linked)") : *Snapshot->LinkedAnimationBlueprintLabel,
         *FacingFieldSummary,
@@ -332,7 +368,12 @@ FString BuildCharacterEnhancementChainText(const FWanaSelectedCharacterEnhanceme
     const TCHAR* CombatLogicStatus = Snapshot && Snapshot->bHasSelectedActor && Snapshot->bHasWAYComponent ? TEXT("READY") : TEXT("ACTIVE");
     const TCHAR* AnimationHooksStatus = !Snapshot || !Snapshot->bHasSelectedActor
         ? TEXT("ACTIVE")
-        : (Snapshot->bHasAnimBlueprint ? TEXT("READY") : (Snapshot->bHasSkeletalMeshComponent ? TEXT("WARNING") : TEXT("ACTIVE")));
+        : ((Snapshot->AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Applied
+            || Snapshot->AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Ready)
+            ? TEXT("READY")
+            : (Snapshot->AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Limited
+                ? TEXT("WARNING")
+                : (Snapshot->bHasAnimBlueprint ? TEXT("READY") : (Snapshot->bHasSkeletalMeshComponent ? TEXT("WARNING") : TEXT("ACTIVE")))));
 
     return FString::Printf(
         TEXT("%s  Behavior Graph Ready\n%s  Combat Logic Synced\n%s  Animation Hooks Attached"),
@@ -343,9 +384,9 @@ FString BuildCharacterEnhancementChainText(const FWanaSelectedCharacterEnhanceme
 
 FString BuildCharacterEnhancementWorkflowText(const FString& WorkflowLabel)
 {
-    if (WorkflowLabel == TEXT("Create Sandbox Duplicate"))
+    if (WorkflowLabel == TEXT("Create Sandbox Duplicate") || WorkflowLabel == TEXT("Create Working Copy"))
     {
-        return TEXT("Safest option for testing. Creates a clearly named WanaWorks sandbox copy, keeps the original actor untouched, and selects the duplicate for continued setup.");
+        return TEXT("Safest option for testing. Creates a clearly named WanaWorks working copy, keeps the original actor untouched, and selects the duplicate for continued setup.");
     }
 
     if (WorkflowLabel == TEXT("Convert to AI-Ready Test Subject"))
@@ -370,11 +411,11 @@ FString BuildEnhancementResultsText(
 {
     if (!bInitialized)
     {
-        return TEXT("Subject: (none)\nIdentity: Missing\nWAY: Missing\nWAI: Missing\nAI-Ready: No\nAnimation Readiness: Missing\nWorkflow Used: Not run yet\nSandbox Copy: Not Used\nOriginal Preserved: Yes");
+        return TEXT("Subject: (none)\nIdentity: Missing\nWAY: Missing\nWAI: Missing\nAI-Ready: No\nAnimation Readiness: Missing\nWorkflow Used: Not run yet\nWorking Copy: Not Used\nOriginal Preserved: Yes");
     }
 
     return FString::Printf(
-        TEXT("Subject: %s\nIdentity: %s\nWAY: %s\nWAI: %s\nAI-Ready: %s\nAnimation Readiness: %s\nWorkflow Used: %s\nSandbox Copy: %s\nOriginal Preserved: %s"),
+        TEXT("Subject: %s\nIdentity: %s\nWAY: %s\nWAI: %s\nAI-Ready: %s\nAnimation Readiness: %s\nWorkflow Used: %s\nWorking Copy: %s\nOriginal Preserved: %s"),
         SubjectLabel.IsEmpty() ? TEXT("(none)") : *SubjectLabel,
         *IdentityResult,
         *WAYResult,
@@ -486,10 +527,10 @@ FString BuildTestSandboxSummaryText(
             ? TEXT("Use Selected as Target to assign the actor being evaluated.")
             : (bSelfTargetDebugPair
                 ? TEXT("Self-target debug mode is active. Assign a different target for normal observer-target testing.")
-                : TEXT("Ready to evaluate the explicit sandbox pair.")));
+                : TEXT("Ready to evaluate the explicit working pair.")));
 
     return FString::Printf(
-        TEXT("Current Selection: %s\nSandbox Observer: %s\nSandbox Target: %s\nEvaluation Mode: %s\nReady To Evaluate: %s\nNext Step: %s"),
+        TEXT("Current Selection: %s\nWorking Copy Observer: %s\nWorking Copy Target: %s\nEvaluation Mode: %s\nReady To Evaluate: %s\nNext Step: %s"),
         *CurrentSelectionLabel,
         *ObserverLabel,
         *TargetLabel,
