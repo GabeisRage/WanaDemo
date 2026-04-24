@@ -490,8 +490,11 @@ void FWanaWorksUIModule::HandleWorkflowPresetOptionSelected(TSharedPtr<FString> 
     if (SelectedOption.IsValid())
     {
         SelectedWorkflowPresetLabel = *SelectedOption;
+        SyncSelectedWorkflowPresetIntoControls();
         PersistSavedWorkflowPresets();
     }
+
+    RefreshReactiveUI(true);
 }
 
 void FWanaWorksUIModule::HandleEnhancementPresetOptionSelected(TSharedPtr<FString> SelectedOption)
@@ -745,6 +748,65 @@ void FWanaWorksUIModule::HandleAIPawnAssetOptionSelected(TSharedPtr<FString> Sel
     }
 
     RefreshReactiveUI(true);
+}
+
+bool FWanaWorksUIModule::SyncSelectedWorkflowPresetIntoControls(FString* OutPresetLabel, FString* OutPresetNotes)
+{
+    if (OutPresetLabel)
+    {
+        OutPresetLabel->Reset();
+    }
+
+    if (OutPresetNotes)
+    {
+        OutPresetNotes->Reset();
+    }
+
+    const FWanaWorkflowPresetConfig Config = BuildWorkflowPresetConfig(
+        SelectedWorkflowPresetLabel,
+        bSavedWorkflowPresetInitialized,
+        LastSavedWorkflowPresetTimestamp,
+        LastSavedWorkflowPresetSourceLabel,
+        LastSavedWorkflowPresetWorkflowLabel,
+        LastSavedWorkflowPresetEnhancementPresetLabel,
+        LastSavedWorkflowPresetIdentitySeedLabel,
+        LastSavedWorkflowPresetRelationshipLabel,
+        LastSavedWorkflowPresetBehaviorLabel,
+        LastSavedWorkflowPresetFactionTag);
+
+    if (OutPresetLabel)
+    {
+        *OutPresetLabel = Config.PresetLabel;
+    }
+
+    if (!Config.bValid)
+    {
+        if (OutPresetNotes)
+        {
+            *OutPresetNotes = TEXT("Saved Custom Preset has not been captured yet, so WanaWorks kept the current workflow controls.");
+        }
+
+        return false;
+    }
+
+    SelectedEnhancementWorkflowLabel = Config.WorkflowLabel;
+    SelectedEnhancementPresetLabel = Config.EnhancementPresetLabel;
+    SelectedIdentitySeedState = Config.IdentitySeedState;
+    SelectedRelationshipState = Config.RelationshipState;
+
+    if (Config.bIsCustom)
+    {
+        IdentityFactionTagText = Config.FactionTagText;
+    }
+
+    if (OutPresetNotes)
+    {
+        *OutPresetNotes = FString::Printf(
+            TEXT("WanaWorks staged the %s profile automatically before running the core workflow."),
+            *Config.PresetLabel);
+    }
+
+    return true;
 }
 
 void FWanaWorksUIModule::RefreshProjectAssetPickerOptions()
@@ -1767,6 +1829,10 @@ void FWanaWorksUIModule::CreateWorkingCopy()
 
 void FWanaWorksUIModule::ApplyCharacterEnhancement()
 {
+    FString PresetProfileLabel;
+    FString PresetProfileNotes;
+    SyncSelectedWorkflowPresetIntoControls(&PresetProfileLabel, &PresetProfileNotes);
+
     FWanaSelectedCharacterEnhancementSnapshot SourceSnapshot;
     ResolvePreferredSubjectSnapshot(SourceSnapshot);
     const bool bHasSourceSnapshot = SourceSnapshot.bHasSelectedActor;
@@ -1847,6 +1913,9 @@ void FWanaWorksUIModule::ApplyCharacterEnhancement()
     Response.OutputLines.Add(FString::Printf(TEXT("Selected Actor: %s"), *SourceSnapshot.SelectedActorLabel));
     Response.OutputLines.Add(FString::Printf(TEXT("Workflow Path: %s"), *WorkflowLabel));
     Response.OutputLines.Add(FString::Printf(
+        TEXT("Preset Profile: %s"),
+        PresetProfileLabel.IsEmpty() ? TEXT("Current workflow controls") : *PresetProfileLabel));
+    Response.OutputLines.Add(FString::Printf(
         TEXT("Original Or Duplicate: %s"),
         (bUseSandboxDuplicate || bSpawnedFromPicker) ? TEXT("Working subject") : TEXT("Original actor")));
     Response.OutputLines.Add(FString::Printf(TEXT("Active Subject: %s"), bHasActiveSnapshot ? *ActiveSnapshot.SelectedActorLabel : *SourceSnapshot.SelectedActorLabel));
@@ -1903,6 +1972,11 @@ void FWanaWorksUIModule::ApplyCharacterEnhancement()
         Response.OutputLines.Add(TEXT("AI-Ready Preparation: Not requested"));
     }
 
+    if (!PresetProfileNotes.IsEmpty())
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Workflow Notes: %s"), *PresetProfileNotes));
+    }
+
     UpdateEnhancementResultsState(
         &SourceSnapshot,
         bHasActiveSnapshot ? &ActiveSnapshot : &SourceSnapshot,
@@ -1917,6 +1991,10 @@ void FWanaWorksUIModule::ApplyCharacterEnhancement()
 
 void FWanaWorksUIModule::ApplyStarterAndTestTarget()
 {
+    FString PresetProfileLabel;
+    FString PresetProfileNotes;
+    SyncSelectedWorkflowPresetIntoControls(&PresetProfileLabel, &PresetProfileNotes);
+
     FWanaSelectedCharacterEnhancementSnapshot BeforeSnapshot;
     ResolvePreferredSubjectSnapshot(BeforeSnapshot);
     const bool bHasBeforeSnapshot = BeforeSnapshot.bHasSelectedActor;
@@ -1930,7 +2008,7 @@ void FWanaWorksUIModule::ApplyStarterAndTestTarget()
         return;
     }
 
-    const FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteApplyStarterAndTestTargetCommand(SelectedEnhancementPresetLabel);
+    FWanaCommandResponse Response = WanaWorksUIEditorActions::ExecuteApplyStarterAndTestTargetCommand(SelectedEnhancementPresetLabel);
 
     if (Response.bSucceeded)
     {
@@ -1944,6 +2022,15 @@ void FWanaWorksUIModule::ApplyStarterAndTestTarget()
             true,
             bSpawnedFromPicker,
             true);
+    }
+
+    Response.OutputLines.Insert(FString::Printf(
+        TEXT("Preset Profile: %s"),
+        PresetProfileLabel.IsEmpty() ? TEXT("Current workflow controls") : *PresetProfileLabel), 0);
+
+    if (!PresetProfileNotes.IsEmpty())
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Workflow Notes: %s"), *PresetProfileNotes));
     }
 
     ApplyResponse(Response);
@@ -2635,7 +2722,7 @@ FText FWanaWorksUIModule::GetEnhancementResultsText() const
 
 FText FWanaWorksUIModule::GetGuidedWorkflowSummaryText() const
 {
-    return FText::FromString(TEXT("Applies the selected WanaAI starter to the observer and immediately tests how it reacts to the target."));
+    return FText::FromString(TEXT("Test uses the current preset-aware setup, runs the guided reaction pass, and evaluates the live subject without making you step through the helper controls manually."));
 }
 
 FText FWanaWorksUIModule::GetLiveTestSummaryText() const

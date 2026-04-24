@@ -1613,51 +1613,52 @@ TSharedRef<SWidget> MakePresetsSection(const FWanaWorksUITabBuilderArgs& Args, c
         .AutoHeight()
         .Padding(0.0f, 10.0f, 0.0f, 0.0f)
         [
-            SNew(SWrapBox)
-            + SWrapBox::Slot()
-            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
-            [
-                MakeFixedWidthButton(
-                    LOCTEXT("WanaWorksApplyPresetButton", "Apply Preset"),
-                    [OnApplyWorkflowPreset = Args.OnApplyWorkflowPreset]()
-                    {
-                        if (OnApplyWorkflowPreset)
+            MakeReadOnlyInfoPanel(
+                LOCTEXT("WanaWorksPresetAutonomyLabel", "Core Workflow"),
+                []()
+                {
+                    return LOCTEXT("WanaWorksPresetAutonomyText", "Enhance already uses the selected preset profile automatically. Open the preset controls below only when you want to force-apply the profile now or save a reusable variation.");
+                })
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 10.0f, 0.0f, 0.0f)
+        [
+            MakeCollapsibleWorkspaceDetailsSection(
+                SectionHeaderFont,
+                LOCTEXT("WanaWorksPresetActionsTitle", "Preset Actions"),
+                LOCTEXT("WanaWorksPresetActionsDescription", "These are secondary controls for saving the current setup or manually forcing the preset now. The main workflow already stays preset-aware."),
+                SNew(SWrapBox)
+                + SWrapBox::Slot()
+                .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+                [
+                    MakeFixedWidthButton(
+                        LOCTEXT("WanaWorksApplyPresetButton", "Apply Preset"),
+                        [OnApplyWorkflowPreset = Args.OnApplyWorkflowPreset]()
                         {
-                            OnApplyWorkflowPreset();
-                        }
-                    },
-                    160.0f)
-            ]
-            + SWrapBox::Slot()
-            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
-            [
-                MakeFixedWidthButton(
-                    LOCTEXT("WanaWorksSavePresetButton", "Save Current as Preset"),
-                    [OnSaveWorkflowPreset = Args.OnSaveWorkflowPreset]()
-                    {
-                        if (OnSaveWorkflowPreset)
+                            if (OnApplyWorkflowPreset)
+                            {
+                                OnApplyWorkflowPreset();
+                            }
+                        },
+                        160.0f)
+                ]
+                + SWrapBox::Slot()
+                .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+                [
+                    MakeFixedWidthButton(
+                        LOCTEXT("WanaWorksSavePresetButton", "Save Current as Preset"),
+                        [OnSaveWorkflowPreset = Args.OnSaveWorkflowPreset]()
                         {
-                            OnSaveWorkflowPreset();
-                        }
-                    },
-                    190.0f)
-            ]
-            + SWrapBox::Slot()
-            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
-            [
-                MakeFixedWidthButton(
-                    LOCTEXT("WanaWorksShowPresetSummaryButton", "Show Preset Summary"),
-                    [OnShowWorkflowPresetSummary = Args.OnShowWorkflowPresetSummary]()
-                    {
-                        if (OnShowWorkflowPresetSummary)
-                        {
-                            OnShowWorkflowPresetSummary();
-                        }
-                    },
-                    180.0f)
-            ]
+                            if (OnSaveWorkflowPreset)
+                            {
+                                OnSaveWorkflowPreset();
+                            }
+                        },
+                        190.0f)
+                ])
         ],
-        LOCTEXT("WanaWorksPresetsDescription", "Optional shortcut. Pick a reusable WanaWorks starter, apply it safely to the current subject, or save the current workflow as a lightweight reusable preset."),
+        LOCTEXT("WanaWorksPresetsDescription", "Pick a reusable WanaWorks starter profile here. The main workflow uses the selected profile automatically while the manual preset controls stay tucked into this secondary area."),
         LOCTEXT("WanaWorksPresetsStatus", "READY"));
 }
 
@@ -1678,7 +1679,7 @@ TSharedRef<SWidget> MakeValidationWorkflowSection(
     .Padding(0.0f, 0.0f, 0.0f, 10.0f)
     [
         MakeReadOnlyInfoPanel(
-            LOCTEXT("WanaWorksValidationGuidedLabel", "Guided Starter Test"),
+            LOCTEXT("WanaWorksValidationGuidedLabel", "Guided Test"),
             [GetGuidedWorkflowSummaryText = Args.GetGuidedWorkflowSummaryText]()
             {
                 return GetGuidedWorkflowSummaryText ? GetGuidedWorkflowSummaryText() : FText::GetEmpty();
@@ -1687,18 +1688,14 @@ TSharedRef<SWidget> MakeValidationWorkflowSection(
 
     Layout->AddSlot()
     .AutoHeight()
-    .Padding(0.0f, 0.0f, 0.0f, 12.0f)
+    .Padding(0.0f, 0.0f, 0.0f, 10.0f)
     [
-        MakeFixedWidthButton(
-            LOCTEXT("WanaWorksApplyStarterAndTestButton", "Apply Starter + Test Target"),
-            [OnApplyStarterAndTestTarget = Args.OnApplyStarterAndTestTarget]()
+        MakeReadOnlyInfoPanel(
+            LOCTEXT("WanaWorksValidationMainFlowLabel", "Main Workflow"),
+            []()
             {
-                if (OnApplyStarterAndTestTarget)
-                {
-                    OnApplyStarterAndTestTarget();
-                }
-            },
-            220.0f)
+                return LOCTEXT("WanaWorksValidationMainFlowText", "Use Test on the main workflow strip for the guided evaluation pass. The helper controls below stay folded away for manual observer-target setup or deeper diagnostics only.");
+            })
     ];
 
     Layout->AddSlot()
@@ -1711,22 +1708,6 @@ TSharedRef<SWidget> MakeValidationWorkflowSection(
             {
                 return GetLiveTestSummaryText ? GetLiveTestSummaryText() : FText::GetEmpty();
             })
-    ];
-
-    Layout->AddSlot()
-    .AutoHeight()
-    .Padding(0.0f, 0.0f, 0.0f, 12.0f)
-    [
-        MakeFixedWidthButton(
-            LOCTEXT("WanaWorksEvaluateTargetButton", "Evaluate Target"),
-            [OnEvaluateLiveTarget = Args.OnEvaluateLiveTarget]()
-            {
-                if (OnEvaluateLiveTarget)
-                {
-                    OnEvaluateLiveTarget();
-                }
-            },
-            180.0f)
     ];
 
     Layout->AddSlot()
@@ -1746,7 +1727,7 @@ TSharedRef<SWidget> MakeValidationWorkflowSection(
     .Padding(0.0f, 0.0f, 0.0f, 10.0f)
     [
         MakeReadOnlyInfoPanel(
-            LOCTEXT("WanaWorksValidationSandboxBuildLabel", "Build Final Asset"),
+            LOCTEXT("WanaWorksValidationSandboxBuildLabel", "Build Final"),
             []()
             {
                 return LOCTEXT("WanaWorksValidationSandboxBuildText", "When the working subject looks right, Build Final creates a separate finalized asset under /Game/WanaWorks/Builds. The original source and the working copy both stay preserved.");
@@ -1757,91 +1738,81 @@ TSharedRef<SWidget> MakeValidationWorkflowSection(
     .AutoHeight()
     .Padding(0.0f, 0.0f, 0.0f, 12.0f)
     [
-        SNew(SWrapBox)
-        + SWrapBox::Slot()
-        .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
-        [
-            MakeFixedWidthButton(
-                LOCTEXT("WanaWorksUseSelectedObserverButton_Validation", "Use Selected as Observer"),
-                [OnUseSelectedAsSandboxObserver = Args.OnUseSelectedAsSandboxObserver]()
-                {
-                    if (OnUseSelectedAsSandboxObserver)
+        MakeCollapsibleWorkspaceDetailsSection(
+            SectionHeaderFont,
+            LOCTEXT("WanaWorksValidationManualPairTitle", "Manual Pair Controls"),
+            LOCTEXT("WanaWorksValidationManualPairDescription", "Use these only when you want explicit observer-target assignments or manual focus control beyond the main workflow."),
+            SNew(SWrapBox)
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                MakeFixedWidthButton(
+                    LOCTEXT("WanaWorksUseSelectedObserverButton_Validation", "Use Selected as Observer"),
+                    [OnUseSelectedAsSandboxObserver = Args.OnUseSelectedAsSandboxObserver]()
                     {
-                        OnUseSelectedAsSandboxObserver();
-                    }
-                },
-                180.0f)
-        ]
-        + SWrapBox::Slot()
-        .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
-        [
-            MakeFixedWidthButton(
-                LOCTEXT("WanaWorksUseSelectedTargetButton_Validation", "Use Selected as Target"),
-                [OnUseSelectedAsSandboxTarget = Args.OnUseSelectedAsSandboxTarget]()
-                {
-                    if (OnUseSelectedAsSandboxTarget)
+                        if (OnUseSelectedAsSandboxObserver)
+                        {
+                            OnUseSelectedAsSandboxObserver();
+                        }
+                    },
+                    180.0f)
+            ]
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                MakeFixedWidthButton(
+                    LOCTEXT("WanaWorksUseSelectedTargetButton_Validation", "Use Selected as Target"),
+                    [OnUseSelectedAsSandboxTarget = Args.OnUseSelectedAsSandboxTarget]()
                     {
-                        OnUseSelectedAsSandboxTarget();
-                    }
-                },
-                180.0f)
-        ]
-        + SWrapBox::Slot()
-        .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
-        [
+                        if (OnUseSelectedAsSandboxTarget)
+                        {
+                            OnUseSelectedAsSandboxTarget();
+                        }
+                    },
+                    180.0f)
+            ]
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
                 MakeFixedWidthButton(
                     LOCTEXT("WanaWorksEvaluateSandboxPairButton_Validation", "Evaluate Working Pair"),
                     [OnEvaluateSandboxPair = Args.OnEvaluateSandboxPair]()
                     {
                         if (OnEvaluateSandboxPair)
                         {
-                        OnEvaluateSandboxPair();
-                    }
-                },
-                180.0f)
-        ]
-        + SWrapBox::Slot()
-        .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
-        [
+                            OnEvaluateSandboxPair();
+                        }
+                    },
+                    180.0f)
+            ]
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
                 MakeFixedWidthButton(
-                    LOCTEXT("WanaWorksFinalizeSandboxBuildButton_Validation", "Build Final"),
-                    [OnFinalizeSandboxBuild = Args.OnFinalizeSandboxBuild]()
+                    LOCTEXT("WanaWorksFocusObserverButton_Validation", "Focus Observer"),
+                    [OnFocusSandboxObserver = Args.OnFocusSandboxObserver]()
                     {
-                        if (OnFinalizeSandboxBuild)
+                        if (OnFocusSandboxObserver)
                         {
-                        OnFinalizeSandboxBuild();
-                    }
-                },
-                190.0f)
-        ]
-        + SWrapBox::Slot()
-        .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
-        [
-            MakeFixedWidthButton(
-                LOCTEXT("WanaWorksFocusObserverButton_Validation", "Focus Observer"),
-                [OnFocusSandboxObserver = Args.OnFocusSandboxObserver]()
-                {
-                    if (OnFocusSandboxObserver)
+                            OnFocusSandboxObserver();
+                        }
+                    },
+                    160.0f)
+            ]
+            + SWrapBox::Slot()
+            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+            [
+                MakeFixedWidthButton(
+                    LOCTEXT("WanaWorksFocusTargetButton_Validation", "Focus Target"),
+                    [OnFocusSandboxTarget = Args.OnFocusSandboxTarget]()
                     {
-                        OnFocusSandboxObserver();
-                    }
-                },
-                160.0f)
-        ]
-        + SWrapBox::Slot()
-        .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
-        [
-            MakeFixedWidthButton(
-                LOCTEXT("WanaWorksFocusTargetButton_Validation", "Focus Target"),
-                [OnFocusSandboxTarget = Args.OnFocusSandboxTarget]()
-                {
-                    if (OnFocusSandboxTarget)
-                    {
-                        OnFocusSandboxTarget();
-                    }
-                },
-                160.0f)
-        ]
+                        if (OnFocusSandboxTarget)
+                        {
+                            OnFocusSandboxTarget();
+                        }
+                    },
+                    160.0f)
+            ])
     ];
 
     if (bIncludeEnvironmentReadiness)
@@ -1861,28 +1832,32 @@ TSharedRef<SWidget> MakeValidationWorkflowSection(
         Layout->AddSlot()
         .AutoHeight()
         [
-            SNew(SWrapBox)
-            + SWrapBox::Slot()
-            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
-            [
-                ClassifyDefinition
-                    ? MakeCommandButton(Args, *ClassifyDefinition)
-                    : MakeFixedWidthButton(FText::FromString(TEXT("Classify Selected")), []() {})
-            ]
-            + SWrapBox::Slot()
-            .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
-            [
-                MakeFixedWidthButton(
-                    LOCTEXT("WanaWorksScanEnvironmentReadinessButton_Validation", "Scan Environment Readiness"),
-                    [OnScanEnvironmentReadiness = Args.OnScanEnvironmentReadiness]()
-                    {
-                        if (OnScanEnvironmentReadiness)
+            MakeCollapsibleWorkspaceDetailsSection(
+                SectionHeaderFont,
+                LOCTEXT("WanaWorksValidationDiagnosticsTitle", "Manual Diagnostics"),
+                LOCTEXT("WanaWorksValidationDiagnosticsDescription", "Use these deeper checks only when you want to classify the current subject or inspect environment fit beyond the Analyze step."),
+                SNew(SWrapBox)
+                + SWrapBox::Slot()
+                .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+                [
+                    ClassifyDefinition
+                        ? MakeCommandButton(Args, *ClassifyDefinition)
+                        : MakeFixedWidthButton(FText::FromString(TEXT("Classify Selected")), []() {})
+                ]
+                + SWrapBox::Slot()
+                .Padding(FMargin(0.0f, 0.0f, 10.0f, 10.0f))
+                [
+                    MakeFixedWidthButton(
+                        LOCTEXT("WanaWorksScanEnvironmentReadinessButton_Validation", "Scan Environment Readiness"),
+                        [OnScanEnvironmentReadiness = Args.OnScanEnvironmentReadiness]()
                         {
-                            OnScanEnvironmentReadiness();
-                        }
-                    },
-                    210.0f)
-            ]
+                            if (OnScanEnvironmentReadiness)
+                            {
+                                OnScanEnvironmentReadiness();
+                            }
+                        },
+                        210.0f)
+                ])
         ];
     }
 

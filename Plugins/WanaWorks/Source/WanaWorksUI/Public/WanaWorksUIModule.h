@@ -34,6 +34,7 @@ private:
     void HandleRelationshipStateOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleCharacterPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleAIPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
+    bool SyncSelectedWorkflowPresetIntoControls(FString* OutPresetLabel = nullptr, FString* OutPresetNotes = nullptr);
     void UpdateEnhancementResultsState(
         const FWanaSelectedCharacterEnhancementSnapshot* BeforeSnapshot,
         const FWanaSelectedCharacterEnhancementSnapshot* AfterSnapshot,
