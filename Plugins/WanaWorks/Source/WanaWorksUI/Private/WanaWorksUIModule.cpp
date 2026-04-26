@@ -276,26 +276,14 @@ AActor* ResolveSavedActorPath(const FString& SavedActorPath)
     return Cast<AActor>(SoftPath.ResolveObject());
 }
 
-UObject* ResolvePreviewAssetFromActor(const AActor* Actor)
+FString GetPreviewObjectDisplayLabel(const UObject* PreviewObject)
 {
-    if (!Actor)
+    if (const AActor* PreviewActor = Cast<AActor>(PreviewObject))
     {
-        return nullptr;
+        return PreviewActor->GetActorNameOrLabel();
     }
 
-    const UClass* ActorClass = Actor->GetClass();
-
-    if (!ActorClass)
-    {
-        return nullptr;
-    }
-
-    if (UBlueprint* BlueprintAsset = Cast<UBlueprint>(ActorClass->ClassGeneratedBy))
-    {
-        return BlueprintAsset;
-    }
-
-    return const_cast<UClass*>(ActorClass);
+    return PreviewObject ? PreviewObject->GetName() : FString();
 }
 }
 
@@ -912,12 +900,9 @@ UObject* FWanaWorksUIModule::GetSandboxPreviewObject() const
     FString PreviewModeLabel;
     AActor* PreviewActor = nullptr;
 
-    if (ResolvePreferredSandboxPreviewActor(PreviewActor, PreviewModeLabel))
+    if (ResolvePreferredSandboxPreviewActor(PreviewActor, PreviewModeLabel) && PreviewActor)
     {
-        if (UObject* PreviewAsset = ResolvePreviewAssetFromActor(PreviewActor))
-        {
-            return PreviewAsset;
-        }
+        return PreviewActor;
     }
 
     if (UObject* PickedSubjectAsset = LoadSelectedSubjectAssetObject())
@@ -2636,7 +2621,7 @@ FText FWanaWorksUIModule::GetSandboxPreviewSummaryText() const
     AActor* PreviewActor = nullptr;
     const bool bHasLivePreviewSubject = ResolvePreferredSandboxPreviewActor(PreviewActor, PreviewModeLabel) && PreviewActor != nullptr;
     UObject* PreviewObject = GetSandboxPreviewObject();
-    const FString PreviewAssetLabel = PreviewObject ? PreviewObject->GetName() : FString();
+    const FString PreviewAssetLabel = GetPreviewObjectDisplayLabel(PreviewObject);
 
     return FText::FromString(UISummary::BuildSandboxPreviewSummaryText(
         bHasSnapshot ? &Snapshot : nullptr,
