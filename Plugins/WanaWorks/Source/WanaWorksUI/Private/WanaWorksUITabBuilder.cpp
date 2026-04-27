@@ -46,6 +46,7 @@ TSharedRef<SWidget> MakeSection(
 TSharedRef<SWidget> MakeCommandButton(const FWanaWorksUITabBuilderArgs& Args, const FWanaCommandDefinition& Definition);
 TSharedRef<SWidget> MakeSandboxPreviewSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont);
 FLinearColor GetWorkspaceAccentColor(const FString& WorkspaceLabel);
+FText GetWorkspaceHeroBadge(const FString& WorkspaceLabel);
 constexpr float WanaAISubsectionSpacing = 10.0f;
 const FLinearColor SecondaryTextColor(0.76f, 0.80f, 0.88f, 1.0f);
 const FLinearColor TertiaryTextColor(0.46f, 0.53f, 0.66f, 1.0f);
@@ -125,6 +126,29 @@ TSharedRef<SWidget> MakeStudioPill(
             .ShadowColorAndOpacity(StudioShadowColor)
             .ShadowOffset(FVector2D(0.0f, 1.0f))
             .Text(Label)
+        ];
+}
+
+TSharedRef<SWidget> MakeDynamicWorkspacePill(TFunction<FString(void)> GetSelectedWorkspaceLabel)
+{
+    return SNew(SBorder)
+        .Padding(FMargin(12.0f, 6.0f))
+        .BorderBackgroundColor_Lambda([GetSelectedWorkspaceLabel]()
+        {
+            const FString WorkspaceLabel = GetSelectedWorkspaceLabel ? GetSelectedWorkspaceLabel() : FString(TEXT("AI"));
+            return GetWorkspaceAccentColor(WorkspaceLabel).CopyWithNewOpacity(0.16f);
+        })
+        [
+            SNew(STextBlock)
+            .ColorAndOpacity(FLinearColor(0.95f, 0.97f, 1.0f, 1.0f))
+            .Font(MakeStudioFont("Bold", 8))
+            .ShadowColorAndOpacity(StudioShadowColor)
+            .ShadowOffset(FVector2D(0.0f, 1.0f))
+            .Text_Lambda([GetSelectedWorkspaceLabel]()
+            {
+                const FString WorkspaceLabel = GetSelectedWorkspaceLabel ? GetSelectedWorkspaceLabel() : FString(TEXT("AI"));
+                return GetWorkspaceHeroBadge(WorkspaceLabel);
+            })
         ];
 }
 
@@ -591,7 +615,7 @@ FText GetWorkspacePreviewStandbyTitle(const FString& WorkspaceLabel)
 {
     if (WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase))
     {
-        return LOCTEXT("WanaWorksStudioCharacterPreviewStandbyTitle", "Character Build Stage Ready");
+        return LOCTEXT("WanaWorksStudioCharacterPreviewStandbyTitle", "Character Build Preview Ready");
     }
 
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
@@ -606,7 +630,7 @@ FText GetWorkspacePreviewStandbyNote(const FString& WorkspaceLabel)
 {
     if (WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase))
     {
-        return LOCTEXT("WanaWorksStudioCharacterPreviewStandbyNote", "Choose a Character Pawn to wake the authoring stage with the subject's mesh, animation stack, and build context.");
+        return LOCTEXT("WanaWorksStudioCharacterPreviewStandbyNote", "Choose a Character Blueprint or Pawn to wake the build preview with mesh, skeleton, rig, animation, movement, and output context.");
     }
 
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
@@ -965,7 +989,7 @@ public:
                     .AutoHeight()
                     [
                         SAssignNew(PreviewContentBox, SBox)
-                        .MinDesiredHeight(440.0f)
+                        .MinDesiredHeight(520.0f)
                     ]
                     + SVerticalBox::Slot()
                     .AutoHeight()
@@ -4199,7 +4223,7 @@ TSharedRef<SWidget> MakeStudioWorkflowStrip(const FWanaWorksUITabBuilderArgs& Ar
                             LOCTEXT("WanaWorksStudioWorkflowTestTitle", "Test"),
                             bAIWorkspace
                                 ? LOCTEXT("WanaWorksStudioWorkflowTestAIText", "Run the WanaUI-guided character-intelligence pass with WAI/WAMI state, WanaAnimation-lite hooks, WanaCombat-lite response, and WAY-lite adaptation in view.")
-                                : LOCTEXT("WanaWorksStudioWorkflowTestCharacterText", "Run the character-facing response pass and validate visible animation bridge behavior, physical presentation, and authored stack safety."),
+                                : LOCTEXT("WanaWorksStudioWorkflowTestCharacterText", "Run the character-facing readiness pass and validate preview, movement/playability state, animation bridge safety, and authored stack integrity."),
                             StudioAccentBlueColor,
                             Args.OnApplyStarterAndTestTarget)
                     ]
@@ -4212,7 +4236,7 @@ TSharedRef<SWidget> MakeStudioWorkflowStrip(const FWanaWorksUITabBuilderArgs& Ar
                             LOCTEXT("WanaWorksStudioWorkflowAnalyzeTitle", "Analyze"),
                             bAIWorkspace
                                 ? LOCTEXT("WanaWorksStudioWorkflowAnalyzeAIText", "Inspect semantic world meaning through WIT, plus live behavior, environment fit, and orchestration health across the existing UE5-native stack.")
-                                : LOCTEXT("WanaWorksStudioWorkflowAnalyzeCharacterText", "Inspect character identity fit, rig and animation awareness, relationship context, and clean build readiness."),
+                                : LOCTEXT("WanaWorksStudioWorkflowAnalyzeCharacterText", "Inspect mesh, skeleton/rig, animation blueprint, movement/playability, character systems, and suggested build improvements before optimizing."),
                             FLinearColor(0.22f, 0.73f, 0.78f, 1.0f),
                             bAIWorkspace ? Args.OnScanEnvironmentReadiness : Args.OnEvaluateLiveTarget)
                     ]
@@ -4668,7 +4692,7 @@ TSharedRef<SWidget> MakeLevelDesignWorkspaceSurface(const FWanaWorksUITabBuilder
         ];
 }
 
-TSharedRef<SWidget> MakeFutureWorkspaceSurface(
+TSharedRef<SWidget> BuildFutureWorkspacePlaceholder(
     const FWanaWorksUITabBuilderArgs& Args,
     const FString& WorkspaceLabel)
 {
@@ -4931,7 +4955,7 @@ TSharedRef<SWidget> MakeWorkspaceStageShell(
         ];
 }
 
-TSharedRef<SWidget> MakeAIWorkspaceSurface(const FWanaWorksUITabBuilderArgs& Args)
+TSharedRef<SWidget> BuildCharacterIntelligenceWorkspaceBody(const FWanaWorksUITabBuilderArgs& Args)
 {
     const FString WorkspaceLabel(TEXT("AI"));
 
@@ -4943,7 +4967,7 @@ TSharedRef<SWidget> MakeAIWorkspaceSurface(const FWanaWorksUITabBuilderArgs& Arg
             SNew(SSplitter)
             .PhysicalSplitterHandleSize(2.0f)
             + SSplitter::Slot()
-            .Value(0.24f)
+            .Value(0.22f)
             [
                 MakeWorkspaceContextPanel(
                     LOCTEXT("WanaWorksStudioAILeftEyebrow", "CHARACTER INTELLIGENCE"),
@@ -4968,8 +4992,8 @@ TSharedRef<SWidget> MakeAIWorkspaceSurface(const FWanaWorksUITabBuilderArgs& Arg
                     .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                     [
                         MakeStudioStatusCard(
-                            LOCTEXT("WanaWorksStudioAISelectedSubjectCardTitle", "Selected Subject"),
-                            LOCTEXT("WanaWorksStudioAISelectedSubjectCardEyebrow", "LIVE ATTACHMENT"),
+                            LOCTEXT("WanaWorksStudioAISelectedSubjectCardTitle", "AI Subject"),
+                            LOCTEXT("WanaWorksStudioAISelectedSubjectCardEyebrow", "NPC / AI PAWN"),
                             Args.GetSubjectSetupSummaryText,
                             StudioAccentColor,
                             4,
@@ -4980,8 +5004,8 @@ TSharedRef<SWidget> MakeAIWorkspaceSurface(const FWanaWorksUITabBuilderArgs& Arg
                     .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                     [
                         MakeStudioStatusCard(
-                            LOCTEXT("WanaWorksStudioAIStackCardTitle", "UE5 Character Stack"),
-                            LOCTEXT("WanaWorksStudioAIStackCardEyebrow", "NON-DESTRUCTIVE TARGET"),
+                            LOCTEXT("WanaWorksStudioAIStackCardTitle", "Detected AI Stack"),
+                            LOCTEXT("WanaWorksStudioAIStackCardEyebrow", "CONTROLLER / BT / BLACKBOARD"),
                             Args.GetSubjectStackSummaryText,
                             FLinearColor(0.18f, 0.60f, 0.67f, 1.0f),
                             7,
@@ -4993,7 +5017,7 @@ TSharedRef<SWidget> MakeAIWorkspaceSurface(const FWanaWorksUITabBuilderArgs& Arg
                     [
                         MakeStudioStatusCard(
                             LOCTEXT("WanaWorksStudioAIIdentityCardTitle", "WAI / WAMI Core"),
-                            LOCTEXT("WanaWorksStudioAIIdentityCardEyebrow", "IDENTITY MEMORY EMOTION"),
+                            LOCTEXT("WanaWorksStudioAIIdentityCardEyebrow", "IDENTITY / MEMORY / EMOTION"),
                             Args.GetIdentitySummaryText,
                             StudioAccentBlueColor,
                             5,
@@ -5003,7 +5027,7 @@ TSharedRef<SWidget> MakeAIWorkspaceSurface(const FWanaWorksUITabBuilderArgs& Arg
                     .AutoHeight()
                     [
                         MakeStudioStatusCard(
-                            LOCTEXT("WanaWorksStudioAIProfileCardTitle", "WAY-lite Relationship"),
+                            LOCTEXT("WanaWorksStudioAIProfileCardTitle", "Identity / Relationship"),
                             LOCTEXT("WanaWorksStudioAIProfileCardEyebrow", "PLAYER INTERPRETATION"),
                             Args.GetRelationshipSummaryText,
                             StudioSuccessColor,
@@ -5012,7 +5036,7 @@ TSharedRef<SWidget> MakeAIWorkspaceSurface(const FWanaWorksUITabBuilderArgs& Arg
                     ])
             ]
             + SSplitter::Slot()
-            .Value(0.46f)
+            .Value(0.50f)
             [
                 MakeWorkspaceStageShell(
                     Args,
@@ -5029,16 +5053,16 @@ TSharedRef<SWidget> MakeAIWorkspaceSurface(const FWanaWorksUITabBuilderArgs& Arg
                     })
             ]
             + SSplitter::Slot()
-            .Value(0.30f)
+            .Value(0.28f)
             [
                 SNew(SVerticalBox)
                 + SVerticalBox::Slot()
                 .AutoHeight()
                 .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                 [
-                    MakeStudioStatusCard(
-                        LOCTEXT("WanaWorksStudioAIAnimationStatusTitle", "WanaAnimation Layer"),
-                        LOCTEXT("WanaWorksStudioAIAnimationStatusEyebrow", "ANIMATION ORCHESTRATION"),
+                        MakeStudioStatusCard(
+                            LOCTEXT("WanaWorksStudioAIAnimationStatusTitle", "Animation Readiness"),
+                            LOCTEXT("WanaWorksStudioAIAnimationStatusEyebrow", "WANANIMATION LAYER"),
                         Args.GetAnimationIntegrationText,
                         StudioSuccessColor,
                         7,
@@ -5048,9 +5072,9 @@ TSharedRef<SWidget> MakeAIWorkspaceSurface(const FWanaWorksUITabBuilderArgs& Arg
                 .AutoHeight()
                 .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                 [
-                    MakeStudioStatusCard(
-                        LOCTEXT("WanaWorksStudioAIPhysicalStatusTitle", "WanaCombat-lite Response"),
-                        LOCTEXT("WanaWorksStudioAIPhysicalStatusEyebrow", "PHYSICAL COMMITMENT"),
+                        MakeStudioStatusCard(
+                            LOCTEXT("WanaWorksStudioAIPhysicalStatusTitle", "WanaCombat-lite Response"),
+                            LOCTEXT("WanaWorksStudioAIPhysicalStatusEyebrow", "PHYSICAL / COMBAT READINESS"),
                         Args.GetPhysicalStateText,
                         StudioAccentBlueColor,
                         7,
@@ -5060,9 +5084,9 @@ TSharedRef<SWidget> MakeAIWorkspaceSurface(const FWanaWorksUITabBuilderArgs& Arg
                 .AutoHeight()
                 .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                 [
-                    MakeStudioStatusCard(
-                        LOCTEXT("WanaWorksStudioAIBehaviorStatusTitle", "Behavior Runtime"),
-                        LOCTEXT("WanaWorksStudioAIBehaviorStatusEyebrow", "LIVE CHARACTER OUTPUT"),
+                        MakeStudioStatusCard(
+                            LOCTEXT("WanaWorksStudioAIBehaviorStatusTitle", "Behavior Results"),
+                            LOCTEXT("WanaWorksStudioAIBehaviorStatusEyebrow", "AI DIAGNOSIS"),
                         Args.GetBehaviorResultsText,
                         StudioSuccessColor,
                         8,
@@ -5071,9 +5095,9 @@ TSharedRef<SWidget> MakeAIWorkspaceSurface(const FWanaWorksUITabBuilderArgs& Arg
                 + SVerticalBox::Slot()
                 .AutoHeight()
                 [
-                    MakeStudioStatusCard(
-                        LOCTEXT("WanaWorksStudioAIEnvironmentStatusTitle", "WIT Semantic World"),
-                        LOCTEXT("WanaWorksStudioAIEnvironmentStatusEyebrow", "ENVIRONMENT MEANING"),
+                        MakeStudioStatusCard(
+                            LOCTEXT("WanaWorksStudioAIEnvironmentStatusTitle", "Environment Awareness"),
+                            LOCTEXT("WanaWorksStudioAIEnvironmentStatusEyebrow", "WIT SEMANTIC SUPPORT"),
                         Args.GetWITEnvironmentReadinessText,
                         FLinearColor(0.24f, 0.74f, 0.78f, 1.0f),
                         8,
@@ -5088,7 +5112,7 @@ TSharedRef<SWidget> MakeAIWorkspaceSurface(const FWanaWorksUITabBuilderArgs& Arg
         ];
 }
 
-TSharedRef<SWidget> MakeCharacterBuildingWorkspaceSurface(const FWanaWorksUITabBuilderArgs& Args)
+TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBuilderArgs& Args)
 {
     const FString WorkspaceLabel(TEXT("Character Building"));
 
@@ -5100,12 +5124,12 @@ TSharedRef<SWidget> MakeCharacterBuildingWorkspaceSurface(const FWanaWorksUITabB
             SNew(SSplitter)
             .PhysicalSplitterHandleSize(2.0f)
             + SSplitter::Slot()
-            .Value(0.25f)
+            .Value(0.21f)
             [
                 MakeWorkspaceContextPanel(
                     LOCTEXT("WanaWorksStudioCharacterLeftEyebrow", "CHARACTER BUILD"),
-                    LOCTEXT("WanaWorksStudioCharacterLeftTitle", "Character Authoring Context"),
-                    LOCTEXT("WanaWorksStudioCharacterLeftDescription", "Shape the character-facing subject with explicit visibility into skeletal mesh, animation blueprint, rig awareness, identity, and build readiness without turning this workspace into a copy of Character Intelligence."),
+                    LOCTEXT("WanaWorksStudioCharacterLeftTitle", "Character Build Context"),
+                    LOCTEXT("WanaWorksStudioCharacterLeftDescription", "Prepare the playable character or character asset as a clean build target: Blueprint subject, skeletal mesh, rig, animation blueprint, movement readiness, character profile, and final output."),
                     StudioAccentGoldColor,
                     SNew(SVerticalBox)
                     + SVerticalBox::Slot()
@@ -5113,11 +5137,11 @@ TSharedRef<SWidget> MakeCharacterBuildingWorkspaceSurface(const FWanaWorksUITabB
                     .Padding(0.0f, 0.0f, 0.0f, 16.0f)
                     [
                         MakeStringPickerControl(
-                            LOCTEXT("WanaWorksStudioCharacterOnlyPickerLabel", "Character Pawn Asset"),
+                            LOCTEXT("WanaWorksStudioCharacterOnlyPickerLabel", "Character Blueprint / Pawn"),
                             Args.CharacterPawnAssetOptions,
                             Args.GetSelectedCharacterPawnAssetOption,
                             Args.OnCharacterPawnAssetOptionSelected,
-                            LOCTEXT("WanaWorksStudioCharacterOnlyPickerDefault", "(Choose Character Pawn)"),
+                            LOCTEXT("WanaWorksStudioCharacterOnlyPickerDefault", "(Choose Character Blueprint)"),
                             260.0f)
                     ]
                     + SVerticalBox::Slot()
@@ -5126,7 +5150,7 @@ TSharedRef<SWidget> MakeCharacterBuildingWorkspaceSurface(const FWanaWorksUITabB
                     [
                         MakeStudioStatusCard(
                             LOCTEXT("WanaWorksStudioCharacterSelectedSubjectTitle", "Character Subject"),
-                            LOCTEXT("WanaWorksStudioCharacterSelectedSubjectEyebrow", "AUTHORING TARGET"),
+                            LOCTEXT("WanaWorksStudioCharacterSelectedSubjectEyebrow", "BLUEPRINT / PAWN"),
                             Args.GetSubjectSetupSummaryText,
                             StudioAccentGoldColor,
                             4,
@@ -5137,8 +5161,8 @@ TSharedRef<SWidget> MakeCharacterBuildingWorkspaceSurface(const FWanaWorksUITabB
                     .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                     [
                         MakeStudioStatusCard(
-                            LOCTEXT("WanaWorksStudioCharacterStackTitle", "Skeletal + Rig Stack"),
-                            LOCTEXT("WanaWorksStudioCharacterStackEyebrow", "CHARACTER STACK VISIBILITY"),
+                            LOCTEXT("WanaWorksStudioCharacterStackTitle", "Character Asset Stack"),
+                            LOCTEXT("WanaWorksStudioCharacterStackEyebrow", "MESH / SKELETON / COMPONENTS"),
                             Args.GetSubjectStackSummaryText,
                             FLinearColor(0.18f, 0.56f, 0.72f, 1.0f),
                             7,
@@ -5149,43 +5173,44 @@ TSharedRef<SWidget> MakeCharacterBuildingWorkspaceSurface(const FWanaWorksUITabB
                     .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                     [
                         MakeStudioStatusCard(
-                            LOCTEXT("WanaWorksStudioCharacterIdentityFocusTitle", "Identity Profile"),
-                            LOCTEXT("WanaWorksStudioCharacterIdentityFocusEyebrow", "CHARACTER MODEL"),
-                            Args.GetIdentitySummaryText,
-                            StudioAccentGoldColor,
-                            5,
+                            LOCTEXT("WanaWorksStudioCharacterRigAnimationTitle", "Rig & Animation Readiness"),
+                            LOCTEXT("WanaWorksStudioCharacterRigAnimationEyebrow", "SKELETON / ANIM BP"),
+                            Args.GetAnimationIntegrationText,
+                            StudioSuccessColor,
+                            6,
                             188.0f)
                     ]
                     + SVerticalBox::Slot()
                     .AutoHeight()
                     [
                         MakeStudioStatusCard(
-                            LOCTEXT("WanaWorksStudioCharacterRelationshipTitle", "Build Readiness"),
-                            LOCTEXT("WanaWorksStudioCharacterRelationshipEyebrow", "FINAL OUTPUT CONTEXT"),
-                            Args.GetEnhancementResultsText,
-                            StudioSuccessColor,
+                            LOCTEXT("WanaWorksStudioCharacterIdentityFocusTitle", "Character Profile"),
+                            LOCTEXT("WanaWorksStudioCharacterIdentityFocusEyebrow", "IDENTITY / AUTHORING"),
+                            Args.GetIdentitySummaryText,
+                            StudioAccentGoldColor,
                             6,
                             188.0f)
                     ])
             ]
             + SSplitter::Slot()
-            .Value(0.43f)
+            .Value(0.53f)
             [
                 MakeWorkspaceStageShell(
                     Args,
                     WorkspaceLabel,
                     LOCTEXT("WanaWorksStudioCharacterStageEyebrow", "CHARACTER AUTHORING LAYER"),
-                    LOCTEXT("WanaWorksStudioCharacterStageTitle", "Character Build Stage"),
-                    LOCTEXT("WanaWorksStudioCharacterStageDescription", "This stage emphasizes the character as an authored asset: mesh-aware, animation-aware, rig-aware, relationship-aware, and ready for a clean final output path without rewriting the original source architecture."),
+                    LOCTEXT("WanaWorksStudioCharacterStageTitle", "Character Build Preview"),
+                    LOCTEXT("WanaWorksStudioCharacterStageDescription", "This stage emphasizes the character as a buildable asset: mesh-aware, rig-aware, animation-aware, movement-ready, and prepared for a clean finalized output while preserving the source Blueprint."),
                     {
                         LOCTEXT("WanaWorksStudioCharacterStageChipOne", "Skeletal Mesh"),
-                        LOCTEXT("WanaWorksStudioCharacterStageChipTwo", "Animation Blueprint"),
-                        LOCTEXT("WanaWorksStudioCharacterStageChipThree", "Rig Aware"),
-                        LOCTEXT("WanaWorksStudioCharacterStageChipFour", "Build Ready")
+                        LOCTEXT("WanaWorksStudioCharacterStageChipTwo", "Skeleton / Rig"),
+                        LOCTEXT("WanaWorksStudioCharacterStageChipThree", "Animation Blueprint"),
+                        LOCTEXT("WanaWorksStudioCharacterStageChipFour", "Movement Component"),
+                        LOCTEXT("WanaWorksStudioCharacterStageChipFive", "Build Output")
                     })
             ]
             + SSplitter::Slot()
-            .Value(0.32f)
+            .Value(0.26f)
             [
                 SNew(SVerticalBox)
                 + SVerticalBox::Slot()
@@ -5193,20 +5218,8 @@ TSharedRef<SWidget> MakeCharacterBuildingWorkspaceSurface(const FWanaWorksUITabB
                 .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                 [
                     MakeStudioStatusCard(
-                        LOCTEXT("WanaWorksStudioCharacterAnimationRightTitle", "Animation Blueprint Bridge"),
-                        LOCTEXT("WanaWorksStudioCharacterAnimationRightEyebrow", "WANANIMATION-LITE"),
-                        Args.GetAnimationIntegrationText,
-                        StudioSuccessColor,
-                        7,
-                        210.0f)
-                ]
-                + SVerticalBox::Slot()
-                .AutoHeight()
-                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
-                [
-                    MakeStudioStatusCard(
-                        LOCTEXT("WanaWorksStudioCharacterPhysicalRightTitle", "Physical Presentation"),
-                        LOCTEXT("WanaWorksStudioCharacterPhysicalRightEyebrow", "BODY STATE"),
+                        LOCTEXT("WanaWorksStudioCharacterMovementRightTitle", "Movement / Playability"),
+                        LOCTEXT("WanaWorksStudioCharacterMovementRightEyebrow", "CONTROL READINESS"),
                         Args.GetPhysicalStateText,
                         StudioAccentBlueColor,
                         7,
@@ -5217,10 +5230,22 @@ TSharedRef<SWidget> MakeCharacterBuildingWorkspaceSurface(const FWanaWorksUITabB
                 .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                 [
                     MakeStudioStatusCard(
-                        LOCTEXT("WanaWorksStudioCharacterIdentityRightTitle", "WAY-lite Relationship"),
-                        LOCTEXT("WanaWorksStudioCharacterIdentityRightEyebrow", "PLAYER CONTEXT"),
-                        Args.GetRelationshipSummaryText,
-                        StudioAccentBlueColor,
+                        LOCTEXT("WanaWorksStudioCharacterSystemsRightTitle", "Character Systems"),
+                        LOCTEXT("WanaWorksStudioCharacterSystemsRightEyebrow", "COMPONENT READINESS"),
+                        Args.GetCharacterEnhancementSummaryText,
+                        StudioSuccessColor,
+                        7,
+                        210.0f)
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
+                [
+                    MakeStudioStatusCard(
+                        LOCTEXT("WanaWorksStudioCharacterBuildRightTitle", "Build Readiness"),
+                        LOCTEXT("WanaWorksStudioCharacterBuildRightEyebrow", "ANALYZE"),
+                        Args.GetEnhancementResultsText,
+                        StudioAccentGoldColor,
                         6,
                         210.0f)
                 ]
@@ -5228,10 +5253,10 @@ TSharedRef<SWidget> MakeCharacterBuildingWorkspaceSurface(const FWanaWorksUITabB
                 .AutoHeight()
                 [
                     MakeStudioStatusCard(
-                        LOCTEXT("WanaWorksStudioCharacterOutputRightTitle", "Build Readiness"),
-                        LOCTEXT("WanaWorksStudioCharacterOutputRightEyebrow", "OUTPUT"),
-                        Args.GetEnhancementResultsText,
-                        StudioAccentGoldColor,
+                        LOCTEXT("WanaWorksStudioCharacterOutputRightTitle", "Output"),
+                        LOCTEXT("WanaWorksStudioCharacterOutputRightEyebrow", "FINAL ASSET"),
+                        Args.GetSavedSubjectProgressText,
+                        StudioSuccessColor,
                         7,
                         210.0f)
                 ]
@@ -5356,7 +5381,7 @@ TSharedRef<SWidget> MakeLevelWorkspaceWorkflowStrip(const FWanaWorksUITabBuilder
         ];
 }
 
-TSharedRef<SWidget> MakeLevelDesignWorkspaceSurfaceV2(const FWanaWorksUITabBuilderArgs& Args)
+TSharedRef<SWidget> BuildLevelDesignWorkspaceBody(const FWanaWorksUITabBuilderArgs& Args)
 {
     return SNew(SVerticalBox)
         + SVerticalBox::Slot()
@@ -5488,29 +5513,88 @@ TSharedRef<SWidget> MakeLevelDesignWorkspaceSurfaceV2(const FWanaWorksUITabBuild
             MakeLevelWorkspaceWorkflowStrip(Args)
         ];
 }
+
+TSharedRef<SWidget> BuildWorkspaceBodyForLabel(const FWanaWorksUITabBuilderArgs& Args, const FString& WorkspaceLabel)
+{
+    if (WorkspaceLabel.Equals(TEXT("AI"), ESearchCase::IgnoreCase))
+    {
+        return BuildCharacterIntelligenceWorkspaceBody(Args);
+    }
+
+    if (WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase))
+    {
+        return BuildCharacterBuildingWorkspaceBody(Args);
+    }
+
+    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    {
+        return BuildLevelDesignWorkspaceBody(Args);
+    }
+
+    return BuildFutureWorkspacePlaceholder(Args, WorkspaceLabel);
+}
+
+class SWanaWorksWorkspaceBodySwitcher : public SCompoundWidget
+{
+public:
+    SLATE_BEGIN_ARGS(SWanaWorksWorkspaceBodySwitcher)
+    {
+    }
+        SLATE_ARGUMENT(FWanaWorksUITabBuilderArgs, BuilderArgs)
+    SLATE_END_ARGS()
+
+    void Construct(const FArguments& InArgs)
+    {
+        BuilderArgs = InArgs._BuilderArgs;
+
+        ChildSlot
+        [
+            SAssignNew(BodyBox, SBox)
+        ];
+
+        RefreshBody();
+    }
+
+    virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override
+    {
+        SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
+
+        const FString CurrentWorkspaceLabel = GetCurrentWorkspaceLabel();
+
+        if (!CurrentWorkspaceLabel.Equals(CachedWorkspaceLabel, ESearchCase::IgnoreCase))
+        {
+            RefreshBody();
+        }
+    }
+
+private:
+    FString GetCurrentWorkspaceLabel() const
+    {
+        return BuilderArgs.GetSelectedWorkspaceLabel
+            ? BuilderArgs.GetSelectedWorkspaceLabel()
+            : FString(TEXT("AI"));
+    }
+
+    void RefreshBody()
+    {
+        CachedWorkspaceLabel = GetCurrentWorkspaceLabel();
+
+        if (BodyBox.IsValid())
+        {
+            BodyBox->SetContent(BuildWorkspaceBodyForLabel(BuilderArgs, CachedWorkspaceLabel));
+        }
+    }
+
+    FWanaWorksUITabBuilderArgs BuilderArgs;
+    TSharedPtr<SBox> BodyBox;
+    FString CachedWorkspaceLabel;
+};
 }
 
 namespace WanaWorksUITabBuilder
 {
 TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
 {
-    const FString SelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel
-        ? Args.GetSelectedWorkspaceLabel()
-        : TEXT("AI");
-    const bool bIsAIWorkspace = SelectedWorkspaceLabel.Equals(TEXT("AI"), ESearchCase::IgnoreCase);
-    const bool bIsCharacterWorkspace = SelectedWorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase);
-    const bool bIsLevelDesignWorkspace = SelectedWorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase);
-    const FText ActiveWorkspaceTitle = GetWorkspaceHeroTitle(SelectedWorkspaceLabel);
-    const FText ActiveWorkspaceSubtitle = GetWorkspaceHeroSubtitle(SelectedWorkspaceLabel);
-
-    TSharedRef<SWidget> WorkspaceSurface = bIsAIWorkspace
-        ? MakeAIWorkspaceSurface(Args)
-        : (bIsCharacterWorkspace
-            ? MakeCharacterBuildingWorkspaceSurface(Args)
-            : (bIsLevelDesignWorkspace
-                ? MakeLevelDesignWorkspaceSurfaceV2(Args)
-                : MakeFutureWorkspaceSurface(Args, SelectedWorkspaceLabel)));
-
     return SNew(SBorder)
         .Padding(20.0f)
         .BorderBackgroundColor(StudioShellColor)
@@ -5600,7 +5684,13 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
                                     .ColorAndOpacity(FLinearColor::White)
                                     .ShadowColorAndOpacity(StudioShadowColor)
                                     .ShadowOffset(FVector2D(0.0f, 1.0f))
-                                    .Text(ActiveWorkspaceTitle)
+                                    .Text_Lambda([GetSelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel]()
+                                    {
+                                        const FString WorkspaceLabel = GetSelectedWorkspaceLabel
+                                            ? GetSelectedWorkspaceLabel()
+                                            : FString(TEXT("AI"));
+                                        return GetWorkspaceHeroTitle(WorkspaceLabel);
+                                    })
                                 ]
                             ]
                             + SHorizontalBox::Slot()
@@ -5614,7 +5704,7 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
                                 [
                                     MakeStudioPill(
                                         LOCTEXT("WanaWorksStudioShellCommandCenter", "COMMAND CENTER"),
-                                        GetWorkspaceAccentColor(SelectedWorkspaceLabel).CopyWithNewOpacity(0.14f),
+                                        StudioAccentColor.CopyWithNewOpacity(0.14f),
                                         FLinearColor(0.95f, 0.97f, 1.0f, 1.0f),
                                         8,
                                         FMargin(14.0f, 8.0f))
@@ -5666,12 +5756,7 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
                                     + SVerticalBox::Slot()
                                     .AutoHeight()
                                     [
-                                        MakeStudioPill(
-                                            GetWorkspaceHeroBadge(SelectedWorkspaceLabel),
-                                            GetWorkspaceAccentColor(SelectedWorkspaceLabel).CopyWithNewOpacity(0.16f),
-                                            FLinearColor(0.95f, 0.97f, 1.0f, 1.0f),
-                                            8,
-                                            FMargin(12.0f, 6.0f))
+                                        MakeDynamicWorkspacePill(Args.GetSelectedWorkspaceLabel)
                                     ]
                                     + SVerticalBox::Slot()
                                     .AutoHeight()
@@ -5682,7 +5767,13 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
                                         .ColorAndOpacity(FLinearColor::White)
                                         .ShadowColorAndOpacity(StudioShadowColor)
                                         .ShadowOffset(FVector2D(0.0f, 1.0f))
-                                        .Text(ActiveWorkspaceTitle)
+                                        .Text_Lambda([GetSelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel]()
+                                        {
+                                            const FString WorkspaceLabel = GetSelectedWorkspaceLabel
+                                                ? GetSelectedWorkspaceLabel()
+                                                : FString(TEXT("AI"));
+                                            return GetWorkspaceHeroTitle(WorkspaceLabel);
+                                        })
                                     ]
                                     + SVerticalBox::Slot()
                                     .AutoHeight()
@@ -5692,20 +5783,27 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
                                         .AutoWrapText(true)
                                         .Font(MakeStudioFont("Regular", 10))
                                         .ColorAndOpacity(SecondaryTextColor)
-                                        .Text(ActiveWorkspaceSubtitle)
+                                        .Text_Lambda([GetSelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel]()
+                                        {
+                                            const FString WorkspaceLabel = GetSelectedWorkspaceLabel
+                                                ? GetSelectedWorkspaceLabel()
+                                                : FString(TEXT("AI"));
+                                            return GetWorkspaceHeroSubtitle(WorkspaceLabel);
+                                        })
                                     ]
                                     + SVerticalBox::Slot()
                                     .AutoHeight()
                                     .Padding(0.0f, 18.0f, 0.0f, 0.0f)
                                     [
-                                        MakeStudioDivider(1.0f, GetWorkspaceAccentColor(SelectedWorkspaceLabel).CopyWithNewOpacity(0.34f))
+                                        MakeStudioDivider(1.0f, StudioAccentColor.CopyWithNewOpacity(0.34f))
                                     ]
                                 ]
                                 + SVerticalBox::Slot()
                                 .AutoHeight()
                                 .Padding(0.0f, 18.0f, 0.0f, 0.0f)
                                 [
-                                    WorkspaceSurface
+                                    SNew(SWanaWorksWorkspaceBodySwitcher)
+                                    .BuilderArgs(Args)
                                 ]
                             ]
                         ]
