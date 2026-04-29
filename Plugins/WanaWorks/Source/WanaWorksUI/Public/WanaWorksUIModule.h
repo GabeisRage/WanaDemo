@@ -34,6 +34,8 @@ private:
     void HandleRelationshipStateOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleCharacterPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleAIPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
+    void RegisterEditorLauncherMenus();
+    void OpenWanaWorksStudioTab();
     bool SyncSelectedWorkflowPresetIntoControls(FString* OutPresetLabel = nullptr, FString* OutPresetNotes = nullptr);
     void UpdateEnhancementResultsState(
         const FWanaSelectedCharacterEnhancementSnapshot* BeforeSnapshot,
@@ -56,6 +58,7 @@ private:
     void CreateWorkingCopy();
     void ApplyCharacterEnhancement();
     void ApplyStarterAndTestTarget();
+    void AnalyzeActiveWorkspace();
     void ScanEnvironmentReadiness();
     void EvaluateLiveTarget();
     void UseSelectedActorAsSandboxObserver();
@@ -86,10 +89,15 @@ private:
     bool ResolvePreferredSandboxPreviewActor(AActor*& OutActor, FString& OutPreviewModeLabel) const;
     bool PreparePickerDrivenSubjectForWorkflow(const FString& WorkflowContextLabel, FWanaCommandResponse& OutPreparationResponse, bool& bOutSpawnedFromPicker);
     UObject* LoadSelectedSubjectAssetObject() const;
+    UObject* LoadSelectedSubjectAssetObjectForWorkspace(const FString& WorkspaceLabel) const;
     UClass* LoadSelectedSubjectActorClass() const;
+    UClass* LoadSelectedSubjectActorClassForWorkspace(const FString& WorkspaceLabel) const;
     FString GetSelectedSubjectAssetPath() const;
+    FString GetSelectedSubjectAssetPathForWorkspace(const FString& WorkspaceLabel) const;
     UObject* GetSandboxPreviewObject() const;
+    bool IsActorCompatibleWithWorkspacePreview(const AActor* Actor, const FString& WorkspaceLabel) const;
     bool RestoreSubjectPickerFromAssetPath(const FString& AssetPath);
+    bool HasCurrentWorkspaceAnalysis() const;
 
     FText GetStatusText() const;
     FString GetSelectedWorkspaceLabel() const;
@@ -149,7 +157,16 @@ private:
     FDelegateHandle SelectionChangedHandle;
     FDelegateHandle SelectObjectHandle;
     bool bIdentityStateInitialized = false;
+    bool bWorkspaceAnalysisInitialized = false;
     bool bEnhancementResultsInitialized = false;
+    FString LastAnalysisWorkspaceLabel;
+    FString LastAnalysisStatusSummary;
+    FString LastAnalysisPrimarySummary;
+    FString LastAnalysisAnimationSummary;
+    FString LastAnalysisPhysicalSummary;
+    FString LastAnalysisBehaviorSummary;
+    FString LastAnalysisWITSummary;
+    FString LastAnalysisSuggestedSummary;
     FString LastEnhancementResultsActorLabel;
     FString LastEnhancementWorkflowUsed;
     FString LastEnhancementIdentityResult;

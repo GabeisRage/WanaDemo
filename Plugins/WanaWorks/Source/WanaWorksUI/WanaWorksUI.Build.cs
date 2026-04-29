@@ -17,6 +17,8 @@ public class WanaWorksUI : ModuleRules
             "CoreUObject",
             "Engine",
             "InputCore",
+            "Projects",
+            "ToolMenus",
             "UnrealEd",
             "WorkspaceMenuStructure",
             "WanaWorksCore",

@@ -70,6 +70,7 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<void(void)> OnCreateWorkingCopy;
     TFunction<void(void)> OnApplyCharacterEnhancement;
     TFunction<void(void)> OnApplyStarterAndTestTarget;
+    TFunction<void(void)> OnAnalyzeWorkspace;
     TFunction<void(void)> OnScanEnvironmentReadiness;
     TFunction<void(void)> OnEvaluateLiveTarget;
     TFunction<void(void)> OnUseSelectedAsSandboxObserver;

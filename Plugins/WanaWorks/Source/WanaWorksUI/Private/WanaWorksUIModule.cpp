@@ -1,14 +1,25 @@
 #include "WanaWorksUIModule.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "Animation/Skeleton.h"
+#include "Components/ActorComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/Blueprint.h"
+#include "Engine/SkeletalMesh.h"
+#include "Engine/World.h"
 #include "Editor.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Framework/Commands/UIAction.h"
 #include "Framework/Docking/TabManager.h"
+#include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PawnMovementComponent.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Modules/ModuleManager.h"
 #include "Selection.h"
+#include "Textures/SlateIcon.h"
+#include "ToolMenus.h"
+#include "UObject/UnrealType.h"
 #include "UObject/SoftObjectPath.h"
 #include "Widgets/InvalidateWidgetReason.h"
 #include "WorkspaceMenuStructure.h"
@@ -17,6 +28,7 @@
 #include "WanaWorksUIEditorActions.h"
 #include "WanaWorksUIFormattingUtils.h"
 #include "WanaWorksUISummaryText.h"
+#include "WanaWorksUIStyle.h"
 #include "WanaWorksUITabBuilder.h"
 #include "WAYPlayerProfileComponent.h"
 #include "Widgets/Docking/SDockTab.h"
@@ -58,7 +70,7 @@ const TCHAR* SavedWorkflowPresetRelationshipKey = TEXT("SavedWorkflowPresetRelat
 const TCHAR* SavedWorkflowPresetBehaviorKey = TEXT("SavedWorkflowPresetBehavior");
 const TCHAR* SavedWorkflowPresetFactionTagKey = TEXT("SavedWorkflowPresetFactionTag");
 const TCHAR* SavedCustomWorkflowPresetLabel = TEXT("Saved Custom Preset");
-const TCHAR* CharacterPawnPickerDefaultLabel = TEXT("(Choose Character Pawn)");
+const TCHAR* CharacterPawnPickerDefaultLabel = TEXT("(Choose Character Blueprint)");
 const TCHAR* AIPawnPickerDefaultLabel = TEXT("(Choose AI Pawn)");
 
 struct FProjectAssetPickerEntry
@@ -236,6 +248,12 @@ FString MakeProjectAssetDisplayLabel(const FAssetData& AssetData)
     return FString::Printf(TEXT("%s (%s)"), *AssetData.AssetName.ToString(), *AssetData.PackagePath.ToString());
 }
 
+bool IsCharacterFacingPawnClass(const UClass* PawnClass, const APawn* DefaultPawn)
+{
+    return (PawnClass && PawnClass->IsChildOf(ACharacter::StaticClass()))
+        || (DefaultPawn && DefaultPawn->FindComponentByClass<USkeletalMeshComponent>() != nullptr);
+}
+
 void AddAssetPickerDefaultOption(TArray<TSharedPtr<FString>>& Options, const TCHAR* Label)
 {
     Options.Add(MakeShared<FString>(Label));
@@ -285,6 +303,259 @@ FString GetPreviewObjectDisplayLabel(const UObject* PreviewObject)
 
     return PreviewObject ? PreviewObject->GetName() : FString();
 }
+
+struct FWanaAnalysisItem
+{
+    FString Category;
+    FString Status;
+    FString Detail;
+};
+
+struct FWanaAnalysisResult
+{
+    FString WorkspaceLabel;
+    FString DisplayWorkspaceLabel;
+    FString StatusSummary;
+    FString PrimarySummary;
+    FString AnimationSummary;
+    FString PhysicalSummary;
+    FString BehaviorSummary;
+    FString WITSummary;
+    FString SuggestedSummary;
+    int32 ReadyCount = 0;
+    int32 MissingCount = 0;
+    int32 LimitedCount = 0;
+    int32 NotSupportedCount = 0;
+    int32 RecommendedCount = 0;
+};
+
+void TrackAnalysisStatus(FWanaAnalysisResult& Result, const FString& Status)
+{
+    if (Status.Equals(TEXT("Ready"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("Present"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("Detected"), ESearchCase::IgnoreCase))
+    {
+        ++Result.ReadyCount;
+    }
+    else if (Status.Equals(TEXT("Missing"), ESearchCase::IgnoreCase))
+    {
+        ++Result.MissingCount;
+    }
+    else if (Status.Equals(TEXT("Not Supported"), ESearchCase::IgnoreCase))
+    {
+        ++Result.NotSupportedCount;
+    }
+    else if (Status.Equals(TEXT("Recommended"), ESearchCase::IgnoreCase))
+    {
+        ++Result.RecommendedCount;
+    }
+    else
+    {
+        ++Result.LimitedCount;
+    }
+}
+
+void AddAnalysisItem(TArray<FWanaAnalysisItem>& Items, FWanaAnalysisResult& Result, const FString& Category, const FString& Status, const FString& Detail)
+{
+    Items.Add({Category, Status, Detail});
+    TrackAnalysisStatus(Result, Status);
+}
+
+FString BuildAnalysisCardText(const FString& Heading, const TArray<FWanaAnalysisItem>& Items, const FString& RecommendedAction)
+{
+    TArray<FString> Lines;
+
+    if (!Heading.IsEmpty())
+    {
+        Lines.Add(Heading);
+    }
+
+    for (const FWanaAnalysisItem& Item : Items)
+    {
+        Lines.Add(FString::Printf(
+            TEXT("%s: %s - %s"),
+            *Item.Category,
+            Item.Status.IsEmpty() ? TEXT("Limited") : *Item.Status,
+            Item.Detail.IsEmpty() ? TEXT("No extra detail available.") : *Item.Detail));
+    }
+
+    if (!RecommendedAction.IsEmpty())
+    {
+        Lines.Add(FString::Printf(TEXT("Recommended Next Step: %s"), *RecommendedAction));
+    }
+
+    return FString::Join(Lines, TEXT("\n"));
+}
+
+FString BuildAnalysisStatusText(const FWanaAnalysisResult& Result)
+{
+    return FString::Printf(
+        TEXT("%s analysis complete: %d ready, %d missing, %d limited, %d not supported."),
+        Result.DisplayWorkspaceLabel.IsEmpty() ? TEXT("Workspace") : *Result.DisplayWorkspaceLabel,
+        Result.ReadyCount,
+        Result.MissingCount,
+        Result.LimitedCount,
+        Result.NotSupportedCount);
+}
+
+const AActor* ResolveAnalysisActor(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot, const UClass* SubjectClass)
+{
+    if (Snapshot.SelectedActor.IsValid())
+    {
+        return Snapshot.SelectedActor.Get();
+    }
+
+    return SubjectClass ? Cast<AActor>(SubjectClass->GetDefaultObject()) : nullptr;
+}
+
+bool ComponentClassNameContainsAny(const AActor* Actor, const TArray<FString>& Tokens)
+{
+    if (!Actor)
+    {
+        return false;
+    }
+
+    TArray<UActorComponent*> Components;
+    Actor->GetComponents(Components);
+
+    for (const UActorComponent* Component : Components)
+    {
+        const UClass* ComponentClass = Component ? Component->GetClass() : nullptr;
+        const FString ComponentClassName = ComponentClass ? ComponentClass->GetName() : FString();
+
+        for (const FString& Token : Tokens)
+        {
+            if (!Token.IsEmpty() && ComponentClassName.Contains(Token, ESearchCase::IgnoreCase))
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool GetSkeletalMeshAndSkeletonLabels(const AActor* Actor, FString& OutMeshLabel, FString& OutSkeletonLabel)
+{
+    OutMeshLabel.Reset();
+    OutSkeletonLabel.Reset();
+
+    const USkeletalMeshComponent* MeshComponent = Actor ? Actor->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
+
+    if (!MeshComponent)
+    {
+        return false;
+    }
+
+    const USkeletalMesh* SkeletalMesh = MeshComponent->GetSkeletalMeshAsset();
+
+    if (!SkeletalMesh)
+    {
+        OutMeshLabel = TEXT("Skeletal mesh component present, mesh asset not assigned");
+        OutSkeletonLabel = TEXT("(no skeleton asset)");
+        return true;
+    }
+
+    OutMeshLabel = SkeletalMesh->GetName();
+    const USkeleton* Skeleton = SkeletalMesh->GetSkeleton();
+    OutSkeletonLabel = Skeleton ? Skeleton->GetName() : TEXT("(no skeleton asset)");
+    return true;
+}
+
+bool HasPawnMovementComponent(const AActor* Actor)
+{
+    const APawn* Pawn = Cast<APawn>(Actor);
+    return Pawn && Pawn->GetMovementComponent() != nullptr;
+}
+
+const UClass* GetAIControllerClassForAnalysis(const AActor* Actor)
+{
+    const APawn* Pawn = Cast<APawn>(Actor);
+    return Pawn ? Pawn->AIControllerClass : nullptr;
+}
+
+bool TryFindLinkedObjectLabelByTokens(const UObject* OwnerObject, const TArray<FString>& PropertyTokens, const TArray<FString>& ClassTokens, FString& OutLabel, bool& bOutPropertyFound)
+{
+    OutLabel.Reset();
+    bOutPropertyFound = false;
+
+    if (!OwnerObject)
+    {
+        return false;
+    }
+
+    for (TFieldIterator<FProperty> PropertyIt(OwnerObject->GetClass(), EFieldIteratorFlags::IncludeSuper); PropertyIt; ++PropertyIt)
+    {
+        const FProperty* Property = *PropertyIt;
+        const FString PropertyName = Property ? Property->GetName() : FString();
+        bool bTokenMatched = false;
+
+        for (const FString& Token : PropertyTokens)
+        {
+            if (!Token.IsEmpty() && PropertyName.Contains(Token, ESearchCase::IgnoreCase))
+            {
+                bTokenMatched = true;
+                break;
+            }
+        }
+
+        if (const FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property))
+        {
+            const UClass* PropertyClass = ObjectProperty->PropertyClass;
+            const FString PropertyClassName = PropertyClass ? PropertyClass->GetName() : FString();
+
+            for (const FString& Token : ClassTokens)
+            {
+                if (!Token.IsEmpty() && PropertyClassName.Contains(Token, ESearchCase::IgnoreCase))
+                {
+                    bTokenMatched = true;
+                    break;
+                }
+            }
+
+            if (!bTokenMatched)
+            {
+                continue;
+            }
+
+            bOutPropertyFound = true;
+            const UObject* LinkedObject = ObjectProperty->GetObjectPropertyValue_InContainer(OwnerObject);
+
+            if (LinkedObject)
+            {
+                OutLabel = LinkedObject->GetName();
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+int32 GetEditorSelectedActorCount()
+{
+    USelection* SelectedActors = GEditor ? GEditor->GetSelectedActors() : nullptr;
+    return SelectedActors ? SelectedActors->Num() : 0;
+}
+
+FString GetEditorWorldLabel()
+{
+    UWorld* EditorWorld = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+
+    if (!EditorWorld)
+    {
+        return FString();
+    }
+
+    return EditorWorld->GetMapName().IsEmpty() ? EditorWorld->GetName() : EditorWorld->GetMapName();
+}
+
+FString GetWorkspaceDisplayLabel(const FString& WorkspaceLabel)
+{
+    return WorkspaceLabel.Equals(TEXT("AI"), ESearchCase::IgnoreCase)
+        ? FString(TEXT("Character Intelligence"))
+        : WorkspaceLabel;
+}
 }
 
 const FName FWanaWorksUIModule::WanaWorksTabName(TEXT("WanaWorksTab"));
@@ -293,6 +564,8 @@ IMPLEMENT_MODULE(FWanaWorksUIModule, WanaWorksUI)
 
 void FWanaWorksUIModule::StartupModule()
 {
+    WanaWorksUIStyle::Register();
+
     StatusMessage = TEXT("Status: Wana Works Initialized");
     SelectedWorkspaceLabel = TEXT("AI");
     SelectedPreviewStageViewLabel = TEXT("Overview");
@@ -304,6 +577,15 @@ void FWanaWorksUIModule::StartupModule()
     SelectedEnhancementWorkflowLabel = TEXT("Create Working Copy");
     SelectedCharacterPawnAssetLabel.Reset();
     SelectedAIPawnAssetLabel.Reset();
+    bWorkspaceAnalysisInitialized = false;
+    LastAnalysisWorkspaceLabel.Reset();
+    LastAnalysisStatusSummary = TEXT("Analyze has not run yet.");
+    LastAnalysisPrimarySummary.Reset();
+    LastAnalysisAnimationSummary.Reset();
+    LastAnalysisPhysicalSummary.Reset();
+    LastAnalysisBehaviorSummary.Reset();
+    LastAnalysisWITSummary.Reset();
+    LastAnalysisSuggestedSummary.Reset();
     LastEnhancementResultsActor.Reset();
     LastEnhancementResultsActorLabel = TEXT("(none)");
     LastEnhancementWorkflowUsed = TEXT("Not run yet");
@@ -383,10 +665,16 @@ void FWanaWorksUIModule::StartupModule()
     FGlobalTabmanager::Get()->RegisterNomadTabSpawner(
         WanaWorksTabName,
         FOnSpawnTab::CreateRaw(this, &FWanaWorksUIModule::SpawnWanaWorksTab))
-        .SetDisplayName(LOCTEXT("WanaWorksTabTitle", "Wana Works"))
-        .SetTooltipText(LOCTEXT("WanaWorksTabTooltip", "Open the Wana Works tab."))
+        .SetDisplayName(LOCTEXT("WanaWorksTabTitle", "WanaWorks Studio"))
+        .SetTooltipText(LOCTEXT("WanaWorksTabTooltip", "Open WanaWorks Studio."))
         .SetGroup(WorkspaceMenu::GetMenuStructure().GetDeveloperToolsMiscCategory())
+        .SetIcon(FSlateIcon(WanaWorksUIStyle::GetStyleSetName(), WanaWorksUIStyle::GetLauncherIconName()))
         .SetMenuType(ETabSpawnerMenuType::Enabled);
+
+    if (UToolMenus::IsToolMenuUIEnabled())
+    {
+        UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FWanaWorksUIModule::RegisterEditorLauncherMenus));
+    }
 
     SelectionChangedHandle = USelection::SelectionChangedEvent.AddRaw(this, &FWanaWorksUIModule::HandleEditorSelectionChanged);
     SelectObjectHandle = USelection::SelectObjectEvent.AddRaw(this, &FWanaWorksUIModule::HandleEditorSelectionChanged);
@@ -396,6 +684,12 @@ void FWanaWorksUIModule::StartupModule()
 
 void FWanaWorksUIModule::ShutdownModule()
 {
+    if (UToolMenus::IsToolMenuUIEnabled())
+    {
+        UToolMenus::UnRegisterStartupCallback(this);
+        UToolMenus::UnregisterOwner(this);
+    }
+
     if (SelectionChangedHandle.IsValid())
     {
         USelection::SelectionChangedEvent.Remove(SelectionChangedHandle);
@@ -412,6 +706,54 @@ void FWanaWorksUIModule::ShutdownModule()
     {
         FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(WanaWorksTabName);
     }
+
+    WanaWorksUIStyle::Unregister();
+}
+
+void FWanaWorksUIModule::RegisterEditorLauncherMenus()
+{
+    FToolMenuOwnerScoped OwnerScoped(this);
+
+    const FUIAction OpenStudioAction(FExecuteAction::CreateRaw(this, &FWanaWorksUIModule::OpenWanaWorksStudioTab));
+    const FSlateIcon LauncherIcon(WanaWorksUIStyle::GetStyleSetName(), WanaWorksUIStyle::GetLauncherIconName());
+
+    if (UToolMenu* ToolbarMenu = UToolMenus::Get()->ExtendMenu(TEXT("LevelEditor.LevelEditorToolBar")))
+    {
+        FToolMenuSection& ToolbarSection = ToolbarMenu->FindOrAddSection(TEXT("WanaWorks"));
+        ToolbarSection.AddEntry(FToolMenuEntry::InitToolBarButton(
+            FName(TEXT("WanaWorksStudioToolbarLauncher")),
+            OpenStudioAction,
+            LOCTEXT("WanaWorksStudioToolbarLauncherLabel", "WanaWorks"),
+            LOCTEXT("WanaWorksStudioToolbarLauncherTooltip", "Open or focus WanaWorks Studio."),
+            LauncherIcon));
+    }
+
+    if (UToolMenu* ToolsMenu = UToolMenus::Get()->ExtendMenu(TEXT("LevelEditor.MainMenu.Tools")))
+    {
+        FToolMenuSection& ToolsSection = ToolsMenu->FindOrAddSection(TEXT("WanaWorks"));
+        ToolsSection.AddMenuEntry(
+            FName(TEXT("WanaWorksStudioToolsLauncher")),
+            LOCTEXT("WanaWorksStudioToolsLauncherLabel", "WanaWorks Studio"),
+            LOCTEXT("WanaWorksStudioToolsLauncherTooltip", "Open or focus WanaWorks Studio."),
+            LauncherIcon,
+            OpenStudioAction);
+    }
+
+    if (UToolMenu* WindowMenu = UToolMenus::Get()->ExtendMenu(TEXT("LevelEditor.MainMenu.Window")))
+    {
+        FToolMenuSection& WindowSection = WindowMenu->FindOrAddSection(TEXT("WanaWorks"));
+        WindowSection.AddMenuEntry(
+            FName(TEXT("WanaWorksStudioWindowLauncher")),
+            LOCTEXT("WanaWorksStudioWindowLauncherLabel", "WanaWorks Studio"),
+            LOCTEXT("WanaWorksStudioWindowLauncherTooltip", "Open or focus WanaWorks Studio."),
+            LauncherIcon,
+            OpenStudioAction);
+    }
+}
+
+void FWanaWorksUIModule::OpenWanaWorksStudioTab()
+{
+    FGlobalTabmanager::Get()->TryInvokeTab(WanaWorksTabName);
 }
 
 void FWanaWorksUIModule::RefreshReactiveUI(bool bForceRefresh)
@@ -427,6 +769,7 @@ void FWanaWorksUIModule::RefreshReactiveUI(bool bForceRefresh)
 void FWanaWorksUIModule::HandleEditorSelectionChanged(UObject* NewSelection)
 {
     (void)NewSelection;
+    bWorkspaceAnalysisInitialized = false;
     RefreshReactiveUI(true);
 }
 
@@ -439,6 +782,11 @@ void FWanaWorksUIModule::HandleWorkspaceSelected(const FString& WorkspaceLabel)
 {
     if (!WorkspaceLabel.IsEmpty())
     {
+        if (!SelectedWorkspaceLabel.Equals(WorkspaceLabel, ESearchCase::IgnoreCase))
+        {
+            bWorkspaceAnalysisInitialized = false;
+        }
+
         SelectedWorkspaceLabel = WorkspaceLabel;
         RefreshReactiveUI(true);
     }
@@ -717,6 +1065,7 @@ void FWanaWorksUIModule::HandleCharacterPawnAssetOptionSelected(TSharedPtr<FStri
         SelectedWorkspaceLabel = TEXT("Character Building");
     }
 
+    bWorkspaceAnalysisInitialized = false;
     RefreshReactiveUI(true);
 }
 
@@ -735,6 +1084,7 @@ void FWanaWorksUIModule::HandleAIPawnAssetOptionSelected(TSharedPtr<FString> Sel
         SelectedWorkspaceLabel = TEXT("AI");
     }
 
+    bWorkspaceAnalysisInitialized = false;
     RefreshReactiveUI(true);
 }
 
@@ -828,6 +1178,7 @@ void FWanaWorksUIModule::RefreshProjectAssetPickerOptions()
         const APawn* DefaultPawn = Cast<APawn>(BlueprintAsset->GeneratedClass->GetDefaultObject());
         const bool bIsAIReadyPawn = DefaultPawn
             && (DefaultPawn->AIControllerClass != nullptr || DefaultPawn->AutoPossessAI != EAutoPossessAI::Disabled);
+        const bool bIsCharacterFacingPawn = IsCharacterFacingPawnClass(BlueprintAsset->GeneratedClass.Get(), DefaultPawn);
         const FProjectAssetPickerEntry Entry
         {
             MakeProjectAssetDisplayLabel(AssetData),
@@ -838,8 +1189,10 @@ void FWanaWorksUIModule::RefreshProjectAssetPickerOptions()
         {
             AIPawnEntries.Add(Entry);
         }
-        else
+
+        if (bIsCharacterFacingPawn || !bIsAIReadyPawn)
         {
+            // AI-ready Character Blueprints still belong in Character Building as authorable character assets.
             CharacterPawnEntries.Add(Entry);
         }
     }
@@ -850,7 +1203,12 @@ void FWanaWorksUIModule::RefreshProjectAssetPickerOptions()
 
 UObject* FWanaWorksUIModule::LoadSelectedSubjectAssetObject() const
 {
-    const FString SubjectAssetPath = GetSelectedSubjectAssetPath();
+    return LoadSelectedSubjectAssetObjectForWorkspace(GetSelectedWorkspaceLabel());
+}
+
+UObject* FWanaWorksUIModule::LoadSelectedSubjectAssetObjectForWorkspace(const FString& WorkspaceLabel) const
+{
+    const FString SubjectAssetPath = GetSelectedSubjectAssetPathForWorkspace(WorkspaceLabel);
 
     if (SubjectAssetPath.IsEmpty())
     {
@@ -869,7 +1227,12 @@ UObject* FWanaWorksUIModule::LoadSelectedSubjectAssetObject() const
 
 UClass* FWanaWorksUIModule::LoadSelectedSubjectActorClass() const
 {
-    UObject* SubjectAssetObject = LoadSelectedSubjectAssetObject();
+    return LoadSelectedSubjectActorClassForWorkspace(GetSelectedWorkspaceLabel());
+}
+
+UClass* FWanaWorksUIModule::LoadSelectedSubjectActorClassForWorkspace(const FString& WorkspaceLabel) const
+{
+    UObject* SubjectAssetObject = LoadSelectedSubjectAssetObjectForWorkspace(WorkspaceLabel);
     UBlueprint* BlueprintAsset = Cast<UBlueprint>(SubjectAssetObject);
 
     if (BlueprintAsset)
@@ -882,6 +1245,31 @@ UClass* FWanaWorksUIModule::LoadSelectedSubjectActorClass() const
 
 FString FWanaWorksUIModule::GetSelectedSubjectAssetPath() const
 {
+    return GetSelectedSubjectAssetPathForWorkspace(GetSelectedWorkspaceLabel());
+}
+
+FString FWanaWorksUIModule::GetSelectedSubjectAssetPathForWorkspace(const FString& WorkspaceLabel) const
+{
+    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    {
+        return FString();
+    }
+
+    if (WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase))
+    {
+        return !SelectedCharacterPawnAssetLabel.IsEmpty()
+            ? GetMappedAssetPath(CharacterPawnAssetPathByLabel, SelectedCharacterPawnAssetLabel)
+            : FString();
+    }
+
+    if (WorkspaceLabel.Equals(TEXT("AI"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Character Intelligence"), ESearchCase::IgnoreCase))
+    {
+        return !SelectedAIPawnAssetLabel.IsEmpty()
+            ? GetMappedAssetPath(AIPawnAssetPathByLabel, SelectedAIPawnAssetLabel)
+            : FString();
+    }
+
     if (!SelectedAIPawnAssetLabel.IsEmpty())
     {
         return GetMappedAssetPath(AIPawnAssetPathByLabel, SelectedAIPawnAssetLabel);
@@ -897,6 +1285,13 @@ FString FWanaWorksUIModule::GetSelectedSubjectAssetPath() const
 
 UObject* FWanaWorksUIModule::GetSandboxPreviewObject() const
 {
+    const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
+
+    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    {
+        return nullptr;
+    }
+
     FString PreviewModeLabel;
     AActor* PreviewActor = nullptr;
 
@@ -913,6 +1308,35 @@ UObject* FWanaWorksUIModule::GetSandboxPreviewObject() const
     return nullptr;
 }
 
+bool FWanaWorksUIModule::IsActorCompatibleWithWorkspacePreview(const AActor* Actor, const FString& WorkspaceLabel) const
+{
+    if (!Actor || WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    {
+        return false;
+    }
+
+    const UClass* PickedSubjectClass = LoadSelectedSubjectActorClassForWorkspace(WorkspaceLabel);
+
+    if (PickedSubjectClass)
+    {
+        return Actor->GetClass()->IsChildOf(PickedSubjectClass);
+    }
+
+    if (WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase))
+    {
+        return Actor->IsA<ACharacter>() || Actor->FindComponentByClass<USkeletalMeshComponent>() != nullptr;
+    }
+
+    if (WorkspaceLabel.Equals(TEXT("AI"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Character Intelligence"), ESearchCase::IgnoreCase))
+    {
+        const APawn* Pawn = Cast<APawn>(Actor);
+        return Pawn && (Pawn->AIControllerClass != nullptr || Pawn->AutoPossessAI != EAutoPossessAI::Disabled);
+    }
+
+    return true;
+}
+
 bool FWanaWorksUIModule::ResolvePickedSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const
 {
     UObject* SubjectAssetObject = LoadSelectedSubjectAssetObject();
@@ -927,6 +1351,14 @@ bool FWanaWorksUIModule::ResolvePickedSubjectSnapshot(FWanaSelectedCharacterEnha
 
 bool FWanaWorksUIModule::ResolvePreferredSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const
 {
+    const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
+
+    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    {
+        OutSnapshot = FWanaSelectedCharacterEnhancementSnapshot();
+        return false;
+    }
+
     FWanaSelectedCharacterEnhancementSnapshot PickedSnapshot;
     const bool bHasPickedSnapshot = ResolvePickedSubjectSnapshot(PickedSnapshot);
 
@@ -940,6 +1372,7 @@ bool FWanaWorksUIModule::ResolvePreferredSubjectSnapshot(FWanaSelectedCharacterE
         if (PickedSubjectClass
             && bHasSelectedActorSnapshot
             && SelectedActorSnapshot.SelectedActor.IsValid()
+            && IsActorCompatibleWithWorkspacePreview(SelectedActorSnapshot.SelectedActor.Get(), WorkspaceLabel)
             && SelectedActorSnapshot.SelectedActor->GetClass()->IsChildOf(PickedSubjectClass))
         {
             OutSnapshot = SelectedActorSnapshot;
@@ -950,7 +1383,9 @@ bool FWanaWorksUIModule::ResolvePreferredSubjectSnapshot(FWanaSelectedCharacterE
         return true;
     }
 
-    if (bHasSelectedActorSnapshot)
+    if (bHasSelectedActorSnapshot
+        && SelectedActorSnapshot.SelectedActor.IsValid()
+        && IsActorCompatibleWithWorkspacePreview(SelectedActorSnapshot.SelectedActor.Get(), WorkspaceLabel))
     {
         OutSnapshot = SelectedActorSnapshot;
         return true;
@@ -964,8 +1399,15 @@ bool FWanaWorksUIModule::ResolvePreferredSandboxPreviewActor(AActor*& OutActor, 
 {
     OutActor = nullptr;
     OutPreviewModeLabel = TEXT("Picked subject preview");
+    const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
 
-    if (LastEnhancementResultsActor.IsValid())
+    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    {
+        return false;
+    }
+
+    if (LastEnhancementResultsActor.IsValid()
+        && IsActorCompatibleWithWorkspacePreview(LastEnhancementResultsActor.Get(), WorkspaceLabel))
     {
         OutActor = LastEnhancementResultsActor.Get();
         const FString ActorLabel = OutActor->GetActorNameOrLabel();
@@ -975,7 +1417,8 @@ bool FWanaWorksUIModule::ResolvePreferredSandboxPreviewActor(AActor*& OutActor, 
         return true;
     }
 
-    if (SandboxObserverActor.IsValid())
+    if (SandboxObserverActor.IsValid()
+        && IsActorCompatibleWithWorkspacePreview(SandboxObserverActor.Get(), WorkspaceLabel))
     {
         OutActor = SandboxObserverActor.Get();
         OutPreviewModeLabel = TEXT("Working subject preview");
@@ -986,7 +1429,8 @@ bool FWanaWorksUIModule::ResolvePreferredSandboxPreviewActor(AActor*& OutActor, 
 
     if (ResolvePreferredSubjectSnapshot(Snapshot)
         && Snapshot.bHasSelectedActor
-        && Snapshot.SelectedActor.IsValid())
+        && Snapshot.SelectedActor.IsValid()
+        && IsActorCompatibleWithWorkspacePreview(Snapshot.SelectedActor.Get(), WorkspaceLabel))
     {
         OutActor = Snapshot.SelectedActor.Get();
         OutPreviewModeLabel = Snapshot.bIsProjectAsset
@@ -1006,13 +1450,16 @@ bool FWanaWorksUIModule::PreparePickerDrivenSubjectForWorkflow(
     OutPreparationResponse = FWanaCommandResponse();
     bOutSpawnedFromPicker = false;
 
+    const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
     UObject* SubjectAssetObject = LoadSelectedSubjectAssetObject();
     FWanaSelectedCharacterEnhancementSnapshot CurrentSelectionSnapshot;
     const bool bHasCurrentSelection = WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(CurrentSelectionSnapshot) && CurrentSelectionSnapshot.bHasSelectedActor;
 
     if (!SubjectAssetObject)
     {
-        if (bHasCurrentSelection)
+        if (bHasCurrentSelection
+            && CurrentSelectionSnapshot.SelectedActor.IsValid()
+            && IsActorCompatibleWithWorkspacePreview(CurrentSelectionSnapshot.SelectedActor.Get(), WorkspaceLabel))
         {
             return true;
         }
@@ -1027,6 +1474,7 @@ bool FWanaWorksUIModule::PreparePickerDrivenSubjectForWorkflow(
     if (bHasCurrentSelection
         && PickedSubjectClass
         && CurrentSelectionSnapshot.SelectedActor.IsValid()
+        && IsActorCompatibleWithWorkspacePreview(CurrentSelectionSnapshot.SelectedActor.Get(), WorkspaceLabel)
         && CurrentSelectionSnapshot.SelectedActor->GetClass()->IsChildOf(PickedSubjectClass))
     {
         return true;
@@ -2114,6 +2562,403 @@ void FWanaWorksUIModule::EvaluateLiveTarget()
     RefreshReactiveUI(true);
 }
 
+void FWanaWorksUIModule::AnalyzeActiveWorkspace()
+{
+    const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
+    FWanaAnalysisResult Result;
+    Result.WorkspaceLabel = WorkspaceLabel;
+    Result.DisplayWorkspaceLabel = GetWorkspaceDisplayLabel(WorkspaceLabel);
+
+    TArray<FWanaAnalysisItem> PrimaryItems;
+    TArray<FWanaAnalysisItem> AnimationItems;
+    TArray<FWanaAnalysisItem> PhysicalItems;
+    TArray<FWanaAnalysisItem> BehaviorItems;
+    TArray<FWanaAnalysisItem> WITItems;
+    TArray<FWanaAnalysisItem> SuggestedItems;
+    FString RecommendedAction;
+
+    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    {
+        const FString WorldLabel = GetEditorWorldLabel();
+        const int32 SelectedActorCount = GetEditorSelectedActorCount();
+
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("World Context"),
+            WorldLabel.IsEmpty() ? TEXT("Missing") : TEXT("Ready"),
+            WorldLabel.IsEmpty() ? TEXT("No editor world is available for WIT analysis yet.") : WorldLabel);
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("Selected Actors"),
+            SelectedActorCount > 0 ? TEXT("Ready") : TEXT("Limited"),
+            FString::Printf(TEXT("%d actor(s) selected as optional scene context."), SelectedActorCount));
+
+        AActor* ObserverActor = nullptr;
+        AActor* TargetActor = nullptr;
+        FString PairSourceLabel;
+        bool bTargetFallsBackToObserver = false;
+        ResolvePreferredWITReadinessPair(ObserverActor, TargetActor, PairSourceLabel, bTargetFallsBackToObserver);
+
+        FWanaEnvironmentReadinessSnapshot EnvironmentSnapshot;
+        WanaWorksUIEditorActions::GetEnvironmentReadinessSnapshotForActorPair(
+            ObserverActor,
+            TargetActor,
+            bTargetFallsBackToObserver,
+            PairSourceLabel,
+            EnvironmentSnapshot);
+
+        const bool bHasWITPair = EnvironmentSnapshot.bHasObserverActor && EnvironmentSnapshot.bHasTargetActor;
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("WIT Environment Scan"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? TEXT("Observer-target context is available for semantic movement analysis.") : TEXT("Not run yet. Select or assign scene context, then analyze to classify world meaning."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Navigation Context"),
+            bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Unknown until WIT has an active observer-target context."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Cover Meaning"),
+            TEXT("Limited"),
+            TEXT("Cover classification is not persisted yet in Analyze V1; WIT can report readiness context without generating level data."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Obstacle Meaning"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? UIFmt::GetObstaclePressureSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Not scanned yet."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Movement Space"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? UIFmt::GetMovementSpaceSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Not scanned yet."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Boundary / Navigation"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? UIFmt::GetEnvironmentShapingSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Boundary and navigation meaning need a WIT scan."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Modular Asset Context"),
+            SelectedActorCount > 0 ? TEXT("Limited") : TEXT("Missing"),
+            SelectedActorCount > 0 ? TEXT("Selected actors can be used as manual scene context, but modular classification is not automated yet.") : TEXT("No selected modular assets are available as scene context."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Atmosphere / Vibe Context"),
+            TEXT("Not Supported"),
+            TEXT("Atmosphere analysis is reserved for a later Level Design pass."));
+
+        RecommendedAction = TEXT("Run a WIT environment scan to classify cover, obstacles, boundaries, and movement space before adding level-generation features.");
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Next Improvement"), TEXT("Recommended"), RecommendedAction);
+
+        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Semantic World Context"), PrimaryItems, FString());
+        Result.WITSummary = BuildAnalysisCardText(TEXT("WIT / What Is This? Diagnosis"), WITItems, RecommendedAction);
+        Result.BehaviorSummary = Result.WITSummary;
+        Result.AnimationSummary = Result.WITSummary;
+        Result.PhysicalSummary = Result.WITSummary;
+        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Suggested Level Improvements"), SuggestedItems, RecommendedAction);
+    }
+    else
+    {
+        FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+        const bool bHasSubject = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
+        const UClass* SubjectClass = LoadSelectedSubjectActorClassForWorkspace(WorkspaceLabel);
+        const AActor* AnalysisActor = bHasSubject ? ResolveAnalysisActor(Snapshot, SubjectClass) : nullptr;
+        FString SkeletalMeshLabel;
+        FString SkeletonLabel;
+        const bool bHasSkeletalMeshAsset = GetSkeletalMeshAndSkeletonLabels(AnalysisActor, SkeletalMeshLabel, SkeletonLabel);
+        const bool bHasMovementComponent = HasPawnMovementComponent(AnalysisActor);
+        const bool bHasCameraOrControlComponent = ComponentClassNameContainsAny(AnalysisActor, {TEXT("Camera"), TEXT("SpringArm"), TEXT("Control"), TEXT("Input")});
+
+        if (WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase))
+        {
+            AddAnalysisItem(
+                PrimaryItems,
+                Result,
+                TEXT("Character Blueprint"),
+                bHasSubject ? TEXT("Ready") : TEXT("Missing"),
+                bHasSubject ? Snapshot.SelectedActorLabel : TEXT("Choose a Character Blueprint or playable Character Pawn in WanaWorks."));
+            AddAnalysisItem(
+                PrimaryItems,
+                Result,
+                TEXT("Character Profile"),
+                Snapshot.bHasIdentityComponent ? TEXT("Ready") : TEXT("Missing"),
+                Snapshot.bHasIdentityComponent ? TEXT("WanaWorks identity/profile layer is present.") : TEXT("Character profile is not attached yet."));
+            AddAnalysisItem(
+                PrimaryItems,
+                Result,
+                TEXT("Character Systems"),
+                (Snapshot.bHasIdentityComponent && Snapshot.bHasWAYComponent) ? TEXT("Ready") : TEXT("Limited"),
+                FString::Printf(
+                    TEXT("Identity=%s, Relationship Context=%s, Physical State=%s"),
+                    Snapshot.bHasIdentityComponent ? TEXT("Present") : TEXT("Missing"),
+                    Snapshot.bHasWAYComponent ? TEXT("Present") : TEXT("Missing"),
+                    Snapshot.bHasPhysicalStateComponent ? TEXT("Present") : TEXT("Missing")));
+
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("Skeletal Mesh"),
+                Snapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Missing"),
+                bHasSkeletalMeshAsset ? SkeletalMeshLabel : TEXT("No skeletal mesh asset detected."));
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("Skeleton / Rig"),
+                !SkeletonLabel.IsEmpty() && !SkeletonLabel.Equals(TEXT("(no skeleton asset)")) ? TEXT("Ready") : TEXT("Limited"),
+                SkeletonLabel.IsEmpty() ? TEXT("Skeleton or rig not detected from the selected character stack.") : SkeletonLabel);
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("Animation Blueprint"),
+                Snapshot.bHasAnimBlueprint ? TEXT("Ready") : (Snapshot.bHasSkeletalMeshComponent ? TEXT("Limited") : TEXT("Missing")),
+                Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : Snapshot.LinkedAnimationBlueprintLabel);
+
+            AddAnalysisItem(
+                PhysicalItems,
+                Result,
+                TEXT("Movement Component"),
+                bHasMovementComponent ? TEXT("Ready") : TEXT("Limited"),
+                bHasMovementComponent ? TEXT("Pawn movement component is present for playability checks.") : TEXT("No pawn movement component was detected."));
+            AddAnalysisItem(
+                PhysicalItems,
+                Result,
+                TEXT("Camera / Control Setup"),
+                bHasCameraOrControlComponent ? TEXT("Ready") : TEXT("Limited"),
+                bHasCameraOrControlComponent ? TEXT("Camera, spring arm, control, or input-style component detected.") : TEXT("Camera/control setup is unknown; WanaWorks will preserve the existing project path."));
+            AddAnalysisItem(
+                PhysicalItems,
+                Result,
+                TEXT("Playable Character Readiness"),
+                bHasSubject && Snapshot.bIsPawnActor && Snapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Limited"),
+                TEXT("Analyze checks playability signals without replacing input, camera, or movement architecture."));
+
+            AddAnalysisItem(
+                SuggestedItems,
+                Result,
+                TEXT("Build Readiness"),
+                bHasSubject && Snapshot.bHasSkeletalMeshComponent && Snapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"),
+                TEXT("Final output can be prepared once the character stack has mesh, animation, and profile readiness."));
+            AddAnalysisItem(
+                SuggestedItems,
+                Result,
+                TEXT("Output Path"),
+                bHasSubject ? TEXT("Ready") : TEXT("Missing"),
+                bHasSubject ? TEXT("Build outputs remain separate under the WanaWorks build folder.") : TEXT("Choose a character subject before building final output."));
+            AddAnalysisItem(
+                SuggestedItems,
+                Result,
+                TEXT("Safe Enhancement"),
+                (!Snapshot.bHasIdentityComponent || !Snapshot.bHasPhysicalStateComponent || !Snapshot.bHasAnimBlueprint) ? TEXT("Recommended") : TEXT("Ready"),
+                TEXT("Enhance can prepare missing profile, animation-readiness, and build-output context without replacing the original asset."));
+
+            RecommendedAction = TEXT("Apply Character Building enhancement to prepare the character profile, playability checks, rig/animation readiness, and final output path.");
+            Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Asset Diagnosis"), PrimaryItems, RecommendedAction);
+            Result.AnimationSummary = BuildAnalysisCardText(TEXT("Rig & Animation Readiness"), AnimationItems, RecommendedAction);
+            Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Movement / Playability Diagnosis"), PhysicalItems, RecommendedAction);
+            Result.BehaviorSummary = Result.PrimarySummary;
+            Result.WITSummary = Result.PrimarySummary;
+            Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Build Readiness"), SuggestedItems, RecommendedAction);
+        }
+        else
+        {
+            const UClass* AIControllerClass = GetAIControllerClassForAnalysis(AnalysisActor);
+            const UObject* ControllerDefaultObject = AIControllerClass ? AIControllerClass->GetDefaultObject() : nullptr;
+            FString BehaviorTreeLabel;
+            FString StateTreeLabel;
+            FString BlackboardLabel;
+            bool bBehaviorTreePropertyFound = false;
+            bool bStateTreePropertyFound = false;
+            bool bBlackboardPropertyFound = false;
+            const bool bBehaviorTreeDetected = TryFindLinkedObjectLabelByTokens(
+                ControllerDefaultObject,
+                {TEXT("BehaviorTree"), TEXT("Behavior"), TEXT("BT")},
+                {TEXT("BehaviorTree")},
+                BehaviorTreeLabel,
+                bBehaviorTreePropertyFound);
+            const bool bStateTreeDetected = TryFindLinkedObjectLabelByTokens(
+                ControllerDefaultObject,
+                {TEXT("StateTree")},
+                {TEXT("StateTree")},
+                StateTreeLabel,
+                bStateTreePropertyFound);
+            const bool bBlackboardDetected = TryFindLinkedObjectLabelByTokens(
+                ControllerDefaultObject,
+                {TEXT("Blackboard")},
+                {TEXT("Blackboard")},
+                BlackboardLabel,
+                bBlackboardPropertyFound);
+
+            AddAnalysisItem(
+                PrimaryItems,
+                Result,
+                TEXT("AI Subject"),
+                bHasSubject ? TEXT("Ready") : TEXT("Missing"),
+                bHasSubject ? Snapshot.SelectedActorLabel : TEXT("Choose an AI Pawn or NPC subject in WanaWorks."));
+            AddAnalysisItem(
+                PrimaryItems,
+                Result,
+                TEXT("Pawn Type"),
+                Snapshot.bIsPawnActor ? TEXT("Ready") : TEXT("Not Supported"),
+                Snapshot.ActorTypeLabel.IsEmpty() ? TEXT("No pawn type detected.") : Snapshot.ActorTypeLabel);
+            AddAnalysisItem(
+                BehaviorItems,
+                Result,
+                TEXT("AI Controller"),
+                Snapshot.bHasAIControllerClass ? TEXT("Ready") : TEXT("Missing"),
+                Snapshot.LinkedAIControllerLabel.IsEmpty() ? TEXT("No linked AI Controller class detected.") : Snapshot.LinkedAIControllerLabel);
+            AddAnalysisItem(
+                BehaviorItems,
+                Result,
+                TEXT("Behavior Tree"),
+                bBehaviorTreeDetected ? TEXT("Ready") : (AIControllerClass ? TEXT("Limited") : TEXT("Missing")),
+                bBehaviorTreeDetected ? BehaviorTreeLabel : (bBehaviorTreePropertyFound ? TEXT("Behavior Tree property exists but no asset is assigned.") : TEXT("No Behavior Tree asset was detected on the controller defaults.")));
+            AddAnalysisItem(
+                BehaviorItems,
+                Result,
+                TEXT("State Tree"),
+                bStateTreeDetected ? TEXT("Ready") : (AIControllerClass ? TEXT("Limited") : TEXT("Missing")),
+                bStateTreeDetected ? StateTreeLabel : (bStateTreePropertyFound ? TEXT("State Tree property exists but no asset is assigned.") : TEXT("No State Tree asset was detected on the controller defaults.")));
+            AddAnalysisItem(
+                BehaviorItems,
+                Result,
+                TEXT("Blackboard"),
+                bBlackboardDetected ? TEXT("Ready") : (AIControllerClass ? TEXT("Limited") : TEXT("Missing")),
+                bBlackboardDetected ? BlackboardLabel : (bBlackboardPropertyFound ? TEXT("Blackboard property exists but no asset is assigned.") : TEXT("No Blackboard asset was detected on the controller defaults.")));
+            AddAnalysisItem(
+                BehaviorItems,
+                Result,
+                TEXT("WAI / WAMI"),
+                Snapshot.bHasWAIComponent ? TEXT("Ready") : TEXT("Missing"),
+                Snapshot.bHasWAIComponent ? TEXT("Personality/memory component is available.") : TEXT("AI identity, memory, emotion, and role layer is not attached yet."));
+            AddAnalysisItem(
+                BehaviorItems,
+                Result,
+                TEXT("WAY-lite Relationship"),
+                Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Missing"),
+                Snapshot.bHasWAYComponent ? TEXT("Relationship profile component is available.") : TEXT("Relationship/adaptation layer is not attached yet."));
+
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("Animation Blueprint"),
+                Snapshot.bHasAnimBlueprint ? TEXT("Ready") : (Snapshot.bHasSkeletalMeshComponent ? TEXT("Limited") : TEXT("Not Supported")),
+                Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : Snapshot.LinkedAnimationBlueprintLabel);
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("WanaAnimation"),
+                (Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Applied
+                    || Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Ready)
+                    ? TEXT("Ready")
+                    : (Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Limited ? TEXT("Limited") : TEXT("Missing")),
+                Snapshot.AnimationAutomaticIntegrationDetail.IsEmpty() ? TEXT("Animation hook integration has not been prepared yet.") : Snapshot.AnimationAutomaticIntegrationDetail);
+
+            AddAnalysisItem(
+                PhysicalItems,
+                Result,
+                TEXT("Physical State"),
+                Snapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Missing"),
+                Snapshot.bHasPhysicalStateComponent ? TEXT("Readable body-state layer is available.") : TEXT("UWanaPhysicalStateComponent is missing."));
+            AddAnalysisItem(
+                PhysicalItems,
+                Result,
+                TEXT("WanaCombat-lite"),
+                (Snapshot.bHasPhysicalStateComponent && Snapshot.bHasWAYComponent) ? TEXT("Ready") : TEXT("Limited"),
+                TEXT("Combat-lite readiness depends on relationship context plus physical state without replacing AI logic."));
+            AddAnalysisItem(
+                PhysicalItems,
+                Result,
+                TEXT("Movement / Facing"),
+                Snapshot.bIsPawnActor && (bHasMovementComponent || Snapshot.bAutoPossessAIEnabled) ? TEXT("Ready") : TEXT("Limited"),
+                TEXT("Facing and movement confidence are evaluated without forcing locomotion."));
+
+            AActor* ObserverActor = nullptr;
+            AActor* TargetActor = nullptr;
+            FString PairSourceLabel;
+            bool bTargetFallsBackToObserver = false;
+            ResolvePreferredWITReadinessPair(ObserverActor, TargetActor, PairSourceLabel, bTargetFallsBackToObserver);
+
+            FWanaEnvironmentReadinessSnapshot EnvironmentSnapshot;
+            WanaWorksUIEditorActions::GetEnvironmentReadinessSnapshotForActorPair(
+                ObserverActor,
+                TargetActor,
+                bTargetFallsBackToObserver,
+                PairSourceLabel,
+                EnvironmentSnapshot);
+            const bool bHasWITPair = EnvironmentSnapshot.bHasObserverActor && EnvironmentSnapshot.bHasTargetActor;
+
+            FWanaBehaviorResultsSnapshot BehaviorSnapshot;
+            WanaWorksUIEditorActions::GetBehaviorResultsSnapshotForActorPair(
+                ObserverActor,
+                TargetActor,
+                bTargetFallsBackToObserver,
+                PairSourceLabel,
+                BehaviorSnapshot);
+
+            AddAnalysisItem(
+                WITItems,
+                Result,
+                TEXT("WIT Awareness"),
+                bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+                bHasWITPair ? UIFmt::GetEnvironmentShapingSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("No active WIT observer-target context is assigned yet."));
+            AddAnalysisItem(
+                WITItems,
+                Result,
+                TEXT("Navigation Context"),
+                bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext ? TEXT("Ready") : TEXT("Limited"),
+                bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Unknown until WIT context is available."));
+            AddAnalysisItem(
+                WITItems,
+                Result,
+                TEXT("Behavior Results"),
+                BehaviorSnapshot.bHasWAYComponent && BehaviorSnapshot.bHasRelationshipProfile ? TEXT("Ready") : TEXT("Limited"),
+                BehaviorSnapshot.bHasWAYComponent ? TEXT("Relationship-aware behavior data is readable.") : TEXT("Behavior result is limited until WAY-lite is attached and evaluated."));
+
+            AddAnalysisItem(
+                SuggestedItems,
+                Result,
+                TEXT("Safe Enhancement"),
+                (!Snapshot.bHasIdentityComponent || !Snapshot.bHasWAIComponent || !Snapshot.bHasWAYComponent || !Snapshot.bHasPhysicalStateComponent || !Snapshot.bHasAnimBlueprint)
+                    ? TEXT("Recommended")
+                    : TEXT("Ready"),
+                TEXT("Enhance can attach missing WanaWorks layers and prepare animation/behavior hooks on the safe workflow path."));
+
+            RecommendedAction = TEXT("Apply Character Intelligence enhancement to attach missing WanaWorks components and prepare behavior, animation, physical-state, and WIT hooks.");
+            Result.PrimarySummary = BuildAnalysisCardText(TEXT("AI Subject Diagnosis"), PrimaryItems, RecommendedAction);
+            Result.AnimationSummary = BuildAnalysisCardText(TEXT("Animation Readiness Diagnosis"), AnimationItems, RecommendedAction);
+            Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Physical / Combat-lite Diagnosis"), PhysicalItems, RecommendedAction);
+            Result.BehaviorSummary = BuildAnalysisCardText(TEXT("Behavior Structure Diagnosis"), BehaviorItems, RecommendedAction);
+            Result.WITSummary = BuildAnalysisCardText(TEXT("Environment Awareness Diagnosis"), WITItems, RecommendedAction);
+            Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Suggested AI Improvements"), SuggestedItems, RecommendedAction);
+        }
+    }
+
+    Result.StatusSummary = BuildAnalysisStatusText(Result);
+    bWorkspaceAnalysisInitialized = true;
+    LastAnalysisWorkspaceLabel = Result.WorkspaceLabel;
+    LastAnalysisStatusSummary = Result.StatusSummary;
+    LastAnalysisPrimarySummary = Result.PrimarySummary;
+    LastAnalysisAnimationSummary = Result.AnimationSummary;
+    LastAnalysisPhysicalSummary = Result.PhysicalSummary;
+    LastAnalysisBehaviorSummary = Result.BehaviorSummary;
+    LastAnalysisWITSummary = Result.WITSummary;
+    LastAnalysisSuggestedSummary = Result.SuggestedSummary;
+    StatusMessage = FString::Printf(TEXT("Status: %s"), *Result.StatusSummary);
+    RefreshReactiveUI(true);
+}
+
 void FWanaWorksUIModule::UseSelectedActorAsSandboxObserver()
 {
     FWanaSelectedCharacterEnhancementSnapshot Snapshot;
@@ -2541,6 +3386,12 @@ TSharedPtr<FString> FWanaWorksUIModule::GetSelectedIdentitySeedStateOption()
     return nullptr;
 }
 
+bool FWanaWorksUIModule::HasCurrentWorkspaceAnalysis() const
+{
+    return bWorkspaceAnalysisInitialized
+        && LastAnalysisWorkspaceLabel.Equals(GetSelectedWorkspaceLabel(), ESearchCase::IgnoreCase);
+}
+
 FText FWanaWorksUIModule::GetStatusText() const
 {
     return FText::FromString(StatusMessage);
@@ -2615,6 +3466,16 @@ FText FWanaWorksUIModule::GetSubjectStackSummaryText() const
 
 FText FWanaWorksUIModule::GetSandboxPreviewSummaryText() const
 {
+    if (GetSelectedWorkspaceLabel().Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    {
+        if (HasCurrentWorkspaceAnalysis() && !LastAnalysisPrimarySummary.IsEmpty())
+        {
+            return FText::FromString(LastAnalysisPrimarySummary);
+        }
+
+        return FText::FromString(TEXT("Stage: Semantic World Stage Ready\nContext: Level Design / WIT\nPreview: Environment context\nNext Step: Scan environment or select modular assets to begin."));
+    }
+
     FWanaSelectedCharacterEnhancementSnapshot Snapshot;
     const bool bHasSnapshot = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
     FString PreviewModeLabel;
@@ -2632,6 +3493,11 @@ FText FWanaWorksUIModule::GetSandboxPreviewSummaryText() const
 
 FText FWanaWorksUIModule::GetAnimationIntegrationText() const
 {
+    if (HasCurrentWorkspaceAnalysis() && !LastAnalysisAnimationSummary.IsEmpty())
+    {
+        return FText::FromString(LastAnalysisAnimationSummary);
+    }
+
     FWanaSelectedCharacterEnhancementSnapshot Snapshot;
     const bool bHasSnapshot = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
     return FText::FromString(UISummary::BuildAnimationIntegrationSummaryText(bHasSnapshot ? &Snapshot : nullptr));
@@ -2646,6 +3512,11 @@ FText FWanaWorksUIModule::GetAnimationHookUsageText() const
 
 FText FWanaWorksUIModule::GetPhysicalStateText() const
 {
+    if (HasCurrentWorkspaceAnalysis() && !LastAnalysisPhysicalSummary.IsEmpty())
+    {
+        return FText::FromString(LastAnalysisPhysicalSummary);
+    }
+
     FWanaSelectedCharacterEnhancementSnapshot Snapshot;
     const bool bHasSnapshot = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
     return FText::FromString(UISummary::BuildPhysicalStateSummaryText(bHasSnapshot ? &Snapshot : nullptr));
@@ -2673,6 +3544,11 @@ FText FWanaWorksUIModule::GetSavedSubjectProgressText() const
 
 FText FWanaWorksUIModule::GetCharacterEnhancementSummaryText() const
 {
+    if (HasCurrentWorkspaceAnalysis() && !LastAnalysisPrimarySummary.IsEmpty())
+    {
+        return FText::FromString(LastAnalysisPrimarySummary);
+    }
+
     FWanaSelectedCharacterEnhancementSnapshot Snapshot;
     const bool bHasSnapshot = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
     return FText::FromString(UISummary::BuildCharacterEnhancementSummaryText(bHasSnapshot ? &Snapshot : nullptr));
@@ -2692,6 +3568,11 @@ FText FWanaWorksUIModule::GetCharacterEnhancementWorkflowText() const
 
 FText FWanaWorksUIModule::GetEnhancementResultsText() const
 {
+    if (HasCurrentWorkspaceAnalysis() && !LastAnalysisSuggestedSummary.IsEmpty())
+    {
+        return FText::FromString(LastAnalysisSuggestedSummary);
+    }
+
     return FText::FromString(UISummary::BuildEnhancementResultsText(
         bEnhancementResultsInitialized,
         LastEnhancementResultsActorLabel,
@@ -2731,6 +3612,11 @@ FText FWanaWorksUIModule::GetLiveTestSummaryText() const
 
 FText FWanaWorksUIModule::GetBehaviorResultsText() const
 {
+    if (HasCurrentWorkspaceAnalysis() && !LastAnalysisBehaviorSummary.IsEmpty())
+    {
+        return FText::FromString(LastAnalysisBehaviorSummary);
+    }
+
     AActor* ObserverActor = nullptr;
     AActor* TargetActor = nullptr;
     FString PairSourceLabel;
@@ -2751,6 +3637,11 @@ FText FWanaWorksUIModule::GetBehaviorResultsText() const
 
 FText FWanaWorksUIModule::GetWITEnvironmentReadinessText() const
 {
+    if (HasCurrentWorkspaceAnalysis() && !LastAnalysisWITSummary.IsEmpty())
+    {
+        return FText::FromString(LastAnalysisWITSummary);
+    }
+
     AActor* ObserverActor = nullptr;
     AActor* TargetActor = nullptr;
     FString PairSourceLabel;
@@ -2908,6 +3799,7 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.OnCreateWorkingCopy = [this]() { CreateWorkingCopy(); };
     BuilderArgs.OnApplyCharacterEnhancement = [this]() { ApplyCharacterEnhancement(); };
     BuilderArgs.OnApplyStarterAndTestTarget = [this]() { ApplyStarterAndTestTarget(); };
+    BuilderArgs.OnAnalyzeWorkspace = [this]() { AnalyzeActiveWorkspace(); };
     BuilderArgs.OnScanEnvironmentReadiness = [this]() { ScanEnvironmentReadiness(); };
     BuilderArgs.OnEvaluateLiveTarget = [this]() { EvaluateLiveTarget(); };
     BuilderArgs.OnUseSelectedAsSandboxObserver = [this]() { UseSelectedActorAsSandboxObserver(); };

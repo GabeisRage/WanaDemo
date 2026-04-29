@@ -2,6 +2,7 @@
 
 #include "Animation/AnimInstance.h"
 #include "AssetThumbnail.h"
+#include "Components/DirectionalLightComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "EditorViewportClient.h"
@@ -13,6 +14,7 @@
 #include "SEditorViewport.h"
 #include "Styling/CoreStyle.h"
 #include "WanaWorksCommandRegistry.h"
+#include "WanaWorksUIStyle.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SComboBox.h"
@@ -48,33 +50,33 @@ TSharedRef<SWidget> MakeSandboxPreviewSection(const FWanaWorksUITabBuilderArgs& 
 FLinearColor GetWorkspaceAccentColor(const FString& WorkspaceLabel);
 FText GetWorkspaceHeroBadge(const FString& WorkspaceLabel);
 constexpr float WanaAISubsectionSpacing = 10.0f;
-const FLinearColor SecondaryTextColor(0.76f, 0.80f, 0.88f, 1.0f);
-const FLinearColor TertiaryTextColor(0.46f, 0.53f, 0.66f, 1.0f);
-const FLinearColor InfoPanelColor(0.045f, 0.055f, 0.085f, 0.92f);
-const FLinearColor PreviewPanelColor(0.018f, 0.023f, 0.046f, 0.985f);
-const FLinearColor StudioPanelColor(0.030f, 0.035f, 0.060f, 0.965f);
-const FLinearColor StudioPanelRaisedColor(0.040f, 0.047f, 0.075f, 0.985f);
-const FLinearColor StudioPanelElevatedColor(0.060f, 0.070f, 0.105f, 1.0f);
-const FLinearColor StudioOutlineColor(0.145f, 0.165f, 0.255f, 0.78f);
-const FLinearColor StudioDividerColor(0.085f, 0.100f, 0.155f, 0.92f);
-const FLinearColor StudioAccentColor(0.46f, 0.37f, 0.92f, 1.0f);
-const FLinearColor StudioAccentBlueColor(0.30f, 0.54f, 0.94f, 1.0f);
-const FLinearColor StudioAccentGoldColor(0.86f, 0.69f, 0.30f, 1.0f);
-const FLinearColor StudioSuccessColor(0.34f, 0.76f, 0.58f, 1.0f);
-const FLinearColor StudioShellColor(0.008f, 0.012f, 0.028f, 1.0f);
-const FLinearColor StudioShellRaisedColor(0.018f, 0.022f, 0.042f, 0.99f);
-const FLinearColor StudioShellTrackColor(0.022f, 0.027f, 0.050f, 0.98f);
-const FLinearColor StudioStageBackdropColor(0.012f, 0.018f, 0.040f, 1.0f);
-const FLinearColor StudioMutedButtonColor(0.045f, 0.050f, 0.082f, 1.0f);
-const FLinearColor StudioShadowColor(0.0f, 0.0f, 0.0f, 0.55f);
-const FLinearColor StudioSoftSurfaceColor(0.034f, 0.042f, 0.070f, 0.86f);
-const FLinearColor StudioGlassSurfaceColor(0.050f, 0.060f, 0.095f, 0.72f);
-const FLinearColor StudioStageChromeColor(0.010f, 0.014f, 0.032f, 0.98f);
-const FLinearColor StudioStageWashColor(0.018f, 0.026f, 0.060f, 0.94f);
+const FLinearColor SecondaryTextColor(0.735f, 0.805f, 0.930f, 1.0f);
+const FLinearColor TertiaryTextColor(0.455f, 0.535f, 0.700f, 1.0f);
+const FLinearColor InfoPanelColor(0.018f, 0.028f, 0.066f, 0.94f);
+const FLinearColor PreviewPanelColor(0.002f, 0.006f, 0.020f, 0.996f);
+const FLinearColor StudioPanelColor(0.010f, 0.016f, 0.040f, 0.982f);
+const FLinearColor StudioPanelRaisedColor(0.022f, 0.032f, 0.074f, 0.992f);
+const FLinearColor StudioPanelElevatedColor(0.048f, 0.064f, 0.132f, 1.0f);
+const FLinearColor StudioOutlineColor(0.150f, 0.190f, 0.360f, 0.36f);
+const FLinearColor StudioDividerColor(0.070f, 0.095f, 0.190f, 0.52f);
+const FLinearColor StudioAccentColor(0.54f, 0.42f, 1.00f, 1.0f);
+const FLinearColor StudioAccentBlueColor(0.20f, 0.62f, 1.00f, 1.0f);
+const FLinearColor StudioAccentGoldColor(0.92f, 0.72f, 0.36f, 1.0f);
+const FLinearColor StudioSuccessColor(0.36f, 0.82f, 0.64f, 1.0f);
+const FLinearColor StudioShellColor(0.0008f, 0.0020f, 0.0100f, 1.0f);
+const FLinearColor StudioShellRaisedColor(0.008f, 0.014f, 0.036f, 0.998f);
+const FLinearColor StudioShellTrackColor(0.016f, 0.026f, 0.066f, 0.985f);
+const FLinearColor StudioStageBackdropColor(0.001f, 0.004f, 0.018f, 1.0f);
+const FLinearColor StudioMutedButtonColor(0.032f, 0.046f, 0.104f, 1.0f);
+const FLinearColor StudioShadowColor(0.0f, 0.0f, 0.0f, 0.72f);
+const FLinearColor StudioSoftSurfaceColor(0.032f, 0.046f, 0.108f, 0.74f);
+const FLinearColor StudioGlassSurfaceColor(0.072f, 0.094f, 0.184f, 0.50f);
+const FLinearColor StudioStageChromeColor(0.001f, 0.004f, 0.016f, 0.996f);
+const FLinearColor StudioStageWashColor(0.016f, 0.034f, 0.098f, 0.94f);
 
 FSlateFontInfo MakeStudioFont(const ANSICHAR* Typeface, int32 Size)
 {
-    return FCoreStyle::GetDefaultFontStyle(Typeface, Size);
+    return WanaWorksUIStyle::WanaFont(Typeface, Size);
 }
 
 bool ShouldRenderCompactValueChip(const FString& Value)
@@ -116,17 +118,8 @@ TSharedRef<SWidget> MakeStudioPill(
     int32 FontSize = 8,
     const FMargin& Padding = FMargin(10.0f, 4.0f))
 {
-    return SNew(SBorder)
-        .Padding(Padding)
-        .BorderBackgroundColor(FillColor)
-        [
-            SNew(STextBlock)
-            .ColorAndOpacity(TextColor)
-            .Font(MakeStudioFont("Bold", FontSize))
-            .ShadowColorAndOpacity(StudioShadowColor)
-            .ShadowOffset(FVector2D(0.0f, 1.0f))
-            .Text(Label)
-        ];
+    (void)TextColor;
+    return WanaWorksUIStyle::WanaStatusPill(Label, FillColor, false, FontSize, Padding);
 }
 
 TSharedRef<SWidget> MakeDynamicWorkspacePill(TFunction<FString(void)> GetSelectedWorkspaceLabel)
@@ -211,12 +204,17 @@ TSharedRef<SWidget> BuildStudioSummaryRowsWidget(
         Layout->AddSlot()
         .AutoHeight()
         [
-            SNew(STextBlock)
-            .Font(MakeStudioFont("Regular", 9))
-            .ColorAndOpacity(SecondaryTextColor)
-            .ShadowColorAndOpacity(StudioShadowColor)
-            .ShadowOffset(FVector2D(0.0f, 1.0f))
-            .Text(LOCTEXT("WanaWorksStudioSummaryEmpty", "No live details yet."))
+            SNew(SBorder)
+            .Padding(FMargin(14.0f, 12.0f))
+            .BorderBackgroundColor(StudioGlassSurfaceColor.CopyWithNewOpacity(0.32f))
+            [
+                SNew(STextBlock)
+                .Font(MakeStudioFont("Regular", 9))
+                .ColorAndOpacity(SecondaryTextColor)
+                .ShadowColorAndOpacity(StudioShadowColor)
+                .ShadowOffset(FVector2D(0.0f, 1.0f))
+                .Text(LOCTEXT("WanaWorksStudioSummaryEmpty", "No live details yet."))
+            ]
         ];
 
         return Layout;
@@ -225,77 +223,35 @@ TSharedRef<SWidget> BuildStudioSummaryRowsWidget(
     for (int32 RowIndex = 0; RowIndex < Rows.Num(); ++RowIndex)
     {
         const FStudioSummaryRow& Row = Rows[RowIndex];
-        const bool bRenderCompactChip = ShouldRenderCompactValueChip(Row.Value);
+        const bool bLeadRow = RowIndex == 0;
 
         if (Row.bIsNote || Row.Label.IsEmpty())
         {
             Layout->AddSlot()
             .AutoHeight()
-            .Padding(0.0f, 0.0f, 0.0f, RowIndex + 1 < Rows.Num() ? 12.0f : 0.0f)
+            .Padding(0.0f, 0.0f, 0.0f, RowIndex + 1 < Rows.Num() ? 10.0f : 0.0f)
             [
-                SNew(STextBlock)
-                .AutoWrapText(true)
-                .Font(MakeStudioFont("Regular", 9))
-                .ColorAndOpacity(SecondaryTextColor)
-                .ShadowColorAndOpacity(StudioShadowColor)
-                .ShadowOffset(FVector2D(0.0f, 1.0f))
-                .Text(FText::FromString(Row.Value))
+                WanaWorksUIStyle::WanaMetricBlock(
+                    FText::GetEmpty(),
+                    FText::FromString(Row.Value),
+                    AccentColor,
+                    bLeadRow,
+                    ValueWrapWidth)
             ];
 
             continue;
         }
 
-        const bool bLeadRow = RowIndex == 0;
-        const FLinearColor RowFillColor = bLeadRow
-            ? AccentColor.CopyWithNewOpacity(0.13f)
-            : StudioGlassSurfaceColor.CopyWithNewOpacity(0.62f);
-        const TSharedRef<SWidget> ValueWidget = bRenderCompactChip
-            ? StaticCastSharedRef<SWidget>(
-                MakeStudioPill(
-                    FText::FromString(Row.Value),
-                    AccentColor.CopyWithNewOpacity(0.18f),
-                    FLinearColor(0.96f, 0.97f, 1.0f, 1.0f),
-                    bLeadRow ? 10 : 9,
-                    FMargin(12.0f, 6.0f)))
-            : StaticCastSharedRef<SWidget>(
-                SNew(SBox)
-                .MaxDesiredWidth(ValueWrapWidth)
-                [
-                    SNew(STextBlock)
-                    .AutoWrapText(true)
-                    .ColorAndOpacity(FLinearColor(0.97f, 0.98f, 1.0f, 1.0f))
-                    .Font(MakeStudioFont("Bold", bLeadRow ? 12 : 10))
-                    .ShadowColorAndOpacity(StudioShadowColor)
-                    .ShadowOffset(FVector2D(0.0f, 1.0f))
-                    .Text(FText::FromString(Row.Value))
-                ]);
-
         Layout->AddSlot()
         .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, RowIndex + 1 < Rows.Num() ? 9.0f : 0.0f)
+        .Padding(0.0f, 0.0f, 0.0f, RowIndex + 1 < Rows.Num() ? 10.0f : 0.0f)
         [
-            SNew(SBorder)
-            .Padding(FMargin(13.0f, bLeadRow ? 12.0f : 10.0f))
-            .BorderBackgroundColor(RowFillColor)
-            [
-                SNew(SVerticalBox)
-                + SVerticalBox::Slot()
-                .AutoHeight()
-                [
-                    SNew(STextBlock)
-                    .Font(MakeStudioFont("Bold", 8))
-                    .ColorAndOpacity(TertiaryTextColor.CopyWithNewOpacity(0.88f))
-                    .ShadowColorAndOpacity(StudioShadowColor)
-                    .ShadowOffset(FVector2D(0.0f, 1.0f))
-                    .Text(FText::FromString(Row.Label.ToUpper()))
-                ]
-                + SVerticalBox::Slot()
-                .AutoHeight()
-                .Padding(0.0f, 6.0f, 0.0f, 0.0f)
-                [
-                    ValueWidget
-                ]
-            ]
+            WanaWorksUIStyle::WanaMetricBlock(
+                FText::FromString(Row.Label),
+                FText::FromString(Row.Value),
+                AccentColor,
+                bLeadRow,
+                ValueWrapWidth)
         ];
     }
 
@@ -328,84 +284,23 @@ public:
         ValueWrapWidth = InArgs._ValueWrapWidth;
         GetSummaryText = InArgs._GetSummaryText;
 
+        const TSharedRef<SBox> BodyContent = SAssignNew(BodyBox, SBox);
+        const TSharedRef<SWidget> LiveBadge = WanaWorksUIStyle::WanaStatusPill(
+            LOCTEXT("WanaWorksStudioModuleBadge", "LIVE"),
+            AccentColor,
+            true,
+            8,
+            FMargin(10.0f, 5.0f));
+
         ChildSlot
         [
-            SNew(SBorder)
-            .Padding(0.0f)
-            .BorderBackgroundColor(StudioPanelRaisedColor)
-            [
-                SNew(SHorizontalBox)
-                + SHorizontalBox::Slot()
-                .AutoWidth()
-                [
-                    SNew(SBorder)
-                    .Padding(0.0f)
-                    .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.72f))
-                    [
-                        SNew(SBox)
-                        .WidthOverride(3.0f)
-                    ]
-                ]
-                + SHorizontalBox::Slot()
-                .FillWidth(1.0f)
-                [
-                    SNew(SBorder)
-                    .Padding(20.0f)
-                    .BorderBackgroundColor(StudioPanelRaisedColor)
-                    [
-                        SNew(SVerticalBox)
-                        + SVerticalBox::Slot()
-                        .AutoHeight()
-                        [
-                            SNew(SHorizontalBox)
-                            + SHorizontalBox::Slot()
-                            .FillWidth(1.0f)
-                            [
-                                SNew(SVerticalBox)
-                                + SVerticalBox::Slot()
-                                .AutoHeight()
-                                [
-                                    SNew(STextBlock)
-                                    .Visibility(Eyebrow.IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible)
-                                    .ColorAndOpacity(TertiaryTextColor.CopyWithNewOpacity(0.86f))
-                                    .Font(MakeStudioFont("Bold", 8))
-                                    .ShadowColorAndOpacity(StudioShadowColor)
-                                    .ShadowOffset(FVector2D(0.0f, 1.0f))
-                                    .Text(Eyebrow)
-                                ]
-                                + SVerticalBox::Slot()
-                                .AutoHeight()
-                                .Padding(0.0f, 6.0f, 0.0f, 0.0f)
-                                [
-                                    SNew(STextBlock)
-                                    .Font(MakeStudioFont("Bold", 16))
-                                    .ColorAndOpacity(FLinearColor::White)
-                                    .ShadowColorAndOpacity(StudioShadowColor)
-                                    .ShadowOffset(FVector2D(0.0f, 1.0f))
-                                    .Text(Title)
-                                ]
-                            ]
-                            + SHorizontalBox::Slot()
-                            .AutoWidth()
-                            .VAlign(VAlign_Top)
-                            [
-                                MakeStudioPill(
-                                    LOCTEXT("WanaWorksStudioModuleBadge", "LIVE"),
-                                    AccentColor.CopyWithNewOpacity(0.12f),
-                                    AccentColor,
-                                    8,
-                                    FMargin(10.0f, 5.0f))
-                            ]
-                        ]
-                        + SVerticalBox::Slot()
-                        .AutoHeight()
-                        .Padding(0.0f, 16.0f, 0.0f, 0.0f)
-                        [
-                            SAssignNew(BodyBox, SBox)
-                        ]
-                    ]
-                ]
-            ]
+            WanaWorksUIStyle::WanaCard(
+                Eyebrow,
+                Title,
+                AccentColor,
+                BodyContent,
+                LiveBadge,
+                false)
         ];
 
         RefreshBody();
@@ -635,7 +530,7 @@ FText GetWorkspacePreviewStandbyNote(const FString& WorkspaceLabel)
 
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
     {
-        return LOCTEXT("WanaWorksStudioLevelPreviewStandbyNote", "Choose a subject or working actor to anchor the semantic world stage while WIT reads environment meaning around it.");
+        return LOCTEXT("WanaWorksStudioLevelPreviewStandbyNote", "Scan environment context or select modular scene assets to begin shaping cover, obstacle, boundary, and movement-space meaning.");
     }
 
     return LOCTEXT("WanaWorksStudioAIPreviewStandbyNote", "Choose an AI Pawn or working subject to wake the intelligence stage with a live character preview and current stack context.");
@@ -672,10 +567,11 @@ public:
         GetSelectedPreviewViewLabel = InArgs._GetSelectedPreviewViewLabel;
         PreviewScene = MakeUnique<FPreviewScene>(
             FPreviewScene::ConstructionValues()
-            .SetLightBrightness(7.2f)
-            .SetSkyBrightness(1.4f)
-            .SetLightRotation(FRotator(-32.0f, -48.0f, 0.0f)));
-        PreviewScene->SetLightColor(FColor(230, 236, 255));
+            .SetLightBrightness(9.0f)
+            .SetSkyBrightness(3.6f)
+            .SetLightRotation(FRotator(-34.0f, -38.0f, 0.0f)));
+        PreviewScene->SetLightColor(FColor(252, 248, 238));
+        ConfigureStudioLighting();
 
         ResolvePreviewContent();
         SEditorViewport::Construct(SEditorViewport::FArguments());
@@ -685,6 +581,7 @@ public:
     virtual ~SWanaWorksLivePreviewViewport() override
     {
         ReleasePreviewComponents();
+        ReleasePreviewLighting();
     }
 
     virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override
@@ -719,6 +616,7 @@ private:
         PreviewViewportClient->EngineShowFlags.SetPivot(false);
         PreviewViewportClient->EngineShowFlags.SetModeWidgets(false);
         PreviewViewportClient->EngineShowFlags.SetSelectionOutline(false);
+        PreviewViewportClient->EngineShowFlags.SetAmbientOcclusion(true);
         return PreviewViewportClient.ToSharedRef();
     }
 
@@ -763,6 +661,67 @@ private:
         }
     }
 
+    UDirectionalLightComponent* AddStudioDirectionalLight(
+        const FName ComponentName,
+        const float Intensity,
+        const FLinearColor& LightColor,
+        const FRotator& Rotation)
+    {
+        if (!PreviewScene)
+        {
+            return nullptr;
+        }
+
+        UDirectionalLightComponent* LightComponent = NewObject<UDirectionalLightComponent>(GetTransientPackage(), ComponentName, RF_Transient);
+        if (!LightComponent)
+        {
+            return nullptr;
+        }
+
+        LightComponent->SetIntensity(Intensity);
+        LightComponent->SetLightColor(LightColor);
+        PreviewScene->AddComponent(LightComponent, FTransform(Rotation));
+        return LightComponent;
+    }
+
+    void ConfigureStudioLighting()
+    {
+        KeyLightComponent = AddStudioDirectionalLight(
+            TEXT("WanaWorksPreviewKeyLight"),
+            8.6f,
+            FLinearColor(1.00f, 0.965f, 0.90f, 1.0f),
+            FRotator(-30.0f, -35.0f, 0.0f));
+
+        FillLightComponent = AddStudioDirectionalLight(
+            TEXT("WanaWorksPreviewFillLight"),
+            4.2f,
+            FLinearColor(0.58f, 0.70f, 1.00f, 1.0f),
+            FRotator(-10.0f, 122.0f, 0.0f));
+
+        RimLightComponent = AddStudioDirectionalLight(
+            TEXT("WanaWorksPreviewRimLight"),
+            8.8f,
+            FLinearColor(0.66f, 0.82f, 1.00f, 1.0f),
+            FRotator(-16.0f, 145.0f, 0.0f));
+    }
+
+    void ReleasePreviewLighting()
+    {
+        auto ReleaseLightComponent = [this](UDirectionalLightComponent*& LightComponent)
+        {
+            if (PreviewScene && LightComponent)
+            {
+                PreviewScene->RemoveComponent(LightComponent);
+                LightComponent->DestroyComponent();
+                LightComponent = nullptr;
+            }
+        };
+
+        ReleaseLightComponent(KeyLightComponent);
+        ReleaseLightComponent(FillLightComponent);
+        ReleaseLightComponent(RimLightComponent);
+    }
+
     void ReleasePreviewComponents()
     {
         if (PreviewScene && PreviewSkeletalMeshComponent)
@@ -790,32 +749,32 @@ private:
         const FBoxSphereBounds Bounds = ResolvedPreviewData.PreviewBounds.SphereRadius > KINDA_SMALL_NUMBER
             ? ResolvedPreviewData.PreviewBounds
             : FBoxSphereBounds(FVector::ZeroVector, FVector(88.0f), 88.0f);
-        const FVector LookAt = Bounds.Origin;
         const float Radius = FMath::Max(Bounds.SphereRadius, 90.0f);
+        const FVector LookAt = Bounds.Origin + FVector(0.0f, 0.0f, Radius * 0.08f);
         const FString ViewLabel = GetSelectedPreviewViewLabel ? GetSelectedPreviewViewLabel() : FString(TEXT("Overview"));
 
         FRotator ViewRotation(-8.0f, -135.0f, 0.0f);
-        float DistanceScale = 2.8f;
+        float DistanceScale = 2.36f;
 
         if (ViewLabel.Equals(TEXT("Front"), ESearchCase::IgnoreCase))
         {
             ViewRotation = FRotator(-4.0f, 0.0f, 0.0f);
-            DistanceScale = 2.35f;
+            DistanceScale = 2.00f;
         }
         else if (ViewLabel.Equals(TEXT("Back"), ESearchCase::IgnoreCase))
         {
             ViewRotation = FRotator(-4.0f, 180.0f, 0.0f);
-            DistanceScale = 2.35f;
+            DistanceScale = 2.00f;
         }
         else if (ViewLabel.Equals(TEXT("Left"), ESearchCase::IgnoreCase))
         {
             ViewRotation = FRotator(-4.0f, 90.0f, 0.0f);
-            DistanceScale = 2.30f;
+            DistanceScale = 1.96f;
         }
         else if (ViewLabel.Equals(TEXT("Right"), ESearchCase::IgnoreCase))
         {
             ViewRotation = FRotator(-4.0f, 270.0f, 0.0f);
-            DistanceScale = 2.30f;
+            DistanceScale = 1.96f;
         }
 
         const float CameraDistance = Radius * DistanceScale;
@@ -835,6 +794,9 @@ private:
     FWanaWorksResolvedPreviewSceneData ResolvedPreviewData;
     USkeletalMeshComponent* PreviewSkeletalMeshComponent = nullptr;
     UStaticMeshComponent* PreviewStaticMeshComponent = nullptr;
+    UDirectionalLightComponent* KeyLightComponent = nullptr;
+    UDirectionalLightComponent* FillLightComponent = nullptr;
+    UDirectionalLightComponent* RimLightComponent = nullptr;
     FString CachedPreviewViewLabel;
 };
 
@@ -868,16 +830,16 @@ public:
         [
             SNew(SBorder)
             .Padding(0.0f)
-            .BorderBackgroundColor(PreviewPanelColor)
+            .BorderBackgroundColor(WorkspaceAccentColor.CopyWithNewOpacity(0.22f))
             [
                 SNew(SBorder)
-                .Padding(24.0f)
-                .BorderBackgroundColor(PreviewPanelColor)
+                .Padding(22.0f)
+                .BorderBackgroundColor(PreviewPanelColor.CopyWithNewOpacity(0.998f))
                 [
                     SNew(SVerticalBox)
                     + SVerticalBox::Slot()
                     .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 18.0f)
+                    .Padding(0.0f, 0.0f, 0.0f, 16.0f)
                     [
                         SNew(SHorizontalBox)
                         + SHorizontalBox::Slot()
@@ -900,7 +862,7 @@ public:
                             .Padding(0.0f, 6.0f, 0.0f, 0.0f)
                             [
                                 SNew(STextBlock)
-                                .Font(MakeStudioFont("Bold", 18))
+                                .Font(MakeStudioFont("Bold", 22))
                                 .ColorAndOpacity(FLinearColor::White)
                                 .ShadowColorAndOpacity(StudioShadowColor)
                                 .ShadowOffset(FVector2D(0.0f, 1.0f))
@@ -917,7 +879,7 @@ public:
                         [
                             SNew(SBorder)
                             .Padding(FMargin(12.0f, 6.0f))
-                            .BorderBackgroundColor(WorkspaceAccentColor.CopyWithNewOpacity(0.16f))
+                            .BorderBackgroundColor(WorkspaceAccentColor.CopyWithNewOpacity(0.24f))
                             [
                                 SNew(STextBlock)
                                 .ColorAndOpacity(FLinearColor(0.95f, 0.92f, 1.0f, 1.0f))
@@ -945,18 +907,18 @@ public:
                                 return FReply::Handled();
                             })
                             [
-                                MakeStudioPill(
-                                    LOCTEXT("WanaWorksSandboxPreviewFocusButton", "Focus Subject"),
-                                    WorkspaceAccentColor.CopyWithNewOpacity(0.18f),
-                                    FLinearColor(0.80f, 0.89f, 1.0f, 1.0f),
-                                    8,
-                                    FMargin(12.0f, 6.0f))
+                            MakeStudioPill(
+                                LOCTEXT("WanaWorksSandboxPreviewFocusButton", "Focus Subject"),
+                                WorkspaceAccentColor.CopyWithNewOpacity(0.15f),
+                                FLinearColor(0.80f, 0.89f, 1.0f, 1.0f),
+                                8,
+                                FMargin(14.0f, 7.0f))
                             ]
                         ]
                     ]
                     + SVerticalBox::Slot()
                     .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 16.0f)
+                    .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                     [
                         SNew(SWrapBox)
                         + SWrapBox::Slot()
@@ -989,7 +951,7 @@ public:
                     .AutoHeight()
                     [
                         SAssignNew(PreviewContentBox, SBox)
-                        .MinDesiredHeight(520.0f)
+                        .MinDesiredHeight(620.0f)
                     ]
                     + SVerticalBox::Slot()
                     .AutoHeight()
@@ -1038,42 +1000,47 @@ private:
             })
             [
                 SNew(SBorder)
-                .Padding(0.0f)
+                .Padding(FMargin(0.0f))
                 .BorderBackgroundColor_Lambda([this, ViewLabel]()
                 {
                     const FLinearColor AccentColor = GetWorkspaceAccentColor(GetSelectedWorkspaceLabel ? GetSelectedWorkspaceLabel() : FString(TEXT("AI")));
                     const bool bIsActive = GetSelectedPreviewViewLabel
                         && GetSelectedPreviewViewLabel().Equals(ViewLabel, ESearchCase::IgnoreCase);
                     return bIsActive
-                        ? AccentColor.CopyWithNewOpacity(0.20f)
-                        : StudioGlassSurfaceColor.CopyWithNewOpacity(0.50f);
+                        ? AccentColor.CopyWithNewOpacity(0.42f)
+                        : StudioGlassSurfaceColor.CopyWithNewOpacity(0.34f);
                 })
                 [
-                    SNew(SBorder)
-                    .Padding(FMargin(15.0f, 8.0f))
-                    .BorderBackgroundColor_Lambda([this, ViewLabel]()
-                    {
-                        const FLinearColor AccentColor = GetWorkspaceAccentColor(GetSelectedWorkspaceLabel ? GetSelectedWorkspaceLabel() : FString(TEXT("AI")));
-                        const bool bIsActive = GetSelectedPreviewViewLabel
-                            && GetSelectedPreviewViewLabel().Equals(ViewLabel, ESearchCase::IgnoreCase);
-                        return bIsActive
-                            ? AccentColor.CopyWithNewOpacity(0.18f)
-                            : StudioGlassSurfaceColor.CopyWithNewOpacity(0.48f);
-                    })
+                    SNew(SBox)
+                    .MinDesiredWidth(78.0f)
                     [
-                        SNew(STextBlock)
-                        .ColorAndOpacity_Lambda([this, ViewLabel]()
+                        SNew(SBorder)
+                        .Padding(FMargin(17.0f, 9.0f))
+                        .BorderBackgroundColor_Lambda([this, ViewLabel]()
                         {
+                            const FLinearColor AccentColor = GetWorkspaceAccentColor(GetSelectedWorkspaceLabel ? GetSelectedWorkspaceLabel() : FString(TEXT("AI")));
                             const bool bIsActive = GetSelectedPreviewViewLabel
                                 && GetSelectedPreviewViewLabel().Equals(ViewLabel, ESearchCase::IgnoreCase);
                             return bIsActive
-                                ? FLinearColor(0.98f, 0.95f, 1.0f, 1.0f)
-                                : SecondaryTextColor;
+                                ? AccentColor.CopyWithNewOpacity(0.18f)
+                                : FLinearColor(0.012f, 0.020f, 0.052f, 0.46f);
                         })
-                        .Font(MakeStudioFont("Bold", 9))
-                        .ShadowColorAndOpacity(StudioShadowColor)
-                        .ShadowOffset(FVector2D(0.0f, 1.0f))
-                        .Text(FText::FromString(ViewLabel))
+                        [
+                            SNew(STextBlock)
+                            .Justification(ETextJustify::Center)
+                            .ColorAndOpacity_Lambda([this, ViewLabel]()
+                            {
+                                const bool bIsActive = GetSelectedPreviewViewLabel
+                                    && GetSelectedPreviewViewLabel().Equals(ViewLabel, ESearchCase::IgnoreCase);
+                                return bIsActive
+                                    ? FLinearColor(0.98f, 0.95f, 1.0f, 1.0f)
+                                    : SecondaryTextColor.CopyWithNewOpacity(0.88f);
+                            })
+                            .Font(MakeStudioFont("Bold", 9))
+                            .ShadowColorAndOpacity(StudioShadowColor)
+                            .ShadowOffset(FVector2D(0.0f, 1.0f))
+                            .Text(FText::FromString(ViewLabel))
+                        ]
                     ]
                 ]
             ];
@@ -1109,240 +1076,185 @@ private:
             }
             else
             {
-                AssetThumbnail = MakeShared<FAssetThumbnail>(PreviewObject, 900, 520, ThumbnailPool);
+                AssetThumbnail = MakeShared<FAssetThumbnail>(PreviewObject, 900, 560, ThumbnailPool);
 
                 FAssetThumbnailConfig ThumbnailConfig;
                 ThumbnailConfig.bAllowFadeIn = false;
                 PreviewStageWidget = AssetThumbnail->MakeThumbnailWidget(ThumbnailConfig);
             }
 
-            PreviewContentBox->SetContent(
-                SNew(SBorder)
-                .Padding(0.0f)
-                .BorderBackgroundColor(StudioStageChromeColor)
+            const TSharedRef<SWidget> TopOverlay =
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot()
+                .FillWidth(1.0f)
                 [
-                    SNew(SBorder)
-                    .Padding(14.0f)
-                    .BorderBackgroundColor(StudioStageChromeColor)
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot()
+                    .AutoWidth()
+                    .Padding(0.0f, 0.0f, 10.0f, 0.0f)
                     [
-                        SNew(SOverlay)
-                        + SOverlay::Slot()
+                        WanaWorksUIStyle::WanaStatusPill(
+                            LOCTEXT("WanaWorksStudioPreviewLiveBadge", "STAGE LIVE"),
+                            AccentColor,
+                            true,
+                            8,
+                            FMargin(12.0f, 6.0f))
+                    ]
+                    + SHorizontalBox::Slot()
+                    .AutoWidth()
+                    [
+                        WanaWorksUIStyle::WanaStatusPill(
+                            FText::FromString(CachedPreviewViewLabel.IsEmpty() ? TEXT("Overview") : CachedPreviewViewLabel),
+                            AccentColor,
+                            false,
+                            8,
+                            FMargin(12.0f, 6.0f))
+                    ]
+                ]
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    SNew(STextBlock)
+                    .ColorAndOpacity(TertiaryTextColor)
+                    .Font(MakeStudioFont("Bold", 8))
+                    .ShadowColorAndOpacity(StudioShadowColor)
+                    .ShadowOffset(FVector2D(0.0f, 1.0f))
+                    .Text(GetWorkspacePreviewEyebrow(WorkspaceLabel))
+                ];
+
+            const TSharedRef<SWidget> BottomOverlay =
+                SNew(SBorder)
+                .Padding(FMargin(20.0f, 15.0f))
+                .BorderBackgroundColor(FLinearColor(0.002f, 0.007f, 0.024f, 0.90f))
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot()
+                    .FillWidth(1.0f)
+                    [
+                        SNew(SVerticalBox)
+                        + SVerticalBox::Slot()
+                        .AutoHeight()
                         [
-                            SNew(SBorder)
-                            .Padding(0.0f)
-                            .BorderBackgroundColor(FLinearColor(0.012f, 0.018f, 0.038f, 1.0f))
-                            [
-                                PreviewStageWidget
-                            ]
+                            SNew(STextBlock)
+                            .ColorAndOpacity(TertiaryTextColor)
+                            .Font(MakeStudioFont("Bold", 8))
+                            .ShadowColorAndOpacity(StudioShadowColor)
+                            .ShadowOffset(FVector2D(0.0f, 1.0f))
+                            .Text(ActiveSubjectLabel)
                         ]
-                        + SOverlay::Slot()
-                        .HAlign(HAlign_Fill)
-                        .VAlign(VAlign_Bottom)
+                        + SVerticalBox::Slot()
+                        .AutoHeight()
+                        .Padding(0.0f, 6.0f, 0.0f, 0.0f)
                         [
-                            SNew(SBorder)
-                            .Padding(0.0f)
-                            .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.20f))
-                            [
-                                SNew(SBox)
-                                .HeightOverride(3.0f)
-                            ]
-                        ]
-                        + SOverlay::Slot()
-                        .HAlign(HAlign_Fill)
-                        .VAlign(VAlign_Top)
-                        .Padding(16.0f)
-                        [
-                            SNew(SHorizontalBox)
-                            + SHorizontalBox::Slot()
-                            .FillWidth(1.0f)
-                            [
-                                SNew(SHorizontalBox)
-                                + SHorizontalBox::Slot()
-                                .AutoWidth()
-                                .Padding(0.0f, 0.0f, 10.0f, 0.0f)
-                                [
-                                    MakeStudioPill(
-                                        LOCTEXT("WanaWorksStudioPreviewLiveBadge", "STAGE LIVE"),
-                                        AccentColor.CopyWithNewOpacity(0.18f),
-                                        FLinearColor(0.88f, 0.94f, 1.0f, 1.0f),
-                                        8,
-                                        FMargin(12.0f, 6.0f))
-                                ]
-                                + SHorizontalBox::Slot()
-                                .AutoWidth()
-                                [
-                                    MakeStudioPill(
-                                        FText::FromString(CachedPreviewViewLabel.IsEmpty() ? TEXT("Overview") : CachedPreviewViewLabel),
-                                        AccentColor.CopyWithNewOpacity(0.18f),
-                                        FLinearColor(0.98f, 0.95f, 1.0f, 1.0f),
-                                        8,
-                                        FMargin(12.0f, 6.0f))
-                                ]
-                            ]
-                            + SHorizontalBox::Slot()
-                            .AutoWidth()
-                            .VAlign(VAlign_Center)
-                            [
-                                SNew(STextBlock)
-                                .ColorAndOpacity(TertiaryTextColor)
-                                .Font(MakeStudioFont("Bold", 8))
-                                .ShadowColorAndOpacity(StudioShadowColor)
-                                .ShadowOffset(FVector2D(0.0f, 1.0f))
-                                .Text(GetWorkspacePreviewEyebrow(WorkspaceLabel))
-                            ]
-                        ]
-                        + SOverlay::Slot()
-                        .HAlign(HAlign_Fill)
-                        .VAlign(VAlign_Bottom)
-                        .Padding(16.0f)
-                        [
-                            SNew(SBorder)
-                            .Padding(FMargin(18.0f, 15.0f))
-                            .BorderBackgroundColor(FLinearColor(0.012f, 0.018f, 0.036f, 0.88f))
-                            [
-                                SNew(SHorizontalBox)
-                                + SHorizontalBox::Slot()
-                                .FillWidth(1.0f)
-                                [
-                                    SNew(SVerticalBox)
-                                    + SVerticalBox::Slot()
-                                    .AutoHeight()
-                                    [
-                                        SNew(STextBlock)
-                                        .ColorAndOpacity(TertiaryTextColor)
-                                        .Font(MakeStudioFont("Bold", 8))
-                                        .ShadowColorAndOpacity(StudioShadowColor)
-                                        .ShadowOffset(FVector2D(0.0f, 1.0f))
-                                        .Text(ActiveSubjectLabel)
-                                    ]
-                                    + SVerticalBox::Slot()
-                                    .AutoHeight()
-                                    .Padding(0.0f, 6.0f, 0.0f, 0.0f)
-                                    [
-                                        SNew(STextBlock)
-                                        .ColorAndOpacity(FLinearColor::White)
-                                        .Font(MakeStudioFont("Bold", 13))
-                                        .ShadowColorAndOpacity(StudioShadowColor)
-                                        .ShadowOffset(FVector2D(0.0f, 1.0f))
-                                        .Text(FText::FromString(GetPreviewObjectDisplayLabel(PreviewObject)))
-                                    ]
-                                ]
-                                + SHorizontalBox::Slot()
-                                .AutoWidth()
-                                .VAlign(VAlign_Bottom)
-                                [
-                                    SNew(STextBlock)
-                                    .ColorAndOpacity(SecondaryTextColor)
-                                    .AutoWrapText(true)
-                                    .Font(MakeStudioFont("Regular", 9))
-                                    .Text(LOCTEXT("WanaWorksStudioPreviewFooterNote", "Use Focus Subject for full world-space inspection."))
-                                ]
-                            ]
+                            SNew(STextBlock)
+                            .ColorAndOpacity(FLinearColor::White)
+                            .Font(MakeStudioFont("Bold", 14))
+                            .ShadowColorAndOpacity(StudioShadowColor)
+                            .ShadowOffset(FVector2D(0.0f, 1.0f))
+                            .Text(FText::FromString(GetPreviewObjectDisplayLabel(PreviewObject)))
                         ]
                     ]
-                ]);
+                    + SHorizontalBox::Slot()
+                    .AutoWidth()
+                    .VAlign(VAlign_Bottom)
+                    [
+                        SNew(STextBlock)
+                        .ColorAndOpacity(SecondaryTextColor.CopyWithNewOpacity(0.88f))
+                        .AutoWrapText(true)
+                        .Font(MakeStudioFont("Regular", 9))
+                        .Text(LOCTEXT("WanaWorksStudioPreviewFooterNote", "Use Focus Subject for full world-space inspection."))
+                    ]
+                ];
+
+            PreviewContentBox->SetContent(
+                WanaWorksUIStyle::WanaHeroStage(
+                    AccentColor,
+                    PreviewStageWidget,
+                    TopOverlay,
+                    BottomOverlay));
         }
         else
         {
             AssetThumbnail.Reset();
             const FString WorkspaceLabel = GetSelectedWorkspaceLabel ? GetSelectedWorkspaceLabel() : FString(TEXT("AI"));
             const FLinearColor AccentColor = GetWorkspaceAccentColor(WorkspaceLabel);
-            PreviewContentBox->SetContent(
-                SNew(SBorder)
-                .Padding(0.0f)
-                .BorderBackgroundColor(StudioStageChromeColor)
+
+            const TSharedRef<SWidget> TopOverlay =
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot()
+                .FillWidth(1.0f)
                 [
-                    SNew(SBorder)
-                    .Padding(24.0f)
-                    .BorderBackgroundColor(StudioStageChromeColor)
+                    WanaWorksUIStyle::WanaStatusPill(
+                        LOCTEXT("WanaWorksStudioPreviewStandbyBadge", "STAGE READY"),
+                        AccentColor,
+                        true,
+                        8,
+                        FMargin(12.0f, 6.0f))
+                ]
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                [
+                    WanaWorksUIStyle::WanaStatusPill(
+                        FText::FromString(CachedPreviewViewLabel.IsEmpty() ? TEXT("Overview") : CachedPreviewViewLabel),
+                        AccentColor,
+                        false,
+                        8,
+                        FMargin(12.0f, 6.0f))
+                ];
+
+            const TSharedRef<SWidget> EmptyStageContent =
+                SNew(SBorder)
+                .Padding(46.0f)
+                .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.095f))
+                [
+                    SNew(SVerticalBox)
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .HAlign(HAlign_Center)
+                    .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                     [
-                        SNew(SOverlay)
-                        + SOverlay::Slot()
+                        SNew(STextBlock)
+                        .Justification(ETextJustify::Center)
+                        .ColorAndOpacity(FLinearColor::White)
+                        .Font(MakeStudioFont("Bold", 22))
+                        .ShadowColorAndOpacity(StudioShadowColor)
+                        .ShadowOffset(FVector2D(0.0f, 1.0f))
+                        .Text(GetWorkspacePreviewStandbyTitle(WorkspaceLabel))
+                    ]
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .HAlign(HAlign_Center)
+                    [
+                        SNew(SBox)
+                        .MaxDesiredWidth(460.0f)
                         [
-                            SNew(SBorder)
-                            .Padding(20.0f)
-                            .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.08f))
-                            [
-                                SNew(SBorder)
-                                .Padding(36.0f)
-                                .BorderBackgroundColor(FLinearColor(0.020f, 0.028f, 0.060f, 0.94f))
-                            ]
-                        ]
-                        + SOverlay::Slot()
-                        .HAlign(HAlign_Fill)
-                        .VAlign(VAlign_Top)
-                        .Padding(18.0f)
-                        [
-                            SNew(SHorizontalBox)
-                            + SHorizontalBox::Slot()
-                            .FillWidth(1.0f)
-                            [
-                                MakeStudioPill(
-                                    LOCTEXT("WanaWorksStudioPreviewStandbyBadge", "STAGE READY"),
-                                    AccentColor.CopyWithNewOpacity(0.16f),
-                                    FLinearColor(0.88f, 0.94f, 1.0f, 1.0f),
-                                    8,
-                                    FMargin(12.0f, 6.0f))
-                            ]
-                            + SHorizontalBox::Slot()
-                            .AutoWidth()
-                            [
-                                MakeStudioPill(
-                                    FText::FromString(CachedPreviewViewLabel.IsEmpty() ? TEXT("Overview") : CachedPreviewViewLabel),
-                                    AccentColor.CopyWithNewOpacity(0.18f),
-                                    FLinearColor(0.98f, 0.95f, 1.0f, 1.0f),
-                                    8,
-                                    FMargin(12.0f, 6.0f))
-                            ]
-                        ]
-                        + SOverlay::Slot()
-                        .HAlign(HAlign_Center)
-                        .VAlign(VAlign_Center)
-                        .Padding(32.0f)
-                        [
-                            SNew(SVerticalBox)
-                            + SVerticalBox::Slot()
-                            .AutoHeight()
-                            .HAlign(HAlign_Center)
-                            .Padding(0.0f, 0.0f, 0.0f, 14.0f)
-                            [
-                                SNew(STextBlock)
-                                .Justification(ETextJustify::Center)
-                                .ColorAndOpacity(FLinearColor::White)
-                                .Font(MakeStudioFont("Bold", 22))
-                                .ShadowColorAndOpacity(StudioShadowColor)
-                                .ShadowOffset(FVector2D(0.0f, 1.0f))
-                                .Text(GetWorkspacePreviewStandbyTitle(WorkspaceLabel))
-                            ]
-                            + SVerticalBox::Slot()
-                            .AutoHeight()
-                            .HAlign(HAlign_Center)
-                            [
-                                SNew(SBox)
-                                .MaxDesiredWidth(420.0f)
-                                [
-                                    SNew(STextBlock)
-                                    .Justification(ETextJustify::Center)
-                                    .AutoWrapText(true)
-                                    .Font(MakeStudioFont("Regular", 10))
-                                    .ColorAndOpacity(SecondaryTextColor)
-                                    .Text(GetWorkspacePreviewStandbyNote(WorkspaceLabel))
-                                ]
-                            ]
-                            + SVerticalBox::Slot()
-                            .AutoHeight()
-                            .Padding(0.0f, 20.0f, 0.0f, 0.0f)
-                            .HAlign(HAlign_Center)
-                            [
-                                SNew(SBox)
-                                .WidthOverride(220.0f)
-                                [
-                                    MakeStudioDivider(2.0f, AccentColor.CopyWithNewOpacity(0.70f))
-                                ]
-                            ]
+                            SNew(STextBlock)
+                            .Justification(ETextJustify::Center)
+                            .AutoWrapText(true)
+                            .Font(MakeStudioFont("Regular", 10))
+                            .ColorAndOpacity(SecondaryTextColor)
+                            .Text(GetWorkspacePreviewStandbyNote(WorkspaceLabel))
                         ]
                     ]
-                ]);
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 22.0f, 0.0f, 0.0f)
+                    .HAlign(HAlign_Center)
+                    [
+                        SNew(SBox)
+                        .WidthOverride(220.0f)
+                        [
+                            MakeStudioDivider(2.0f, AccentColor.CopyWithNewOpacity(0.70f))
+                        ]
+                    ]
+                ];
+
+            PreviewContentBox->SetContent(
+                WanaWorksUIStyle::WanaHeroStage(
+                    AccentColor,
+                    EmptyStageContent,
+                    TopOverlay));
         }
 
         if (SummaryBox.IsValid())
@@ -1351,11 +1263,11 @@ private:
             SummaryBox->SetContent(
                 SNew(SBorder)
                 .Padding(0.0f)
-                .BorderBackgroundColor(StudioSoftSurfaceColor)
+                .BorderBackgroundColor(SummaryAccentColor.CopyWithNewOpacity(0.075f))
                 [
                     SNew(SBorder)
                     .Padding(14.0f)
-                    .BorderBackgroundColor(StudioSoftSurfaceColor)
+                    .BorderBackgroundColor(StudioSoftSurfaceColor.CopyWithNewOpacity(0.78f))
                     [
                         BuildStudioSummaryRowsWidget(FText::FromString(CachedPreviewSummary), 4, 340.0f, SummaryAccentColor)
                     ]
@@ -1427,25 +1339,25 @@ FLinearColor GetStatusBadgeColor(const FString& StatusLabel)
 
     if (NormalizedStatus == TEXT("READY"))
     {
-        return FLinearColor(0.19f, 0.45f, 0.25f, 0.9f);
+        return FLinearColor(0.22f, 0.66f, 0.42f, 0.94f);
     }
 
     if (NormalizedStatus == TEXT("LIVE"))
     {
-        return FLinearColor(0.11f, 0.43f, 0.52f, 0.9f);
+        return FLinearColor(0.16f, 0.62f, 0.78f, 0.94f);
     }
 
     if (NormalizedStatus == TEXT("SAFE"))
     {
-        return FLinearColor(0.13f, 0.36f, 0.40f, 0.9f);
+        return FLinearColor(0.14f, 0.52f, 0.58f, 0.94f);
     }
 
     if (NormalizedStatus == TEXT("WARNING"))
     {
-        return FLinearColor(0.56f, 0.28f, 0.12f, 0.92f);
+        return FLinearColor(0.80f, 0.42f, 0.18f, 0.94f);
     }
 
-    return FLinearColor(0.20f, 0.26f, 0.45f, 0.9f);
+    return FLinearColor(0.32f, 0.42f, 0.76f, 0.94f);
 }
 
 TSharedRef<SWidget> MakeStatusBadge(const FText& StatusText)
@@ -1454,11 +1366,11 @@ TSharedRef<SWidget> MakeStatusBadge(const FText& StatusText)
 
     return SNew(SBorder)
         .Padding(1.0f)
-        .BorderBackgroundColor(GetStatusBadgeColor(NormalizedStatus).CopyWithNewOpacity(0.32f))
+        .BorderBackgroundColor(GetStatusBadgeColor(NormalizedStatus).CopyWithNewOpacity(0.44f))
         [
             SNew(SBorder)
             .Padding(FMargin(10.0f, 4.0f))
-            .BorderBackgroundColor(GetStatusBadgeColor(NormalizedStatus).CopyWithNewOpacity(0.18f))
+            .BorderBackgroundColor(GetStatusBadgeColor(NormalizedStatus).CopyWithNewOpacity(0.26f))
             [
                 SNew(STextBlock)
                 .Font(MakeStudioFont("Bold", 8))
@@ -3545,10 +3457,10 @@ FLinearColor GetWorkspaceAccentColor(const FString& WorkspaceLabel)
 
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
     {
-        return FLinearColor(0.25f, 0.74f, 0.74f, 1.0f);
+        return FLinearColor(0.22f, 0.82f, 0.78f, 1.0f);
     }
 
-    return FLinearColor(0.42f, 0.54f, 0.76f, 1.0f);
+    return FLinearColor(0.48f, 0.62f, 0.92f, 1.0f);
 }
 
 bool IsWorkspaceActive(const FWanaWorksUITabBuilderArgs& Args, const FString& WorkspaceLabel)
@@ -3565,15 +3477,15 @@ TSharedRef<SWidget> MakeStudioHeroStage(const FWanaWorksUITabBuilderArgs& Args)
 
     return SNew(SBorder)
         .Padding(0.0f)
-        .BorderBackgroundColor(StudioStageChromeColor)
+        .BorderBackgroundColor(GetWorkspaceAccentColor(WorkspaceLabel).CopyWithNewOpacity(0.26f))
         [
             SNew(SBorder)
-            .Padding(18.0f)
-            .BorderBackgroundColor(GetWorkspaceAccentColor(WorkspaceLabel).CopyWithNewOpacity(0.08f))
+            .Padding(14.0f)
+            .BorderBackgroundColor(StudioStageChromeColor)
             [
                 SNew(SBorder)
                 .Padding(1.0f)
-                .BorderBackgroundColor(StudioStageWashColor)
+                .BorderBackgroundColor(StudioStageWashColor.CopyWithNewOpacity(0.98f))
                 [
                     SNew(SWanaWorksSandboxPreviewCard)
                     .GetPreviewObject(Args.GetSandboxPreviewObject)
@@ -3613,139 +3525,34 @@ TSharedRef<SWidget> MakeWorkspaceRailButton(
     const FLinearColor AccentColor = GetWorkspaceAccentColor(WorkspaceLabel);
     const FText DisplayLabel = GetWorkspaceNavigationLabel(WorkspaceLabel);
 
-    return SNew(SButton)
-        .ButtonStyle(FCoreStyle::Get(), "NoBorder")
-        .ContentPadding(FMargin(0.0f))
-        .OnClicked_Lambda([OnWorkspaceSelected = Args.OnWorkspaceSelected, WorkspaceLabel]()
+    return WanaWorksUIStyle::WanaWorkspaceRailItem(
+        DisplayLabel,
+        Subtitle,
+        [Args, WorkspaceLabel, bLiveWorkspace]()
+        {
+            if (IsWorkspaceActive(Args, WorkspaceLabel))
+            {
+                return LOCTEXT("WanaWorksStudioNavStateActive", "ACTIVE");
+            }
+
+            return bLiveWorkspace
+                ? LOCTEXT("WanaWorksStudioNavStateAvailable", "AVAILABLE")
+                : LOCTEXT("WanaWorksStudioNavStateFuture", "COMING LATER");
+        },
+        WanaWorksUIStyle::GetWorkspaceIconName(WorkspaceLabel),
+        AccentColor,
+        bLiveWorkspace,
+        [Args, WorkspaceLabel]()
+        {
+            return IsWorkspaceActive(Args, WorkspaceLabel);
+        },
+        [OnWorkspaceSelected = Args.OnWorkspaceSelected, WorkspaceLabel]()
         {
             if (OnWorkspaceSelected)
             {
                 OnWorkspaceSelected(WorkspaceLabel);
             }
-
-            return FReply::Handled();
-        })
-        [
-            SNew(SBorder)
-            .Padding(1.0f)
-            .BorderBackgroundColor_Lambda([Args, WorkspaceLabel, AccentColor]()
-            {
-                return IsWorkspaceActive(Args, WorkspaceLabel)
-                    ? AccentColor.CopyWithNewOpacity(0.34f)
-                    : StudioOutlineColor.CopyWithNewOpacity(0.24f);
-            })
-            [
-                SNew(SBorder)
-                .Padding(FMargin(16.0f, 14.0f))
-                .BorderBackgroundColor_Lambda([Args, WorkspaceLabel, bLiveWorkspace, AccentColor]()
-                {
-                    if (IsWorkspaceActive(Args, WorkspaceLabel))
-                    {
-                        return AccentColor.CopyWithNewOpacity(0.18f);
-                    }
-
-                    return bLiveWorkspace
-                        ? StudioShellTrackColor
-                        : FLinearColor(0.028f, 0.032f, 0.052f, 0.94f);
-                })
-                [
-                    SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot()
-                    .AutoWidth()
-                    .VAlign(VAlign_Center)
-                    .Padding(0.0f, 0.0f, 14.0f, 0.0f)
-                    [
-                        SNew(SBorder)
-                        .Padding(0.0f)
-                        .BorderBackgroundColor_Lambda([Args, WorkspaceLabel, bLiveWorkspace, AccentColor]()
-                        {
-                            if (IsWorkspaceActive(Args, WorkspaceLabel))
-                            {
-                                return AccentColor;
-                            }
-
-                            return bLiveWorkspace
-                                ? FLinearColor(0.26f, 0.34f, 0.50f, 1.0f)
-                                : FLinearColor(0.16f, 0.19f, 0.28f, 1.0f);
-                        })
-                        [
-                            SNew(SBox)
-                            .WidthOverride(6.0f)
-                            .HeightOverride(6.0f)
-                        ]
-                    ]
-                    + SHorizontalBox::Slot()
-                    .FillWidth(1.0f)
-                    [
-                        SNew(SVerticalBox)
-                        + SVerticalBox::Slot()
-                        .AutoHeight()
-                        [
-                            SNew(STextBlock)
-                            .Font(MakeStudioFont("Bold", 12))
-                            .ColorAndOpacity(FLinearColor::White)
-                            .ShadowColorAndOpacity(StudioShadowColor)
-                            .ShadowOffset(FVector2D(0.0f, 1.0f))
-                            .Text(DisplayLabel)
-                        ]
-                        + SVerticalBox::Slot()
-                        .AutoHeight()
-                        .Padding(0.0f, 4.0f, 0.0f, 0.0f)
-                        [
-                            SNew(STextBlock)
-                            .Font(MakeStudioFont("Regular", 8))
-                            .ColorAndOpacity(SecondaryTextColor.CopyWithNewOpacity(0.90f))
-                            .Text(Subtitle)
-                        ]
-                    ]
-                    + SHorizontalBox::Slot()
-                    .AutoWidth()
-                    .VAlign(VAlign_Center)
-                    .Padding(12.0f, 0.0f, 0.0f, 0.0f)
-                    [
-                        SNew(SBorder)
-                        .Padding(FMargin(10.0f, 4.0f))
-                        .BorderBackgroundColor_Lambda([Args, WorkspaceLabel, bLiveWorkspace, AccentColor]()
-                        {
-                            if (IsWorkspaceActive(Args, WorkspaceLabel))
-                            {
-                                return AccentColor.CopyWithNewOpacity(0.18f);
-                            }
-
-                            return bLiveWorkspace
-                                ? StudioAccentBlueColor.CopyWithNewOpacity(0.12f)
-                                : FLinearColor(0.18f, 0.20f, 0.28f, 0.28f);
-                        })
-                        [
-                            SNew(STextBlock)
-                            .Font(MakeStudioFont("Bold", 7))
-                            .ColorAndOpacity_Lambda([Args, WorkspaceLabel, bLiveWorkspace]()
-                            {
-                                if (IsWorkspaceActive(Args, WorkspaceLabel))
-                                {
-                                    return FLinearColor::White;
-                                }
-
-                                return bLiveWorkspace
-                                    ? FLinearColor(0.84f, 0.91f, 1.0f, 1.0f)
-                                    : TertiaryTextColor;
-                            })
-                            .Text_Lambda([Args, WorkspaceLabel, bLiveWorkspace]()
-                            {
-                                if (IsWorkspaceActive(Args, WorkspaceLabel))
-                                {
-                                    return LOCTEXT("WanaWorksStudioNavStateActive", "ACTIVE");
-                                }
-
-                                return bLiveWorkspace
-                                    ? LOCTEXT("WanaWorksStudioNavStateAvailable", "AVAILABLE")
-                                    : LOCTEXT("WanaWorksStudioNavStateFuture", "COMING LATER");
-                            })
-                        ]
-                    ]
-                ]
-            ]
-        ];
+        });
 }
 
 TSharedRef<SWidget> MakeStudioNavigationRail(const FWanaWorksUITabBuilderArgs& Args)
@@ -3769,7 +3576,7 @@ TSharedRef<SWidget> MakeStudioNavigationRail(const FWanaWorksUITabBuilderArgs& A
     {
         WorkspaceButtons->AddSlot()
         .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+        .Padding(0.0f, 0.0f, 0.0f, 7.0f)
         [
             MakeWorkspaceRailButton(Args, WorkspaceEntry.Label, WorkspaceEntry.Subtitle)
         ];
@@ -3780,7 +3587,7 @@ TSharedRef<SWidget> MakeStudioNavigationRail(const FWanaWorksUITabBuilderArgs& A
         .BorderBackgroundColor(StudioOutlineColor.CopyWithNewOpacity(0.32f))
         [
             SNew(SBorder)
-            .Padding(22.0f)
+            .Padding(18.0f)
             .BorderBackgroundColor(StudioShellRaisedColor)
             [
                 SNew(SVerticalBox)
@@ -4058,203 +3865,88 @@ TSharedRef<SWidget> MakeWorkflowTile(
     const FLinearColor& AccentColor,
     TFunction<void(void)> OnPressed)
 {
-    return SNew(SBorder)
-        .Padding(1.0f)
-        .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.24f))
-        [
-            SNew(SButton)
-            .ButtonStyle(FCoreStyle::Get(), "NoBorder")
-            .ContentPadding(FMargin(0.0f))
-            .OnClicked_Lambda([OnPressed]()
-            {
-                if (OnPressed)
-                {
-                    OnPressed();
-                }
-
-                return FReply::Handled();
-            })
-            [
-                SNew(SBorder)
-                .Padding(20.0f)
-                .BorderBackgroundColor(FLinearColor(0.034f, 0.040f, 0.070f, 0.99f))
-                [
-                    SNew(SVerticalBox)
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 18.0f)
-                    [
-                        SNew(SHorizontalBox)
-                        + SHorizontalBox::Slot()
-                        .FillWidth(1.0f)
-                        [
-                            MakeStudioDivider(2.0f, AccentColor.CopyWithNewOpacity(0.90f))
-                        ]
-                        + SHorizontalBox::Slot()
-                        .AutoWidth()
-                        .Padding(12.0f, 0.0f, 0.0f, 0.0f)
-                        [
-                            MakeStudioPill(
-                                FText::FromString(StepNumber),
-                                AccentColor.CopyWithNewOpacity(0.18f),
-                                AccentColor,
-                                9,
-                                FMargin(12.0f, 6.0f))
-                        ]
-                    ]
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    [
-                        SNew(STextBlock)
-                        .Font(MakeStudioFont("Bold", 16))
-                        .ColorAndOpacity(FLinearColor::White)
-                        .ShadowColorAndOpacity(StudioShadowColor)
-                        .ShadowOffset(FVector2D(0.0f, 1.0f))
-                        .Text(Title)
-                    ]
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 12.0f, 0.0f, 18.0f)
-                    [
-                        SNew(STextBlock)
-                        .AutoWrapText(true)
-                        .Font(MakeStudioFont("Regular", 9))
-                        .ColorAndOpacity(SecondaryTextColor)
-                        .Text(Description)
-                    ]
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    [
-                        MakeStudioPill(
-                            LOCTEXT("WanaWorksStudioWorkflowActionChip", "Run Step"),
-                            AccentColor.CopyWithNewOpacity(0.16f),
-                            FLinearColor(0.95f, 0.97f, 1.0f, 1.0f),
-                            8,
-                            FMargin(12.0f, 7.0f))
-                    ]
-                ]
-            ]
-        ];
+    return WanaWorksUIStyle::WanaActionTile(
+        StepNumber,
+        Title,
+        Description,
+        WanaWorksUIStyle::GetWorkflowIconName(Title.ToString()),
+        AccentColor,
+        OnPressed);
 }
 
 TSharedRef<SWidget> MakeStudioWorkflowStrip(const FWanaWorksUITabBuilderArgs& Args, bool bAIWorkspace)
 {
-    return SNew(SBorder)
-        .Padding(1.0f)
-        .BorderBackgroundColor(StudioOutlineColor.CopyWithNewOpacity(0.42f))
+    const FLinearColor WorkspaceAccent = GetWorkspaceAccentColor(bAIWorkspace ? TEXT("AI") : TEXT("Character Building"));
+    const TSharedRef<SWidget> FlowBadge = WanaWorksUIStyle::WanaStatusPill(
+        bAIWorkspace
+            ? LOCTEXT("WanaWorksStudioWorkflowStripAIBadge", "WanaUI ORCHESTRATION")
+            : LOCTEXT("WanaWorksStudioWorkflowStripCharacterBadge", "CHARACTER AUTHORING FLOW"),
+        WorkspaceAccent,
+        true,
+        8,
+        FMargin(12.0f, 6.0f));
+
+    const TSharedRef<SWidget> WorkflowTiles =
+        SNew(SHorizontalBox)
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        .Padding(0.0f, 0.0f, 12.0f, 0.0f)
         [
-            SNew(SBorder)
-            .Padding(20.0f)
-            .BorderBackgroundColor(StudioPanelColor)
-            [
-                SNew(SVerticalBox)
-                + SVerticalBox::Slot()
-                .AutoHeight()
-                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
-                [
-                    SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot()
-                    .FillWidth(1.0f)
-                    [
-                        SNew(SVerticalBox)
-                        + SVerticalBox::Slot()
-                        .AutoHeight()
-                        [
-                            SNew(STextBlock)
-                            .Font(MakeStudioFont("Bold", 8))
-                            .ColorAndOpacity(TertiaryTextColor)
-                            .Text(LOCTEXT("WanaWorksStudioWorkflowStripEyebrow", "CORE FLOW"))
-                        ]
-                        + SVerticalBox::Slot()
-                        .AutoHeight()
-                        .Padding(0.0f, 5.0f, 0.0f, 0.0f)
-                        [
-                            SNew(STextBlock)
-                            .Font(MakeStudioFont("Bold", 16))
-                            .ColorAndOpacity(FLinearColor::White)
-                            .ShadowColorAndOpacity(StudioShadowColor)
-                            .ShadowOffset(FVector2D(0.0f, 1.0f))
-                            .Text(LOCTEXT("WanaWorksStudioWorkflowStripTitle", "Enhance. Test. Analyze. Build."))
-                        ]
-                    ]
-                    + SHorizontalBox::Slot()
-                    .AutoWidth()
-                    .VAlign(VAlign_Center)
-                    [
-                        MakeStudioPill(
-                            bAIWorkspace
-                                ? LOCTEXT("WanaWorksStudioWorkflowStripAIBadge", "WanaUI ORCHESTRATION")
-                                : LOCTEXT("WanaWorksStudioWorkflowStripCharacterBadge", "CHARACTER AUTHORING FLOW"),
-                            GetWorkspaceAccentColor(bAIWorkspace ? TEXT("AI") : TEXT("Character Building")).CopyWithNewOpacity(0.16f),
-                            FLinearColor(0.95f, 0.97f, 1.0f, 1.0f),
-                            8,
-                            FMargin(12.0f, 6.0f))
-                    ]
-                ]
-                + SVerticalBox::Slot()
-                .AutoHeight()
-                .Padding(0.0f, 0.0f, 0.0f, 18.0f)
-                [
-                    MakeStudioDivider(1.0f, StudioDividerColor.CopyWithNewOpacity(0.82f))
-                ]
-                + SVerticalBox::Slot()
-                .AutoHeight()
-                [
-                    SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot()
-                    .FillWidth(1.0f)
-                    .Padding(0.0f, 0.0f, 12.0f, 0.0f)
-                    [
-                        MakeWorkflowTile(
-                            TEXT("1"),
-                            LOCTEXT("WanaWorksStudioWorkflowEnhanceTitle", "Enhance"),
-                            bAIWorkspace
-                                ? LOCTEXT("WanaWorksStudioWorkflowEnhanceAIText", "Attach the character-intelligence orchestration layer to the existing Character BP, AI Controller, Behavior Tree or State Tree, and Anim BP stack without destructive replacement.")
-                                : LOCTEXT("WanaWorksStudioWorkflowEnhanceCharacterText", "Augment the current character stack non-destructively across skeletal mesh, rig, animation blueprint, identity, and build-readiness context."),
-                            GetWorkspaceAccentColor(bAIWorkspace ? TEXT("AI") : TEXT("Character Building")),
-                            Args.OnApplyCharacterEnhancement)
-                    ]
-                    + SHorizontalBox::Slot()
-                    .FillWidth(1.0f)
-                    .Padding(0.0f, 0.0f, 12.0f, 0.0f)
-                    [
-                        MakeWorkflowTile(
-                            TEXT("2"),
-                            LOCTEXT("WanaWorksStudioWorkflowTestTitle", "Test"),
-                            bAIWorkspace
-                                ? LOCTEXT("WanaWorksStudioWorkflowTestAIText", "Run the WanaUI-guided character-intelligence pass with WAI/WAMI state, WanaAnimation-lite hooks, WanaCombat-lite response, and WAY-lite adaptation in view.")
-                                : LOCTEXT("WanaWorksStudioWorkflowTestCharacterText", "Run the character-facing readiness pass and validate preview, movement/playability state, animation bridge safety, and authored stack integrity."),
-                            StudioAccentBlueColor,
-                            Args.OnApplyStarterAndTestTarget)
-                    ]
-                    + SHorizontalBox::Slot()
-                    .FillWidth(1.0f)
-                    .Padding(0.0f, 0.0f, 12.0f, 0.0f)
-                    [
-                        MakeWorkflowTile(
-                            TEXT("3"),
-                            LOCTEXT("WanaWorksStudioWorkflowAnalyzeTitle", "Analyze"),
-                            bAIWorkspace
-                                ? LOCTEXT("WanaWorksStudioWorkflowAnalyzeAIText", "Inspect semantic world meaning through WIT, plus live behavior, environment fit, and orchestration health across the existing UE5-native stack.")
-                                : LOCTEXT("WanaWorksStudioWorkflowAnalyzeCharacterText", "Inspect mesh, skeleton/rig, animation blueprint, movement/playability, character systems, and suggested build improvements before optimizing."),
-                            FLinearColor(0.22f, 0.73f, 0.78f, 1.0f),
-                            bAIWorkspace ? Args.OnScanEnvironmentReadiness : Args.OnEvaluateLiveTarget)
-                    ]
-                    + SHorizontalBox::Slot()
-                    .FillWidth(1.0f)
-                    [
-                        MakeWorkflowTile(
-                            TEXT("4"),
-                            LOCTEXT("WanaWorksStudioWorkflowBuildTitle", "Build"),
-                            bAIWorkspace
-                                ? LOCTEXT("WanaWorksStudioWorkflowBuildAIText", "Save the finalized character-intelligence output quietly to /Game/WanaWorks/Builds while preserving the original source stack and keeping the workspace in focus.")
-                                : LOCTEXT("WanaWorksStudioWorkflowBuildCharacterText", "Save the finalized character build asset quietly to /Game/WanaWorks/Builds while preserving the original source stack and keeping the workspace in focus."),
-                            StudioAccentGoldColor,
-                            Args.OnFinalizeSandboxBuild)
-                    ]
-                ]
-            ]
+            MakeWorkflowTile(
+                TEXT("1"),
+                LOCTEXT("WanaWorksStudioWorkflowEnhanceTitle", "Enhance"),
+                bAIWorkspace
+                    ? LOCTEXT("WanaWorksStudioWorkflowEnhanceAIText", "Attach the character-intelligence orchestration layer to the existing Character BP, AI Controller, Behavior Tree or State Tree, and Anim BP stack without destructive replacement.")
+                    : LOCTEXT("WanaWorksStudioWorkflowEnhanceCharacterText", "Augment the current character stack non-destructively across skeletal mesh, rig, animation blueprint, identity, and build-readiness context."),
+                WorkspaceAccent,
+                Args.OnApplyCharacterEnhancement)
+        ]
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        .Padding(0.0f, 0.0f, 12.0f, 0.0f)
+        [
+            MakeWorkflowTile(
+                TEXT("2"),
+                LOCTEXT("WanaWorksStudioWorkflowTestTitle", "Test"),
+                bAIWorkspace
+                    ? LOCTEXT("WanaWorksStudioWorkflowTestAIText", "Run the WanaUI-guided character-intelligence pass with WAI/WAMI state, WanaAnimation-lite hooks, WanaCombat-lite response, and WAY-lite adaptation in view.")
+                    : LOCTEXT("WanaWorksStudioWorkflowTestCharacterText", "Run the character-facing readiness pass and validate preview, movement/playability state, animation bridge safety, and authored stack integrity."),
+                StudioAccentBlueColor,
+                Args.OnApplyStarterAndTestTarget)
+        ]
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        .Padding(0.0f, 0.0f, 12.0f, 0.0f)
+        [
+            MakeWorkflowTile(
+                TEXT("3"),
+                LOCTEXT("WanaWorksStudioWorkflowAnalyzeTitle", "Analyze"),
+                bAIWorkspace
+                    ? LOCTEXT("WanaWorksStudioWorkflowAnalyzeAIText", "Review controller, Behavior Tree or State Tree readiness, animation integration, physical behavior state, relationship context, WIT environment awareness, and suggested AI improvements before optimizing.")
+                    : LOCTEXT("WanaWorksStudioWorkflowAnalyzeCharacterText", "Inspect mesh, skeleton/rig, animation blueprint, movement/playability, camera/control readiness, character systems, and suggested character build improvements before optimizing."),
+                FLinearColor(0.22f, 0.73f, 0.78f, 1.0f),
+                Args.OnAnalyzeWorkspace)
+        ]
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        [
+            MakeWorkflowTile(
+                TEXT("4"),
+                LOCTEXT("WanaWorksStudioWorkflowBuildTitle", "Build"),
+                bAIWorkspace
+                    ? LOCTEXT("WanaWorksStudioWorkflowBuildAIText", "Save the finalized character-intelligence output quietly to /Game/WanaWorks/Builds while preserving the original source stack and keeping the workspace in focus.")
+                    : LOCTEXT("WanaWorksStudioWorkflowBuildCharacterText", "Save the finalized character build asset quietly to /Game/WanaWorks/Builds while preserving the original source stack and keeping the workspace in focus."),
+                StudioAccentGoldColor,
+                Args.OnFinalizeSandboxBuild)
         ];
+
+    return WanaWorksUIStyle::WanaCard(
+        LOCTEXT("WanaWorksStudioWorkflowStripEyebrow", "CORE FLOW"),
+        LOCTEXT("WanaWorksStudioWorkflowStripTitle", "Enhance. Test. Analyze. Build."),
+        WorkspaceAccent,
+        WorkflowTiles,
+        FlowBadge,
+        true);
 }
 
 TSharedRef<SWidget> MakeStudioDetailsArea(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont, bool bAIWorkspace)
@@ -4779,69 +4471,31 @@ TSharedRef<SWidget> MakeWorkspaceContextPanel(
     const FLinearColor& AccentColor,
     const TSharedRef<SWidget>& Content)
 {
-    return SNew(SBorder)
-        .Padding(0.0f)
-        .BorderBackgroundColor(StudioGlassSurfaceColor.CopyWithNewOpacity(0.86f))
+    const TSharedRef<SWidget> PanelContent =
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 20.0f)
         [
-            SNew(SOverlay)
-            + SOverlay::Slot()
-            .HAlign(HAlign_Fill)
-            .VAlign(VAlign_Top)
-            [
-                SNew(SBorder)
-                .Padding(0.0f)
-                .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.28f))
-                [
-                    SNew(SBox)
-                    .HeightOverride(3.0f)
-                ]
-            ]
-            + SOverlay::Slot()
-            [
-                SNew(SBorder)
-                .Padding(24.0f)
-                .BorderBackgroundColor(StudioPanelColor.CopyWithNewOpacity(0.82f))
-                [
-                    SNew(SVerticalBox)
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    [
-                        MakeStudioPill(
-                            Eyebrow,
-                            AccentColor.CopyWithNewOpacity(0.16f),
-                            FLinearColor(0.97f, 0.98f, 1.0f, 1.0f),
-                            8,
-                            FMargin(12.0f, 6.0f))
-                    ]
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 14.0f, 0.0f, 0.0f)
-                    [
-                        SNew(STextBlock)
-                        .Font(MakeStudioFont("Bold", 20))
-                        .ColorAndOpacity(FLinearColor::White)
-                        .ShadowColorAndOpacity(StudioShadowColor)
-                        .ShadowOffset(FVector2D(0.0f, 1.0f))
-                        .Text(Title)
-                    ]
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 9.0f, 0.0f, 20.0f)
-                    [
-                        SNew(STextBlock)
-                        .AutoWrapText(true)
-                        .Font(MakeStudioFont("Regular", 10))
-                        .ColorAndOpacity(SecondaryTextColor)
-                        .Text(Description)
-                    ]
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    [
-                        Content
-                    ]
-                ]
-            ]
+            SNew(STextBlock)
+            .AutoWrapText(true)
+            .Font(MakeStudioFont("Regular", 10))
+            .ColorAndOpacity(SecondaryTextColor)
+            .Text(Description)
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            Content
         ];
+
+    return WanaWorksUIStyle::WanaCard(
+        Eyebrow,
+        Title,
+        AccentColor,
+        PanelContent,
+        TSharedPtr<SWidget>(),
+        true);
 }
 
 void AddWrappedCommandButton(
@@ -4884,75 +4538,37 @@ TSharedRef<SWidget> MakeWorkspaceStageShell(
         ];
     }
 
-    return SNew(SBorder)
-        .Padding(0.0f)
-        .BorderBackgroundColor(StudioGlassSurfaceColor.CopyWithNewOpacity(0.90f))
+    const TSharedRef<SWidget> StageContent =
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 12.0f)
         [
-            SNew(SOverlay)
-            + SOverlay::Slot()
-            .HAlign(HAlign_Fill)
-            .VAlign(VAlign_Top)
-            [
-                SNew(SBorder)
-                .Padding(0.0f)
-                .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.24f))
-                [
-                    SNew(SBox)
-                    .HeightOverride(3.0f)
-                ]
-            ]
-            + SOverlay::Slot()
-            [
-                SNew(SBorder)
-                .Padding(24.0f)
-                .BorderBackgroundColor(StudioPanelRaisedColor.CopyWithNewOpacity(0.88f))
-                [
-                    SNew(SVerticalBox)
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    [
-                        MakeStudioPill(
-                            Eyebrow,
-                            AccentColor.CopyWithNewOpacity(0.16f),
-                            FLinearColor(0.97f, 0.98f, 1.0f, 1.0f),
-                            8,
-                            FMargin(12.0f, 6.0f))
-                    ]
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 14.0f, 0.0f, 0.0f)
-                    [
-                        SNew(STextBlock)
-                        .Font(MakeStudioFont("Bold", 25))
-                        .ColorAndOpacity(FLinearColor::White)
-                        .ShadowColorAndOpacity(StudioShadowColor)
-                        .ShadowOffset(FVector2D(0.0f, 1.0f))
-                        .Text(Title)
-                    ]
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 8.0f, 0.0f, 0.0f)
-                    [
-                        SNew(STextBlock)
-                        .AutoWrapText(true)
-                        .Font(MakeStudioFont("Regular", 10))
-                        .ColorAndOpacity(SecondaryTextColor)
-                        .Text(Description)
-                    ]
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 18.0f, 0.0f, 18.0f)
-                    [
-                        ChipRow
-                    ]
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    [
-                        MakeStudioHeroStage(Args)
-                    ]
-                ]
-            ]
+            SNew(STextBlock)
+            .AutoWrapText(true)
+            .Font(MakeStudioFont("Regular", 11))
+            .ColorAndOpacity(SecondaryTextColor)
+            .Text(Description)
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 14.0f)
+        [
+            ChipRow
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            MakeStudioHeroStage(Args)
         ];
+
+    return WanaWorksUIStyle::WanaCard(
+        Eyebrow,
+        Title,
+        AccentColor,
+        StageContent,
+        TSharedPtr<SWidget>(),
+        true);
 }
 
 TSharedRef<SWidget> BuildCharacterIntelligenceWorkspaceBody(const FWanaWorksUITabBuilderArgs& Args)
@@ -4962,17 +4578,17 @@ TSharedRef<SWidget> BuildCharacterIntelligenceWorkspaceBody(const FWanaWorksUITa
     return SNew(SVerticalBox)
         + SVerticalBox::Slot()
         .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 18.0f)
+        .Padding(0.0f, 0.0f, 0.0f, 12.0f)
         [
             SNew(SSplitter)
             .PhysicalSplitterHandleSize(2.0f)
             + SSplitter::Slot()
-            .Value(0.22f)
+            .Value(0.20f)
             [
                 MakeWorkspaceContextPanel(
                     LOCTEXT("WanaWorksStudioAILeftEyebrow", "CHARACTER INTELLIGENCE"),
-                    LOCTEXT("WanaWorksStudioAILeftTitle", "WAI/WAMI Orchestration Context"),
-                    LOCTEXT("WanaWorksStudioAILeftDescription", "Pick the character-intelligence subject, review the existing UE5-native stack, and let WanaWorks layer memory, identity, personality, animation, combat response, and semantic world understanding non-destructively."),
+                    LOCTEXT("WanaWorksStudioAILeftTitle", "AI Diagnosis Context"),
+                    LOCTEXT("WanaWorksStudioAILeftDescription", "Pick the NPC or AI Pawn, then let WanaWorks read controller readiness, behavior structure, animation blueprint, identity, relationship, and WIT context before it optimizes anything."),
                     StudioAccentColor,
                     SNew(SVerticalBox)
                     + SVerticalBox::Slot()
@@ -5016,10 +4632,22 @@ TSharedRef<SWidget> BuildCharacterIntelligenceWorkspaceBody(const FWanaWorksUITa
                     .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                     [
                         MakeStudioStatusCard(
-                            LOCTEXT("WanaWorksStudioAIIdentityCardTitle", "WAI / WAMI Core"),
-                            LOCTEXT("WanaWorksStudioAIIdentityCardEyebrow", "IDENTITY / MEMORY / EMOTION"),
-                            Args.GetIdentitySummaryText,
+                            LOCTEXT("WanaWorksStudioAIBehaviorStructureCardTitle", "Behavior Structure"),
+                            LOCTEXT("WanaWorksStudioAIBehaviorStructureCardEyebrow", "BT / STATE TREE / BLACKBOARD"),
+                            Args.GetSubjectStackSummaryText,
                             StudioAccentBlueColor,
+                            5,
+                            188.0f)
+                    ]
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 0.0f, 0.0f, 14.0f)
+                    [
+                        MakeStudioStatusCard(
+                            LOCTEXT("WanaWorksStudioAIIdentityCardTitle", "WAI / WAMI Identity"),
+                            LOCTEXT("WanaWorksStudioAIIdentityCardEyebrow", "ROLE / MEMORY / EMOTION"),
+                            Args.GetIdentitySummaryText,
+                            StudioAccentColor,
                             5,
                             188.0f)
                     ]
@@ -5028,7 +4656,7 @@ TSharedRef<SWidget> BuildCharacterIntelligenceWorkspaceBody(const FWanaWorksUITa
                     [
                         MakeStudioStatusCard(
                             LOCTEXT("WanaWorksStudioAIProfileCardTitle", "Identity / Relationship"),
-                            LOCTEXT("WanaWorksStudioAIProfileCardEyebrow", "PLAYER INTERPRETATION"),
+                            LOCTEXT("WanaWorksStudioAIProfileCardEyebrow", "WAY-LITE CONTEXT"),
                             Args.GetRelationshipSummaryText,
                             StudioSuccessColor,
                             6,
@@ -5036,24 +4664,25 @@ TSharedRef<SWidget> BuildCharacterIntelligenceWorkspaceBody(const FWanaWorksUITa
                     ])
             ]
             + SSplitter::Slot()
-            .Value(0.50f)
+            .Value(0.56f)
             [
                 MakeWorkspaceStageShell(
                     Args,
                     WorkspaceLabel,
-                    LOCTEXT("WanaWorksStudioAIStageEyebrow", "CHARACTER OPERATING LAYER"),
-                    LOCTEXT("WanaWorksStudioAIStageTitle", "Character Intelligence Stage"),
-                    LOCTEXT("WanaWorksStudioAIStageDescription", "This stage keeps the character visually central while WanaWorks orchestrates WAI/WAMI, WanaAnimation-lite, WanaCombat-lite, WAY-lite, and WIT over the existing project architecture instead of replacing it."),
+                    LOCTEXT("WanaWorksStudioAIStageEyebrow", "NPC INTELLIGENCE WORKSPACE"),
+                    LOCTEXT("WanaWorksStudioAIStageTitle", "AI Subject Preview"),
+                    LOCTEXT("WanaWorksStudioAIStageDescription", "Preview the selected NPC while WanaWorks evaluates controller readiness, behavior structure, animation hooks, physical response, WAI/WAMI identity, WAY-lite relationship context, and WIT environment awareness before making non-destructive improvements."),
                     {
+                        LOCTEXT("WanaWorksStudioAIStageChipController", "AI Controller"),
+                        LOCTEXT("WanaWorksStudioAIStageChipBehavior", "BT / State Tree"),
                         LOCTEXT("WanaWorksStudioAIStageChipOne", "WAI / WAMI"),
                         LOCTEXT("WanaWorksStudioAIStageChipTwo", "WanaAnimation-lite"),
                         LOCTEXT("WanaWorksStudioAIStageChipThree", "WanaCombat-lite"),
-                        LOCTEXT("WanaWorksStudioAIStageChipFour", "WIT World Meaning"),
-                        LOCTEXT("WanaWorksStudioAIStageChipFive", "WanaUI Flow")
+                        LOCTEXT("WanaWorksStudioAIStageChipFour", "WIT World Meaning")
                     })
             ]
             + SSplitter::Slot()
-            .Value(0.28f)
+            .Value(0.24f)
             [
                 SNew(SVerticalBox)
                 + SVerticalBox::Slot()
@@ -5073,8 +4702,8 @@ TSharedRef<SWidget> BuildCharacterIntelligenceWorkspaceBody(const FWanaWorksUITa
                 .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                 [
                         MakeStudioStatusCard(
-                            LOCTEXT("WanaWorksStudioAIPhysicalStatusTitle", "WanaCombat-lite Response"),
-                            LOCTEXT("WanaWorksStudioAIPhysicalStatusEyebrow", "PHYSICAL / COMBAT READINESS"),
+                            LOCTEXT("WanaWorksStudioAIPhysicalStatusTitle", "Physical State"),
+                            LOCTEXT("WanaWorksStudioAIPhysicalStatusEyebrow", "WANACOMBAT-LITE READINESS"),
                         Args.GetPhysicalStateText,
                         StudioAccentBlueColor,
                         7,
@@ -5094,6 +4723,7 @@ TSharedRef<SWidget> BuildCharacterIntelligenceWorkspaceBody(const FWanaWorksUITa
                 ]
                 + SVerticalBox::Slot()
                 .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                 [
                         MakeStudioStatusCard(
                             LOCTEXT("WanaWorksStudioAIEnvironmentStatusTitle", "Environment Awareness"),
@@ -5101,6 +4731,17 @@ TSharedRef<SWidget> BuildCharacterIntelligenceWorkspaceBody(const FWanaWorksUITa
                         Args.GetWITEnvironmentReadinessText,
                         FLinearColor(0.24f, 0.74f, 0.78f, 1.0f),
                         8,
+                        210.0f)
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                [
+                        MakeStudioStatusCard(
+                            LOCTEXT("WanaWorksStudioAISuggestedImprovementsTitle", "Suggested Improvements"),
+                            LOCTEXT("WanaWorksStudioAISuggestedImprovementsEyebrow", "ANALYZE BEFORE OPTIMIZE"),
+                        Args.GetEnhancementResultsText,
+                        StudioAccentGoldColor,
+                        7,
                         210.0f)
                 ]
             ]
@@ -5119,17 +4760,17 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
     return SNew(SVerticalBox)
         + SVerticalBox::Slot()
         .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 18.0f)
+        .Padding(0.0f, 0.0f, 0.0f, 12.0f)
         [
             SNew(SSplitter)
             .PhysicalSplitterHandleSize(2.0f)
             + SSplitter::Slot()
-            .Value(0.21f)
+            .Value(0.20f)
             [
                 MakeWorkspaceContextPanel(
                     LOCTEXT("WanaWorksStudioCharacterLeftEyebrow", "CHARACTER BUILD"),
-                    LOCTEXT("WanaWorksStudioCharacterLeftTitle", "Character Build Context"),
-                    LOCTEXT("WanaWorksStudioCharacterLeftDescription", "Prepare the playable character or character asset as a clean build target: Blueprint subject, skeletal mesh, rig, animation blueprint, movement readiness, character profile, and final output."),
+                    LOCTEXT("WanaWorksStudioCharacterLeftTitle", "Character Asset Context"),
+                    LOCTEXT("WanaWorksStudioCharacterLeftDescription", "Prepare a playable character or character asset as a clean build target: Blueprint subject, skeletal mesh, skeleton or rig, animation blueprint, movement/playability readiness, profile, and final output."),
                     StudioAccentGoldColor,
                     SNew(SVerticalBox)
                     + SVerticalBox::Slot()
@@ -5193,24 +4834,25 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                     ])
             ]
             + SSplitter::Slot()
-            .Value(0.53f)
+            .Value(0.57f)
             [
                 MakeWorkspaceStageShell(
                     Args,
                     WorkspaceLabel,
-                    LOCTEXT("WanaWorksStudioCharacterStageEyebrow", "CHARACTER AUTHORING LAYER"),
+                    LOCTEXT("WanaWorksStudioCharacterStageEyebrow", "PLAYABLE CHARACTER WORKSPACE"),
                     LOCTEXT("WanaWorksStudioCharacterStageTitle", "Character Build Preview"),
-                    LOCTEXT("WanaWorksStudioCharacterStageDescription", "This stage emphasizes the character as a buildable asset: mesh-aware, rig-aware, animation-aware, movement-ready, and prepared for a clean finalized output while preserving the source Blueprint."),
+                    LOCTEXT("WanaWorksStudioCharacterStageDescription", "Preview the selected character as an authored asset while WanaWorks checks mesh, skeleton/rig, animation blueprint, movement component, camera/control assumptions, character systems, and clean final output readiness."),
                     {
                         LOCTEXT("WanaWorksStudioCharacterStageChipOne", "Skeletal Mesh"),
                         LOCTEXT("WanaWorksStudioCharacterStageChipTwo", "Skeleton / Rig"),
                         LOCTEXT("WanaWorksStudioCharacterStageChipThree", "Animation Blueprint"),
                         LOCTEXT("WanaWorksStudioCharacterStageChipFour", "Movement Component"),
+                        LOCTEXT("WanaWorksStudioCharacterStageChipControl", "Camera / Control"),
                         LOCTEXT("WanaWorksStudioCharacterStageChipFive", "Build Output")
                     })
             ]
             + SSplitter::Slot()
-            .Value(0.26f)
+            .Value(0.23f)
             [
                 SNew(SVerticalBox)
                 + SVerticalBox::Slot()
@@ -5242,8 +4884,23 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                 .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                 [
                     MakeStudioStatusCard(
+                        LOCTEXT("WanaWorksStudioCharacterCameraControlTitle", "Camera / Control Setup"),
+                        LOCTEXT("WanaWorksStudioCharacterCameraControlEyebrow", "PLAYABILITY CONTEXT"),
+                        []()
+                        {
+                            return LOCTEXT("WanaWorksStudioCharacterCameraControlSummary", "Camera Setup: Preserved from existing Blueprint\nControl Setup: Existing input/controller path preserved\nPlayability Note: WanaWorks reports readiness without replacing project input, camera, or controller architecture.");
+                        },
+                        FLinearColor(0.36f, 0.50f, 0.86f, 1.0f),
+                        4,
+                        210.0f)
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
+                [
+                    MakeStudioStatusCard(
                         LOCTEXT("WanaWorksStudioCharacterBuildRightTitle", "Build Readiness"),
-                        LOCTEXT("WanaWorksStudioCharacterBuildRightEyebrow", "ANALYZE"),
+                        LOCTEXT("WanaWorksStudioCharacterBuildRightEyebrow", "ANALYZE BEFORE BUILD"),
                         Args.GetEnhancementResultsText,
                         StudioAccentGoldColor,
                         6,
@@ -5253,7 +4910,7 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                 .AutoHeight()
                 [
                     MakeStudioStatusCard(
-                        LOCTEXT("WanaWorksStudioCharacterOutputRightTitle", "Output"),
+                        LOCTEXT("WanaWorksStudioCharacterOutputRightTitle", "Output Status"),
                         LOCTEXT("WanaWorksStudioCharacterOutputRightEyebrow", "FINAL ASSET"),
                         Args.GetSavedSubjectProgressText,
                         StudioSuccessColor,
@@ -5273,112 +4930,66 @@ TSharedRef<SWidget> MakeLevelWorkspaceWorkflowStrip(const FWanaWorksUITabBuilder
 {
     const FLinearColor LevelAccentColor = GetWorkspaceAccentColor(TEXT("Level Design"));
 
-    return SNew(SBorder)
-        .Padding(1.0f)
-        .BorderBackgroundColor(LevelAccentColor.CopyWithNewOpacity(0.28f))
+    const TSharedRef<SWidget> FlowBadge = WanaWorksUIStyle::WanaStatusPill(
+        LOCTEXT("WanaWorksStudioLevelWorkflowBadge", "LEVEL DESIGN"),
+        LevelAccentColor,
+        true,
+        8,
+        FMargin(12.0f, 6.0f));
+
+    const TSharedRef<SWidget> WorkflowTiles =
+        SNew(SHorizontalBox)
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        .Padding(0.0f, 0.0f, 12.0f, 0.0f)
         [
-            SNew(SBorder)
-            .Padding(20.0f)
-            .BorderBackgroundColor(StudioPanelColor)
-            [
-                SNew(SVerticalBox)
-                + SVerticalBox::Slot()
-                .AutoHeight()
-                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
-                [
-                    SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot()
-                    .FillWidth(1.0f)
-                    [
-                        SNew(SVerticalBox)
-                        + SVerticalBox::Slot()
-                        .AutoHeight()
-                        [
-                            SNew(STextBlock)
-                            .Font(MakeStudioFont("Bold", 8))
-                            .ColorAndOpacity(TertiaryTextColor)
-                            .Text(LOCTEXT("WanaWorksStudioLevelWorkflowEyebrow", "LEVEL FLOW"))
-                        ]
-                        + SVerticalBox::Slot()
-                        .AutoHeight()
-                        .Padding(0.0f, 5.0f, 0.0f, 0.0f)
-                        [
-                            SNew(STextBlock)
-                            .Font(MakeStudioFont("Bold", 16))
-                            .ColorAndOpacity(FLinearColor::White)
-                            .ShadowColorAndOpacity(StudioShadowColor)
-                            .ShadowOffset(FVector2D(0.0f, 1.0f))
-                            .Text(LOCTEXT("WanaWorksStudioLevelWorkflowTitle", "Enhance. Test. Analyze. Build."))
-                        ]
-                    ]
-                    + SHorizontalBox::Slot()
-                    .AutoWidth()
-                    .VAlign(VAlign_Center)
-                    [
-                        MakeStudioPill(
-                            LOCTEXT("WanaWorksStudioLevelWorkflowBadge", "LEVEL DESIGN"),
-                            LevelAccentColor.CopyWithNewOpacity(0.16f),
-                            FLinearColor(0.95f, 0.97f, 1.0f, 1.0f),
-                            8,
-                            FMargin(12.0f, 6.0f))
-                    ]
-                ]
-                + SVerticalBox::Slot()
-                .AutoHeight()
-                .Padding(0.0f, 0.0f, 0.0f, 18.0f)
-                [
-                    MakeStudioDivider(1.0f, StudioDividerColor.CopyWithNewOpacity(0.82f))
-                ]
-                + SVerticalBox::Slot()
-                .AutoHeight()
-                [
-                    SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot()
-                    .FillWidth(1.0f)
-                    .Padding(0.0f, 0.0f, 12.0f, 0.0f)
-                    [
-                        MakeWorkflowTile(
-                            TEXT("1"),
-                            LOCTEXT("WanaWorksStudioLevelWorkflowEnhanceTile", "Enhance"),
-                            LOCTEXT("WanaWorksStudioLevelWorkflowEnhanceText", "Prepare the semantic world context so level-facing meaning can augment the active UE5-native character stack without polluting Character Intelligence."),
-                            LevelAccentColor,
-                            Args.OnApplyCharacterEnhancement)
-                    ]
-                    + SHorizontalBox::Slot()
-                    .FillWidth(1.0f)
-                    .Padding(0.0f, 0.0f, 12.0f, 0.0f)
-                    [
-                        MakeWorkflowTile(
-                            TEXT("2"),
-                            LOCTEXT("WanaWorksStudioLevelWorkflowTestTile", "Test"),
-                            LOCTEXT("WanaWorksStudioLevelWorkflowTestText", "Run a level-facing pass so the current subject, space meaning, and scene context stay readable inside the world workspace."),
-                            StudioAccentBlueColor,
-                            Args.OnEvaluateLiveTarget)
-                    ]
-                    + SHorizontalBox::Slot()
-                    .FillWidth(1.0f)
-                    .Padding(0.0f, 0.0f, 12.0f, 0.0f)
-                    [
-                        MakeWorkflowTile(
-                            TEXT("3"),
-                            LOCTEXT("WanaWorksStudioLevelWorkflowAnalyzeTile", "Analyze"),
-                            LOCTEXT("WanaWorksStudioLevelWorkflowAnalyzeText", "Use WIT semantic world understanding to inspect cover meaning, obstacle meaning, movement-space limits, and environment readiness."),
-                            LevelAccentColor,
-                            Args.OnScanEnvironmentReadiness)
-                    ]
-                    + SHorizontalBox::Slot()
-                    .FillWidth(1.0f)
-                    [
-                        MakeWorkflowTile(
-                            TEXT("4"),
-                            LOCTEXT("WanaWorksStudioLevelWorkflowBuildTile", "Build"),
-                            LOCTEXT("WanaWorksStudioLevelWorkflowBuildText", "Save a clean output quietly while the world-stage workspace remains in focus and the underlying project architecture stays untouched."),
-                            StudioAccentGoldColor,
-                            Args.OnFinalizeSandboxBuild)
-                    ]
-                ]
-            ]
+            MakeWorkflowTile(
+                TEXT("1"),
+                LOCTEXT("WanaWorksStudioLevelWorkflowEnhanceTile", "Enhance"),
+                LOCTEXT("WanaWorksStudioLevelWorkflowEnhanceText", "Prepare the semantic world context so level-facing meaning can augment the active UE5-native character stack without polluting Character Intelligence."),
+                LevelAccentColor,
+                Args.OnApplyCharacterEnhancement)
+        ]
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        .Padding(0.0f, 0.0f, 12.0f, 0.0f)
+        [
+            MakeWorkflowTile(
+                TEXT("2"),
+                LOCTEXT("WanaWorksStudioLevelWorkflowTestTile", "Test"),
+                LOCTEXT("WanaWorksStudioLevelWorkflowTestText", "Run a level-facing pass so the current subject, space meaning, and scene context stay readable inside the world workspace."),
+                StudioAccentBlueColor,
+                Args.OnEvaluateLiveTarget)
+        ]
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        .Padding(0.0f, 0.0f, 12.0f, 0.0f)
+        [
+            MakeWorkflowTile(
+                TEXT("3"),
+                LOCTEXT("WanaWorksStudioLevelWorkflowAnalyzeTile", "Analyze"),
+                LOCTEXT("WanaWorksStudioLevelWorkflowAnalyzeText", "Use WIT semantic world understanding to inspect cover meaning, obstacle meaning, movement-space limits, and environment readiness."),
+                LevelAccentColor,
+                Args.OnAnalyzeWorkspace)
+        ]
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        [
+            MakeWorkflowTile(
+                TEXT("4"),
+                LOCTEXT("WanaWorksStudioLevelWorkflowBuildTile", "Build"),
+                LOCTEXT("WanaWorksStudioLevelWorkflowBuildText", "Save a clean output quietly while the world-stage workspace remains in focus and the underlying project architecture stays untouched."),
+                StudioAccentGoldColor,
+                Args.OnFinalizeSandboxBuild)
         ];
+
+    return WanaWorksUIStyle::WanaCard(
+        LOCTEXT("WanaWorksStudioLevelWorkflowEyebrow", "LEVEL FLOW"),
+        LOCTEXT("WanaWorksStudioLevelWorkflowTitle", "Enhance. Test. Analyze. Build."),
+        LevelAccentColor,
+        WorkflowTiles,
+        FlowBadge,
+        true);
 }
 
 TSharedRef<SWidget> BuildLevelDesignWorkspaceBody(const FWanaWorksUITabBuilderArgs& Args)
@@ -5386,12 +4997,12 @@ TSharedRef<SWidget> BuildLevelDesignWorkspaceBody(const FWanaWorksUITabBuilderAr
     return SNew(SVerticalBox)
         + SVerticalBox::Slot()
         .AutoHeight()
-        .Padding(0.0f, 0.0f, 0.0f, 18.0f)
+        .Padding(0.0f, 0.0f, 0.0f, 12.0f)
         [
             SNew(SSplitter)
             .PhysicalSplitterHandleSize(2.0f)
             + SSplitter::Slot()
-            .Value(0.26f)
+            .Value(0.23f)
             [
                 MakeWorkspaceContextPanel(
                     LOCTEXT("WanaWorksStudioLevelLeftEyebrow", "LEVEL CONTEXT"),
@@ -5439,7 +5050,7 @@ TSharedRef<SWidget> BuildLevelDesignWorkspaceBody(const FWanaWorksUITabBuilderAr
                     ])
             ]
             + SSplitter::Slot()
-            .Value(0.44f)
+            .Value(0.52f)
             [
                 MakeWorkspaceStageShell(
                     Args,
@@ -5455,7 +5066,7 @@ TSharedRef<SWidget> BuildLevelDesignWorkspaceBody(const FWanaWorksUITabBuilderAr
                     })
             ]
             + SSplitter::Slot()
-            .Value(0.30f)
+            .Value(0.25f)
             [
                 SNew(SVerticalBox)
                 + SVerticalBox::Slot()
@@ -5589,6 +5200,280 @@ private:
     TSharedPtr<SBox> BodyBox;
     FString CachedWorkspaceLabel;
 };
+
+FString GetSelectedWorkspaceLabelOrDefault(TFunction<FString(void)> GetSelectedWorkspaceLabel)
+{
+    return GetSelectedWorkspaceLabel
+        ? GetSelectedWorkspaceLabel()
+        : FString(TEXT("AI"));
+}
+
+TSharedRef<SWidget> MakeTopSearchSurface()
+{
+    return SNew(SBorder)
+        .Padding(1.0f)
+        .BorderBackgroundColor(StudioAccentBlueColor.CopyWithNewOpacity(0.30f))
+        [
+            SNew(SBorder)
+            .Padding(FMargin(16.0f, 11.0f))
+            .BorderBackgroundColor(StudioGlassSurfaceColor.CopyWithNewOpacity(0.76f))
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    WanaWorksUIStyle::WanaStatusPill(
+                        LOCTEXT("WanaWorksTopSearchMode", "SEARCH"),
+                        StudioAccentBlueColor,
+                        false,
+                        7,
+                        FMargin(9.0f, 4.0f))
+                ]
+                + SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                .VAlign(VAlign_Center)
+                .Padding(11.0f, 0.0f, 8.0f, 0.0f)
+                [
+                    SNew(STextBlock)
+                    .Font(MakeStudioFont("Regular", 10))
+                    .ColorAndOpacity(SecondaryTextColor.CopyWithNewOpacity(0.92f))
+                    .Text(LOCTEXT("WanaWorksTopSearchPlaceholder", "Search WanaWorks studio, subjects, systems..."))
+                ]
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                [
+                    SNew(SBorder)
+                    .Padding(FMargin(7.0f, 3.0f))
+                    .BorderBackgroundColor(FLinearColor(0.012f, 0.020f, 0.052f, 0.96f))
+                    [
+                        SNew(STextBlock)
+                        .Font(MakeStudioFont("Bold", 7))
+                        .ColorAndOpacity(TertiaryTextColor.CopyWithNewOpacity(0.86f))
+                        .Text(LOCTEXT("WanaWorksTopSearchShortcut", "CTRL K"))
+                    ]
+                ]
+            ]
+        ];
+}
+
+TSharedRef<SWidget> MakeTopWorkspaceHeader(const FWanaWorksUITabBuilderArgs& Args)
+{
+    return SNew(SBorder)
+        .Padding(1.0f)
+        .BorderBackgroundColor_Lambda([GetSelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel]()
+        {
+            return GetWorkspaceAccentColor(GetSelectedWorkspaceLabelOrDefault(GetSelectedWorkspaceLabel)).CopyWithNewOpacity(0.38f);
+        })
+        [
+            SNew(SBorder)
+            .Padding(FMargin(16.0f, 10.0f))
+            .BorderBackgroundColor(StudioSoftSurfaceColor.CopyWithNewOpacity(0.90f))
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Fill)
+                .Padding(0.0f, 2.0f, 13.0f, 2.0f)
+                [
+                    SNew(SBorder)
+                    .Padding(0.0f)
+                    .BorderBackgroundColor_Lambda([GetSelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel]()
+                    {
+                        return GetWorkspaceAccentColor(GetSelectedWorkspaceLabelOrDefault(GetSelectedWorkspaceLabel)).CopyWithNewOpacity(0.78f);
+                    })
+                    [
+                        SNew(SBox)
+                        .WidthOverride(3.0f)
+                    ]
+                ]
+                + SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                .VAlign(VAlign_Center)
+                [
+                    SNew(SVerticalBox)
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    [
+                        SNew(STextBlock)
+                        .Font(MakeStudioFont("Bold", 7))
+                        .ColorAndOpacity(TertiaryTextColor.CopyWithNewOpacity(0.90f))
+                        .Text(LOCTEXT("WanaWorksTopWorkspaceEyebrow", "ACTIVE WORKSPACE"))
+                    ]
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 5.0f, 0.0f, 0.0f)
+                    [
+                        SNew(STextBlock)
+                        .AutoWrapText(true)
+                        .Font(MakeStudioFont("Bold", 17))
+                        .ColorAndOpacity(FLinearColor::White)
+                        .ShadowColorAndOpacity(StudioShadowColor)
+                        .ShadowOffset(FVector2D(0.0f, 1.0f))
+                        .Text_Lambda([GetSelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel]()
+                        {
+                            return GetWorkspaceHeroTitle(GetSelectedWorkspaceLabelOrDefault(GetSelectedWorkspaceLabel));
+                        })
+                    ]
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 4.0f, 0.0f, 0.0f)
+                    [
+                        SNew(STextBlock)
+                        .Font(MakeStudioFont("Bold", 8))
+                        .ColorAndOpacity_Lambda([GetSelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel]()
+                        {
+                            return GetWorkspaceAccentColor(GetSelectedWorkspaceLabelOrDefault(GetSelectedWorkspaceLabel)).CopyWithNewOpacity(0.92f);
+                        })
+                        .Text_Lambda([GetSelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel]()
+                        {
+                            return GetWorkspaceHeroBadge(GetSelectedWorkspaceLabelOrDefault(GetSelectedWorkspaceLabel));
+                        })
+                    ]
+                ]
+            ]
+        ];
+}
+
+TSharedRef<SWidget> MakeTopCommandCenter(const FWanaWorksUITabBuilderArgs& Args)
+{
+    return SNew(SBorder)
+        .Padding(1.0f)
+        .BorderBackgroundColor(StudioAccentColor.CopyWithNewOpacity(0.34f))
+        [
+            SNew(SBorder)
+            .Padding(FMargin(15.0f, 11.0f))
+            .BorderBackgroundColor(FLinearColor(0.018f, 0.026f, 0.066f, 0.98f))
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                [
+                    SNew(STextBlock)
+                    .Font(MakeStudioFont("Bold", 8))
+                    .ColorAndOpacity(StudioAccentColor.CopyWithNewOpacity(0.92f))
+                    .Text(LOCTEXT("WanaWorksTopCommandLabel", "COMMAND CENTER"))
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 6.0f, 0.0f, 0.0f)
+                [
+                    SNew(STextBlock)
+                    .AutoWrapText(true)
+                    .Font(MakeStudioFont("Regular", 9))
+                    .ColorAndOpacity(SecondaryTextColor.CopyWithNewOpacity(0.92f))
+                    .Text_Lambda([GetCommandText = Args.GetCommandText]()
+                    {
+                        const FText CommandText = GetCommandText ? GetCommandText() : FText::GetEmpty();
+                        return CommandText.IsEmpty()
+                            ? LOCTEXT("WanaWorksTopCommandPlaceholder", "Ready for orchestration commands")
+                            : CommandText;
+                    })
+                ]
+            ]
+        ];
+}
+
+TSharedRef<SWidget> MakeTopStatusModule(const FWanaWorksUITabBuilderArgs& Args)
+{
+    return SNew(SBorder)
+        .Padding(1.0f)
+        .BorderBackgroundColor(StudioSuccessColor.CopyWithNewOpacity(0.32f))
+        [
+            SNew(SBorder)
+            .Padding(FMargin(14.0f, 10.0f))
+            .BorderBackgroundColor(FLinearColor(0.016f, 0.032f, 0.054f, 0.98f))
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                .Padding(0.0f, 0.0f, 10.0f, 0.0f)
+                [
+                    SNew(SBorder)
+                    .Padding(0.0f)
+                    .BorderBackgroundColor(StudioSuccessColor.CopyWithNewOpacity(0.92f))
+                    [
+                        SNew(SBox)
+                        .WidthOverride(7.0f)
+                        .HeightOverride(7.0f)
+                    ]
+                ]
+                + SHorizontalBox::Slot()
+                .FillWidth(1.0f)
+                .VAlign(VAlign_Center)
+                [
+                    SNew(SVerticalBox)
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    [
+                        SNew(STextBlock)
+                        .Font(MakeStudioFont("Bold", 7))
+                        .ColorAndOpacity(TertiaryTextColor.CopyWithNewOpacity(0.86f))
+                        .Text(LOCTEXT("WanaWorksTopStatusLabel", "SYSTEM STATE"))
+                    ]
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 5.0f, 0.0f, 0.0f)
+                    [
+                        SNew(STextBlock)
+                        .AutoWrapText(true)
+                        .Font(MakeStudioFont("Bold", 9))
+                        .ColorAndOpacity(FLinearColor(0.92f, 1.0f, 0.96f, 1.0f))
+                        .ShadowColorAndOpacity(StudioShadowColor)
+                        .ShadowOffset(FVector2D(0.0f, 1.0f))
+                        .Text_Lambda([GetStatusText = Args.GetStatusText]()
+                        {
+                            return GetStatusText ? GetStatusText() : FText::GetEmpty();
+                        })
+                    ]
+                ]
+            ]
+        ];
+}
+
+TSharedRef<SWidget> MakeStudioTopChrome(const FWanaWorksUITabBuilderArgs& Args)
+{
+    return SNew(SBorder)
+        .Padding(1.0f)
+        .BorderBackgroundColor(StudioOutlineColor.CopyWithNewOpacity(0.42f))
+        [
+            SNew(SBorder)
+            .Padding(FMargin(18.0f, 14.0f))
+            .BorderBackgroundColor(FLinearColor(0.006f, 0.012f, 0.034f, 0.992f))
+            [
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot()
+                .FillWidth(0.30f)
+                .VAlign(VAlign_Center)
+                .Padding(0.0f, 0.0f, 14.0f, 0.0f)
+                [
+                    MakeTopSearchSurface()
+                ]
+                + SHorizontalBox::Slot()
+                .FillWidth(0.32f)
+                .VAlign(VAlign_Center)
+                .Padding(0.0f, 0.0f, 14.0f, 0.0f)
+                [
+                    MakeTopWorkspaceHeader(Args)
+                ]
+                + SHorizontalBox::Slot()
+                .FillWidth(0.22f)
+                .VAlign(VAlign_Center)
+                .Padding(0.0f, 0.0f, 14.0f, 0.0f)
+                [
+                    MakeTopCommandCenter(Args)
+                ]
+                + SHorizontalBox::Slot()
+                .FillWidth(0.16f)
+                .VAlign(VAlign_Center)
+                [
+                    MakeTopStatusModule(Args)
+                ]
+            ]
+        ];
+}
 }
 
 namespace WanaWorksUITabBuilder
@@ -5605,7 +5490,7 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
             .Padding(0.0f, 0.0f, 20.0f, 0.0f)
             [
                 SNew(SBox)
-                .WidthOverride(268.0f)
+                .WidthOverride(296.0f)
                 [
                     MakeStudioNavigationRail(Args)
                 ]
@@ -5618,131 +5503,18 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
                 .AutoHeight()
                 .Padding(0.0f, 0.0f, 0.0f, 16.0f)
                 [
-                    SNew(SBorder)
-                    .Padding(1.0f)
-                    .BorderBackgroundColor(StudioOutlineColor.CopyWithNewOpacity(0.38f))
-                    [
-                        SNew(SBorder)
-                        .Padding(FMargin(20.0f, 18.0f))
-                        .BorderBackgroundColor(StudioShellRaisedColor)
-                        [
-                            SNew(SHorizontalBox)
-                            + SHorizontalBox::Slot()
-                            .FillWidth(0.40f)
-                            .VAlign(VAlign_Center)
-                            .Padding(0.0f, 0.0f, 18.0f, 0.0f)
-                            [
-                                SNew(SBorder)
-                                .Padding(1.0f)
-                                .BorderBackgroundColor(StudioOutlineColor.CopyWithNewOpacity(0.36f))
-                                [
-                                    SNew(SBorder)
-                                    .Padding(FMargin(16.0f, 12.0f))
-                                    .BorderBackgroundColor(StudioPanelColor)
-                                    [
-                                        SNew(SVerticalBox)
-                                        + SVerticalBox::Slot()
-                                        .AutoHeight()
-                                        [
-                                            SNew(STextBlock)
-                                            .Font(MakeStudioFont("Bold", 8))
-                                            .ColorAndOpacity(TertiaryTextColor)
-                                            .Text(LOCTEXT("WanaWorksStudioShellSearchLabel", "STUDIO SEARCH"))
-                                        ]
-                                        + SVerticalBox::Slot()
-                                        .AutoHeight()
-                                        .Padding(0.0f, 4.0f, 0.0f, 0.0f)
-                                        [
-                                            SNew(STextBlock)
-                                            .Font(MakeStudioFont("Regular", 10))
-                                            .ColorAndOpacity(SecondaryTextColor)
-                                            .Text(LOCTEXT("WanaWorksStudioShellSearchPlaceholder", "Search WanaWorks..."))
-                                        ]
-                                    ]
-                                ]
-                            ]
-                            + SHorizontalBox::Slot()
-                            .FillWidth(0.33f)
-                            .VAlign(VAlign_Center)
-                            .Padding(0.0f, 0.0f, 18.0f, 0.0f)
-                            [
-                                SNew(SVerticalBox)
-                                + SVerticalBox::Slot()
-                                .AutoHeight()
-                                [
-                                    SNew(STextBlock)
-                                    .Font(MakeStudioFont("Bold", 8))
-                                    .ColorAndOpacity(TertiaryTextColor)
-                                    .Text(LOCTEXT("WanaWorksStudioShellWorkspaceLabel", "ACTIVE WORKSPACE"))
-                                ]
-                                + SVerticalBox::Slot()
-                                .AutoHeight()
-                                .Padding(0.0f, 6.0f, 0.0f, 0.0f)
-                                [
-                                    SNew(STextBlock)
-                                    .Font(MakeStudioFont("Bold", 18))
-                                    .ColorAndOpacity(FLinearColor::White)
-                                    .ShadowColorAndOpacity(StudioShadowColor)
-                                    .ShadowOffset(FVector2D(0.0f, 1.0f))
-                                    .Text_Lambda([GetSelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel]()
-                                    {
-                                        const FString WorkspaceLabel = GetSelectedWorkspaceLabel
-                                            ? GetSelectedWorkspaceLabel()
-                                            : FString(TEXT("AI"));
-                                        return GetWorkspaceHeroTitle(WorkspaceLabel);
-                                    })
-                                ]
-                            ]
-                            + SHorizontalBox::Slot()
-                            .FillWidth(0.27f)
-                            .VAlign(VAlign_Center)
-                            [
-                                SNew(SHorizontalBox)
-                                + SHorizontalBox::Slot()
-                                .FillWidth(1.0f)
-                                .VAlign(VAlign_Center)
-                                [
-                                    MakeStudioPill(
-                                        LOCTEXT("WanaWorksStudioShellCommandCenter", "COMMAND CENTER"),
-                                        StudioAccentColor.CopyWithNewOpacity(0.14f),
-                                        FLinearColor(0.95f, 0.97f, 1.0f, 1.0f),
-                                        8,
-                                        FMargin(14.0f, 8.0f))
-                                ]
-                                + SHorizontalBox::Slot()
-                                .AutoWidth()
-                                .VAlign(VAlign_Center)
-                                .Padding(12.0f, 0.0f, 0.0f, 0.0f)
-                                [
-                                    SNew(SBorder)
-                                    .Padding(FMargin(12.0f, 8.0f))
-                                    .BorderBackgroundColor(FLinearColor(0.032f, 0.040f, 0.068f, 0.98f))
-                                    [
-                                        SNew(STextBlock)
-                                        .Font(MakeStudioFont("Bold", 9))
-                                        .ColorAndOpacity(FLinearColor::White)
-                                        .ShadowColorAndOpacity(StudioShadowColor)
-                                        .ShadowOffset(FVector2D(0.0f, 1.0f))
-                                        .Text_Lambda([GetStatusText = Args.GetStatusText]()
-                                        {
-                                            return GetStatusText ? GetStatusText() : FText::GetEmpty();
-                                        })
-                                    ]
-                                ]
-                            ]
-                        ]
-                    ]
+                    MakeStudioTopChrome(Args)
                 ]
                 + SVerticalBox::Slot()
                 .FillHeight(1.0f)
                 [
                     SNew(SBorder)
                     .Padding(1.0f)
-                    .BorderBackgroundColor(StudioOutlineColor.CopyWithNewOpacity(0.38f))
+                    .BorderBackgroundColor(StudioOutlineColor.CopyWithNewOpacity(0.50f))
                     [
                         SNew(SBorder)
                         .Padding(20.0f)
-                        .BorderBackgroundColor(StudioShellRaisedColor)
+                        .BorderBackgroundColor(StudioShellRaisedColor.CopyWithNewOpacity(0.998f))
                         [
                             SNew(SScrollBox)
                             + SScrollBox::Slot()
