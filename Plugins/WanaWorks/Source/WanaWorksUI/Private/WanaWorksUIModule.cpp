@@ -447,6 +447,209 @@ FString BuildWorkspaceBuildStatusText(const FString& WorkspaceLabel, const FStri
         *OutputSuffix);
 }
 
+bool HasLevelDesignWITPair(const FWanaEnvironmentReadinessSnapshot& Snapshot)
+{
+    return Snapshot.bHasObserverActor && Snapshot.bHasTargetActor;
+}
+
+FString BuildLevelDesignPairSummary(const FWanaEnvironmentReadinessSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasObserverActor && !Snapshot.bHasTargetActor)
+    {
+        return TEXT("No observer-target context is assigned yet.");
+    }
+
+    if (!Snapshot.bHasObserverActor)
+    {
+        return FString::Printf(
+            TEXT("Target %s is assigned, but no observer is available for movement-space meaning."),
+            Snapshot.TargetActorLabel.IsEmpty() ? TEXT("(unnamed target)") : *Snapshot.TargetActorLabel);
+    }
+
+    if (!Snapshot.bHasTargetActor)
+    {
+        return FString::Printf(
+            TEXT("Observer %s is assigned, but no target is available for cover, obstacle, and reachability meaning."),
+            Snapshot.ObserverActorLabel.IsEmpty() ? TEXT("(unnamed observer)") : *Snapshot.ObserverActorLabel);
+    }
+
+    const FString PairSource = Snapshot.PairSourceLabel.IsEmpty() ? FString(TEXT("workspace context")) : Snapshot.PairSourceLabel;
+    const FString PairLabel = FString::Printf(
+        TEXT("%s to %s from %s."),
+        Snapshot.ObserverActorLabel.IsEmpty() ? TEXT("(unnamed observer)") : *Snapshot.ObserverActorLabel,
+        Snapshot.TargetActorLabel.IsEmpty() ? TEXT("(unnamed target)") : *Snapshot.TargetActorLabel,
+        *PairSource);
+
+    return Snapshot.bTargetFallsBackToObserver
+        ? FString::Printf(TEXT("%s Observer fallback is active, so assign a separate target for standard semantic readings."), *PairLabel)
+        : PairLabel;
+}
+
+FString GetLevelDesignCoverMeaningStatus(const FWanaEnvironmentReadinessSnapshot& Snapshot, int32 SelectedActorCount)
+{
+    if (HasLevelDesignWITPair(Snapshot))
+    {
+        return TEXT("Ready");
+    }
+
+    return SelectedActorCount > 0 ? TEXT("Limited") : TEXT("Missing");
+}
+
+FString GetLevelDesignCoverMeaningDetail(const FWanaEnvironmentReadinessSnapshot& Snapshot, int32 SelectedActorCount)
+{
+    if (!HasLevelDesignWITPair(Snapshot))
+    {
+        return SelectedActorCount > 0
+            ? FString::Printf(TEXT("%d selected actor(s) are captured as manual cover/context candidates; assign an observer and target to score cover pressure."), SelectedActorCount)
+            : TEXT("Assign an observer and target, or select scene actors, before WIT can infer cover demand.");
+    }
+
+    if (Snapshot.MovementReadiness.bMovementSpaceRestricted
+        || Snapshot.MovementReadiness.bObstaclePressureDetected
+        || Snapshot.MovementReadiness.bPathToTargetObstructed)
+    {
+        return TEXT("Nearby obstruction or restricted movement space suggests potential cover/constraint candidates for the current pair.");
+    }
+
+    return TEXT("No immediate cover pressure is detected for the current pair; WIT reads the space as open.");
+}
+
+FString GetLevelDesignObstacleMeaningStatus(const FWanaEnvironmentReadinessSnapshot& Snapshot)
+{
+    return HasLevelDesignWITPair(Snapshot) ? TEXT("Ready") : TEXT("Limited");
+}
+
+FString GetLevelDesignObstacleMeaningDetail(const FWanaEnvironmentReadinessSnapshot& Snapshot)
+{
+    if (!HasLevelDesignWITPair(Snapshot))
+    {
+        return TEXT("Obstacle meaning needs an observer-target context before WIT can score pressure around the path.");
+    }
+
+    const int32 PressurePercent = FMath::RoundToInt(FMath::Clamp(Snapshot.MovementReadiness.ObstaclePressure, 0.0f, 1.0f) * 100.0f);
+
+    return FString::Printf(
+        TEXT("%s obstacle pressure (%d%% probe pressure). Path to target: %s."),
+        *UIFmt::GetObstaclePressureSummaryLabel(Snapshot.MovementReadiness),
+        PressurePercent,
+        Snapshot.MovementReadiness.bPathToTargetObstructed ? TEXT("obstructed") : TEXT("clear"));
+}
+
+FString GetLevelDesignMovementSpaceStatus(const FWanaEnvironmentReadinessSnapshot& Snapshot)
+{
+    return HasLevelDesignWITPair(Snapshot) ? TEXT("Ready") : TEXT("Limited");
+}
+
+FString GetLevelDesignMovementSpaceDetail(const FWanaEnvironmentReadinessSnapshot& Snapshot)
+{
+    if (!HasLevelDesignWITPair(Snapshot))
+    {
+        return TEXT("Movement-space meaning needs an observer-target context before WIT can evaluate distance, restriction, and reachability.");
+    }
+
+    const FString DistanceLabel = Snapshot.MovementReadiness.DistanceToTarget > 0.0f
+        ? FString::Printf(TEXT("%.0f cm"), Snapshot.MovementReadiness.DistanceToTarget)
+        : FString(TEXT("no measurable distance"));
+
+    return FString::Printf(
+        TEXT("%s movement space at %s. %s"),
+        *UIFmt::GetMovementSpaceSummaryLabel(Snapshot.MovementReadiness),
+        *DistanceLabel,
+        Snapshot.MovementReadiness.Detail.IsEmpty() ? TEXT("No extra movement detail is available.") : *Snapshot.MovementReadiness.Detail);
+}
+
+FString GetLevelDesignBoundaryMeaningStatus(const FWanaEnvironmentReadinessSnapshot& Snapshot)
+{
+    return HasLevelDesignWITPair(Snapshot) && Snapshot.MovementReadiness.bHasMovementContext ? TEXT("Ready") : TEXT("Limited");
+}
+
+FString GetLevelDesignBoundaryMeaningDetail(const FWanaEnvironmentReadinessSnapshot& Snapshot)
+{
+    if (!HasLevelDesignWITPair(Snapshot))
+    {
+        return TEXT("Boundary and navigation meaning need a WIT observer-target pair.");
+    }
+
+    return FString::Printf(
+        TEXT("%s Navigation context: %s. Reachability: %s."),
+        *UIFmt::GetEnvironmentShapingSummaryLabel(Snapshot.MovementReadiness),
+        *UIFmt::GetNavigationContextSummaryLabel(Snapshot),
+        *UIFmt::GetReachabilitySummaryLabel(Snapshot));
+}
+
+FString BuildAIBehaviorMovementCompatibilityDetail(const FWanaMovementReadiness& MovementReadiness)
+{
+    return FString::Printf(
+        TEXT("%s; %s"),
+        *UIFmt::GetMovementReadinessStatusSummaryLabel(MovementReadiness),
+        *UIFmt::GetEnvironmentShapingSummaryLabel(MovementReadiness));
+}
+
+FString BuildAIBehaviorFallbackReasonDetail(EWAYBehaviorExecutionMode ExecutionMode, const FWanaMovementReadiness& MovementReadiness)
+{
+    switch (ExecutionMode)
+    {
+    case EWAYBehaviorExecutionMode::MovementAllowed:
+        return TEXT("No fallback was needed; WIT allowed a safe movement-aware behavior.");
+
+    case EWAYBehaviorExecutionMode::FallbackActive:
+        return MovementReadiness.Detail.IsEmpty()
+            ? TEXT("Full locomotion was limited, so WanaWorks used a small safe fallback movement.")
+            : FString::Printf(TEXT("Full locomotion was limited, so WanaWorks used a small safe fallback movement. %s"), *MovementReadiness.Detail);
+
+    case EWAYBehaviorExecutionMode::FacingOnly:
+        return MovementReadiness.Detail.IsEmpty()
+            ? TEXT("Movement was unsafe, unnecessary, or unsupported, so WanaWorks used facing/attention only.")
+            : FString::Printf(TEXT("Movement was unsafe, unnecessary, or unsupported, so WanaWorks used facing/attention only. %s"), *MovementReadiness.Detail);
+
+    case EWAYBehaviorExecutionMode::Unknown:
+    default:
+        return MovementReadiness.Detail.IsEmpty()
+            ? TEXT("Movement compatibility was unknown.")
+            : MovementReadiness.Detail;
+    }
+}
+
+FString BuildAIBehaviorRecommendedNextStepDetail(EWAYBehaviorExecutionMode ExecutionMode, const FWanaMovementReadiness& MovementReadiness)
+{
+    if (ExecutionMode == EWAYBehaviorExecutionMode::MovementAllowed)
+    {
+        return TEXT("Visually verify the behavior distance and repeat Test against a different relationship target.");
+    }
+
+    if (MovementReadiness.bAnimationDrivenLocomotionDetected)
+    {
+        return TEXT("Keep the facing/attention fallback until animation-driven locomotion is deliberately wired for movement.");
+    }
+
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Blocked)
+    {
+        return TEXT("Assign a reachable target or improve WIT/navigation context before expecting movement.");
+    }
+
+    if (ExecutionMode == EWAYBehaviorExecutionMode::FallbackActive)
+    {
+        return TEXT("Check the fallback step in the viewport, then add a locomotion-safe hook only if stronger movement is needed.");
+    }
+
+    return TEXT("Use Enhance/Test again after selecting clearer scene space or a better observer-target pair.");
+}
+
+FString BuildAIPhysicalBehaviorCommitmentDetail(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasPhysicalStateComponent)
+    {
+        return TEXT("Physical-state influence is limited until UWanaPhysicalStateComponent is attached.");
+    }
+
+    return FString::Printf(
+        TEXT("Movement commit: %s. Attack commit: %s. Recovery: %s. Instability: %.2f."),
+        Snapshot.bPhysicalCanCommitToMovement ? TEXT("ready") : TEXT("limited"),
+        Snapshot.bPhysicalCanCommitToAttack ? TEXT("ready") : TEXT("limited"),
+        Snapshot.bPhysicalNeedsRecovery ? TEXT("needed") : TEXT("not needed"),
+        Snapshot.PhysicalInstabilityAlpha);
+}
+
 FString ExtractResponseOutputValue(const FWanaCommandResponse& Response, const FString& Prefix)
 {
     const FString MatchPrefix = Prefix.EndsWith(TEXT(":")) ? Prefix : FString::Printf(TEXT("%s:"), *Prefix);
@@ -2485,22 +2688,53 @@ void FWanaWorksUIModule::EnhanceActiveWorkspace()
         const int32 SelectedActorCount = GetEditorSelectedActorCount();
         const FString SceneSelectionLabel = FString::Printf(TEXT("%d actor(s) captured as optional scene context."), SelectedActorCount);
         const FString WorldContextLabel = WorldLabel.IsEmpty() ? TEXT("No editor world available yet.") : WorldLabel;
+        AActor* ObserverActor = nullptr;
+        AActor* TargetActor = nullptr;
+        FString PairSourceLabel;
+        bool bTargetFallsBackToObserver = false;
+        ResolvePreferredWITReadinessPair(ObserverActor, TargetActor, PairSourceLabel, bTargetFallsBackToObserver);
+
+        FWanaEnvironmentReadinessSnapshot EnvironmentSnapshot;
+        WanaWorksUIEditorActions::GetEnvironmentReadinessSnapshotForActorPair(
+            ObserverActor,
+            TargetActor,
+            bTargetFallsBackToObserver,
+            PairSourceLabel,
+            EnvironmentSnapshot);
+        const bool bHasWITPair = HasLevelDesignWITPair(EnvironmentSnapshot);
+        const FString CoverStatus = GetLevelDesignCoverMeaningStatus(EnvironmentSnapshot, SelectedActorCount);
+        const FString ObstacleStatus = GetLevelDesignObstacleMeaningStatus(EnvironmentSnapshot);
+        const FString MovementSpaceStatus = GetLevelDesignMovementSpaceStatus(EnvironmentSnapshot);
+        const FString BoundaryStatus = GetLevelDesignBoundaryMeaningStatus(EnvironmentSnapshot);
 
         bWorkspaceAnalysisInitialized = true;
         LastAnalysisWorkspaceLabel = WorkspaceLabel;
-        LastAnalysisStatusSummary = TEXT("Level Design prepared for WIT environment scan.");
+        LastAnalysisStatusSummary = bHasWITPair
+            ? TEXT("Level Design prepared with WIT semantic world context.")
+            : TEXT("Level Design prepared; assign observer-target context for richer WIT readings.");
         LastAnalysisPrimarySummary = FString::Printf(
-            TEXT("Semantic World Preparation\nWorld Context: %s\nScene Selection: %s\nOriginal Level: Preserved\nGenerated Assets: None\nWorkspace Mode: WIT semantic environment understanding is ready for scan-based analysis."),
+            TEXT("Semantic World Preparation\nWorld Context: %s\nScene Selection: %s\nScene Pair: %s\nOriginal Level: Preserved\nGenerated Assets: None\nWorkspace Mode: WIT semantic environment understanding is ready for scan-based analysis."),
             *WorldContextLabel,
-            *SceneSelectionLabel);
+            *SceneSelectionLabel,
+            *BuildLevelDesignPairSummary(EnvironmentSnapshot));
         LastAnalysisWITSummary = FString::Printf(
-            TEXT("WIT Preparation\nEnvironment Scan Readiness: Ready\nCover Meaning: Prepared placeholder - scan not run yet\nObstacle Meaning: Prepared placeholder - scan not run yet\nMovement Space: Prepared placeholder - scan not run yet\nBoundary / Navigation Context: Ready for lightweight WIT analysis\nScene Context: %s\nRecommended Next Step: Run Analyze to classify cover, obstacles, boundaries, and movement-space meaning."),
+            TEXT("WIT Preparation\nEnvironment Scan Readiness: %s - %s\nCover Meaning: %s - %s\nObstacle Meaning: %s - %s\nMovement Space: %s - %s\nBoundary / Navigation Context: %s - %s\nScene Context: %s\nRecommended Next Step: Run Analyze to refresh the semantic world reading, then Test before Build."),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            *BuildLevelDesignPairSummary(EnvironmentSnapshot),
+            *CoverStatus,
+            *GetLevelDesignCoverMeaningDetail(EnvironmentSnapshot, SelectedActorCount),
+            *ObstacleStatus,
+            *GetLevelDesignObstacleMeaningDetail(EnvironmentSnapshot),
+            *MovementSpaceStatus,
+            *GetLevelDesignMovementSpaceDetail(EnvironmentSnapshot),
+            *BoundaryStatus,
+            *GetLevelDesignBoundaryMeaningDetail(EnvironmentSnapshot),
             *SceneSelectionLabel);
         LastAnalysisBehaviorSummary = LastAnalysisWITSummary;
         LastAnalysisAnimationSummary = LastAnalysisWITSummary;
         LastAnalysisPhysicalSummary = LastAnalysisWITSummary;
-        LastAnalysisSuggestedSummary = TEXT("Level Design Enhancement Result\nPrepared Systems: WIT semantic scan readiness, scene context, cover/obstacle/movement-space placeholders\nApplied Changes: None\nOriginal Level: Preserved\nRecommended Next Step: Analyze the scene, then use a later Level Design pass for generation or placement.");
-        StatusMessage = TEXT("Status: Level Design prepared for WIT environment scan. Original level preserved.");
+        LastAnalysisSuggestedSummary = TEXT("Level Design Enhancement Result\nPrepared Systems: WIT semantic world context, scene pair, cover demand, obstacle pressure, movement-space meaning, boundary/navigation hints\nApplied Changes: None\nOriginal Level: Preserved\nRecommended Next Step: Analyze the scene, then use Build for an in-app semantic-world output summary.");
+        StatusMessage = TEXT("Status: Level Design WIT context prepared. Original level preserved.");
         RefreshReactiveUI(true);
         return;
     }
@@ -2601,7 +2835,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             EnvironmentSnapshot);
 
         const bool bHasWorldContext = !WorldLabel.IsEmpty();
-        const bool bHasWITPair = EnvironmentSnapshot.bHasObserverActor && EnvironmentSnapshot.bHasTargetActor;
+        const bool bHasWITPair = HasLevelDesignWITPair(EnvironmentSnapshot);
         const bool bHasMovementContext = bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext;
 
         AddAnalysisItem(
@@ -2616,6 +2850,12 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             TEXT("Selected Scene Context"),
             SelectedActorCount > 0 ? TEXT("Ready") : TEXT("Limited"),
             FString::Printf(TEXT("%d actor(s) selected. Selection is optional for this safe Level Design test."), SelectedActorCount));
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("Scene Pair"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            BuildLevelDesignPairSummary(EnvironmentSnapshot));
         AddAnalysisItem(
             PrimaryItems,
             Result,
@@ -2639,20 +2879,20 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             WITItems,
             Result,
             TEXT("Cover Meaning"),
-            TEXT("Limited"),
-            TEXT("Cover classification is not persisted in Test V1; this pass validates readiness only."));
+            GetLevelDesignCoverMeaningStatus(EnvironmentSnapshot, SelectedActorCount),
+            GetLevelDesignCoverMeaningDetail(EnvironmentSnapshot, SelectedActorCount));
         AddAnalysisItem(
             WITItems,
             Result,
             TEXT("Obstacle Meaning"),
-            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
-            bHasWITPair ? UIFmt::GetObstaclePressureSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Obstacle meaning has not been scanned yet."));
+            GetLevelDesignObstacleMeaningStatus(EnvironmentSnapshot),
+            GetLevelDesignObstacleMeaningDetail(EnvironmentSnapshot));
         AddAnalysisItem(
             WITItems,
             Result,
             TEXT("Movement Space"),
-            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
-            bHasWITPair ? UIFmt::GetMovementSpaceSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Movement-space meaning has not been scanned yet."));
+            GetLevelDesignMovementSpaceStatus(EnvironmentSnapshot),
+            GetLevelDesignMovementSpaceDetail(EnvironmentSnapshot));
         AddAnalysisItem(
             WITItems,
             Result,
@@ -2661,11 +2901,11 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             TEXT("Prompt-based level generation is intentionally outside this Test V1 phase."));
 
         RecommendedAction = bHasWITPair
-            ? TEXT("Analyze the semantic world context again after selecting scan targets, then use a later WIT pass for classification.")
+            ? TEXT("Build can prepare an in-app semantic-world summary; future WIT passes can persist cover and obstacle classification as assets.")
             : TEXT("Prepare or select scene context, then run Analyze before future WIT scan work.");
         ResultLabel = !bHasWorldContext
             ? TEXT("world context is missing")
-            : (bHasWITPair ? TEXT("WIT scan is ready but classification has not run") : TEXT("world context is available but WIT scan context is limited"));
+            : (bHasWITPair ? TEXT("WIT semantic world context is readable") : TEXT("world context is available but WIT scan context is limited"));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Next Step"), TEXT("Recommended"), RecommendedAction);
 
         Result.PrimarySummary = BuildAnalysisCardText(TEXT("Semantic World Test Result"), PrimaryItems, RecommendedAction);
@@ -2832,8 +3072,10 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             AddAnalysisItem(BehaviorItems, Result, TEXT("Requested Behavior"), BehaviorSnapshot.RecommendedBehavior != EWAYBehaviorPreset::None ? TEXT("Ready") : TEXT("Limited"), UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Visible Behavior"), !BehaviorSnapshot.VisibleBehaviorLabel.IsEmpty() ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.VisibleBehaviorLabel.IsEmpty() ? TEXT("No visible starter behavior was applied.") : BehaviorSnapshot.VisibleBehaviorLabel);
             AddAnalysisItem(BehaviorItems, Result, TEXT("Execution Mode"), bBehaviorExecutionSucceeded ? TEXT("Ready") : TEXT("Limited"), UIFmt::GetBehaviorExecutionModeSummaryLabel(BehaviorSnapshot.ExecutionMode));
-            AddAnalysisItem(BehaviorItems, Result, TEXT("Movement Compatibility"), BehaviorSnapshot.MovementReadiness.bCanAttemptMovement ? TEXT("Ready") : TEXT("Limited"), UIFmt::GetEnvironmentShapingSummaryLabel(BehaviorSnapshot.MovementReadiness));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Movement Compatibility"), BehaviorSnapshot.MovementReadiness.bCanAttemptMovement ? TEXT("Ready") : TEXT("Limited"), BuildAIBehaviorMovementCompatibilityDetail(BehaviorSnapshot.MovementReadiness));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Fallback Reason"), BehaviorSnapshot.ExecutionMode == EWAYBehaviorExecutionMode::MovementAllowed ? TEXT("Ready") : TEXT("Limited"), BuildAIBehaviorFallbackReasonDetail(BehaviorSnapshot.ExecutionMode, BehaviorSnapshot.MovementReadiness));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Result Notes"), bBehaviorExecutionSucceeded ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.BehaviorExecutionDetail.IsEmpty() ? TEXT("No behavior test detail was available.") : BehaviorSnapshot.BehaviorExecutionDetail);
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Behavior Next Step"), TEXT("Recommended"), BuildAIBehaviorRecommendedNextStepDetail(BehaviorSnapshot.ExecutionMode, BehaviorSnapshot.MovementReadiness));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Behavior Test"), bBehaviorExecutionSucceeded ? TEXT("Ready") : TEXT("Limited"), bBehaviorExecutionAttempted ? BehaviorExecutionResponse.StatusMessage : TEXT("No observer-target pair was available for visible behavior execution."));
 
             AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), Snapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"), Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : Snapshot.LinkedAnimationBlueprintLabel);
@@ -2841,6 +3083,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
 
             AddAnalysisItem(PhysicalItems, Result, TEXT("Movement / Facing"), bMovementReady ? TEXT("Ready") : TEXT("Limited"), bMovementReady ? TEXT("Movement or facing readiness is available without forcing locomotion.") : TEXT("Movement-safe execution is limited; fallback facing/attention behavior should be used."));
             AddAnalysisItem(PhysicalItems, Result, TEXT("Physical State"), bPhysicalReady ? TEXT("Ready") : TEXT("Limited"), bPhysicalReady ? TEXT("Readable body-state layer is available for physical response testing.") : TEXT("Physical state layer is missing; visible disruption testing is limited."));
+            AddAnalysisItem(PhysicalItems, Result, TEXT("Behavior Commitment"), bPhysicalReady && Snapshot.bPhysicalCanCommitToMovement && Snapshot.bPhysicalCanCommitToAttack ? TEXT("Ready") : TEXT("Limited"), BuildAIPhysicalBehaviorCommitmentDetail(Snapshot));
             AddAnalysisItem(PhysicalItems, Result, TEXT("WanaCombat-lite"), bPhysicalReady && Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), TEXT("Combat-lite validation stays additive and does not replace Behavior Trees, controllers, or locomotion."));
 
             AddAnalysisItem(WITItems, Result, TEXT("WIT Awareness"), bHasWITPair ? TEXT("Ready") : TEXT("Limited"), bHasWITPair ? UIFmt::GetEnvironmentShapingSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("No active WIT observer-target context is assigned yet."));
@@ -2851,7 +3094,12 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             RecommendedAction = bReadyForBuild
                 ? TEXT("Use Build after visual review, or Test again after changing behavior/environment context.")
                 : TEXT("Run Enhance to prepare missing WanaWorks layers, then Test again before Build.");
-            ResultLabel = bReadyForBuild ? TEXT("AI subject is enhanced and ready for build review") : TEXT("AI behavior readiness is limited but safe fallback data is available");
+            ResultLabel = bBehaviorExecutionSucceeded
+                ? FString::Printf(
+                    TEXT("%s via %s"),
+                    *UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior),
+                    *UIFmt::GetBehaviorExecutionModeSummaryLabel(BehaviorSnapshot.ExecutionMode))
+                : (bReadyForBuild ? TEXT("AI subject is enhanced and ready for build review") : TEXT("AI behavior readiness is limited but safe fallback data is available"));
             Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Intelligence Test Result"), PrimaryItems, RecommendedAction);
             Result.AnimationSummary = BuildAnalysisCardText(TEXT("Animation Integration Test"), AnimationItems, RecommendedAction);
             Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Physical / Movement Test"), PhysicalItems, RecommendedAction);
@@ -3224,13 +3472,19 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
             PairSourceLabel,
             EnvironmentSnapshot);
 
-        const bool bHasWITPair = EnvironmentSnapshot.bHasObserverActor && EnvironmentSnapshot.bHasTargetActor;
+        const bool bHasWITPair = HasLevelDesignWITPair(EnvironmentSnapshot);
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("Scene Pair"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            BuildLevelDesignPairSummary(EnvironmentSnapshot));
         AddAnalysisItem(
             WITItems,
             Result,
             TEXT("WIT Environment Scan"),
             bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
-            bHasWITPair ? TEXT("Observer-target context is available for semantic movement analysis.") : TEXT("Not run yet. Select or assign scene context, then analyze to classify world meaning."));
+            bHasWITPair ? TEXT("Observer-target context is available for semantic world analysis.") : TEXT("Assign an observer and target to turn selected scene context into richer WIT meaning."));
         AddAnalysisItem(
             WITItems,
             Result,
@@ -3241,26 +3495,26 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
             WITItems,
             Result,
             TEXT("Cover Meaning"),
-            TEXT("Limited"),
-            TEXT("Cover classification is not persisted yet in Analyze V1; WIT can report readiness context without generating level data."));
+            GetLevelDesignCoverMeaningStatus(EnvironmentSnapshot, SelectedActorCount),
+            GetLevelDesignCoverMeaningDetail(EnvironmentSnapshot, SelectedActorCount));
         AddAnalysisItem(
             WITItems,
             Result,
             TEXT("Obstacle Meaning"),
-            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
-            bHasWITPair ? UIFmt::GetObstaclePressureSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Not scanned yet."));
+            GetLevelDesignObstacleMeaningStatus(EnvironmentSnapshot),
+            GetLevelDesignObstacleMeaningDetail(EnvironmentSnapshot));
         AddAnalysisItem(
             WITItems,
             Result,
             TEXT("Movement Space"),
-            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
-            bHasWITPair ? UIFmt::GetMovementSpaceSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Not scanned yet."));
+            GetLevelDesignMovementSpaceStatus(EnvironmentSnapshot),
+            GetLevelDesignMovementSpaceDetail(EnvironmentSnapshot));
         AddAnalysisItem(
             WITItems,
             Result,
             TEXT("Boundary / Navigation"),
-            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
-            bHasWITPair ? UIFmt::GetEnvironmentShapingSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Boundary and navigation meaning need a WIT scan."));
+            GetLevelDesignBoundaryMeaningStatus(EnvironmentSnapshot),
+            GetLevelDesignBoundaryMeaningDetail(EnvironmentSnapshot));
         AddAnalysisItem(
             WITItems,
             Result,
@@ -3274,7 +3528,9 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
             TEXT("Not Supported"),
             TEXT("Atmosphere analysis is reserved for a later Level Design pass."));
 
-        RecommendedAction = TEXT("Run a WIT environment scan to classify cover, obstacles, boundaries, and movement space before adding level-generation features.");
+        RecommendedAction = bHasWITPair
+            ? TEXT("Use Test to validate this semantic world reading, then Build an in-app WIT output summary before future generation work.")
+            : TEXT("Assign or select an observer-target scene context, then Analyze again to classify cover, obstacles, boundaries, and movement space.");
         AddAnalysisItem(SuggestedItems, Result, TEXT("Next Improvement"), TEXT("Recommended"), RecommendedAction);
 
         Result.PrimarySummary = BuildAnalysisCardText(TEXT("Semantic World Context"), PrimaryItems, FString());
@@ -3764,12 +4020,12 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
             EnvironmentSnapshot);
 
         const bool bHasWorldContext = !WorldLabel.IsEmpty();
-        const bool bHasWITPair = EnvironmentSnapshot.bHasObserverActor && EnvironmentSnapshot.bHasTargetActor;
+        const bool bHasWITPair = HasLevelDesignWITPair(EnvironmentSnapshot);
         const bool bHasMovementContext = bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext;
         const FString ReportPath = TEXT("/Game/WanaWorks/Builds");
         const FString BuildState = bHasWorldContext ? TEXT("Built with Limitations") : TEXT("Blocked");
         const FString RecommendedAction = bHasWorldContext
-            ? TEXT("Use this semantic-world build summary as the V1 output, then run a later WIT pass for persisted cover, obstacle, and movement-space classification.")
+            ? TEXT("Use this semantic-world build summary as the V1 output, then run a later WIT pass for persisted cover, obstacle, and movement-space assets.")
             : TEXT("Open a valid editor world before preparing a Level Design build summary.");
 
         AddAnalysisItem(
@@ -3784,6 +4040,12 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
             TEXT("Selected Actors"),
             SelectedActorCount > 0 ? TEXT("Ready") : TEXT("Limited"),
             FString::Printf(TEXT("%d actor(s) captured as optional scene context."), SelectedActorCount));
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("Scene Pair"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            BuildLevelDesignPairSummary(EnvironmentSnapshot));
         AddAnalysisItem(
             PrimaryItems,
             Result,
@@ -3813,20 +4075,20 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
             WITItems,
             Result,
             TEXT("Cover Meaning"),
-            TEXT("Limited"),
-            TEXT("Cover classification output is future work and was not faked in this build."));
+            GetLevelDesignCoverMeaningStatus(EnvironmentSnapshot, SelectedActorCount),
+            GetLevelDesignCoverMeaningDetail(EnvironmentSnapshot, SelectedActorCount));
         AddAnalysisItem(
             WITItems,
             Result,
             TEXT("Obstacle Meaning"),
-            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
-            bHasWITPair ? UIFmt::GetObstaclePressureSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Obstacle meaning has not been scanned yet."));
+            GetLevelDesignObstacleMeaningStatus(EnvironmentSnapshot),
+            GetLevelDesignObstacleMeaningDetail(EnvironmentSnapshot));
         AddAnalysisItem(
             WITItems,
             Result,
             TEXT("Movement Space"),
-            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
-            bHasWITPair ? UIFmt::GetMovementSpaceSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Movement-space meaning has not been scanned yet."));
+            GetLevelDesignMovementSpaceStatus(EnvironmentSnapshot),
+            GetLevelDesignMovementSpaceDetail(EnvironmentSnapshot));
         AddAnalysisItem(
             WITItems,
             Result,

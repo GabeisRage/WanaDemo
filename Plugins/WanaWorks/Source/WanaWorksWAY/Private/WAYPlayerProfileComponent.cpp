@@ -6,16 +6,19 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PawnMovementComponent.h"
+#include "WAIPersonalityComponent.h"
 #include "WanaWorksEnvironmentReadiness.h"
 #include "WanaIdentityComponent.h"
+#include "WanaPhysicalStateComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogWanaWorksWAY, Log, All);
 
 namespace
 {
 constexpr float BasicReactionMoveDistance = 120.0f;
-constexpr float BasicReactionProtectiveRange = 260.0f;
-constexpr float StarterFollowRange = 180.0f;
+constexpr float BasicReactionProtectiveRange = 320.0f;
+constexpr float BasicReactionHostilePressureRange = 340.0f;
+constexpr float StarterFollowRange = 320.0f;
 constexpr float BasicReactionMoveInputScale = 0.9f;
 constexpr float BasicReactionMovePulseDuration = 0.45f;
 constexpr float BasicReactionProtectiveMovePulseDuration = 0.30f;
@@ -277,23 +280,32 @@ FString BuildIdentitySignalText(const AActor* Actor)
 {
     const UWanaIdentityComponent* IdentityComponent = Actor ? Actor->FindComponentByClass<UWanaIdentityComponent>() : nullptr;
 
-    if (!IdentityComponent)
-    {
-        return FString();
-    }
-
     TArray<FString> Signals;
 
-    if (!IdentityComponent->FactionTag.IsNone())
+    if (IdentityComponent && !IdentityComponent->FactionTag.IsNone())
     {
         Signals.Add(IdentityComponent->FactionTag.ToString());
     }
 
-    for (const FName& ReputationTag : IdentityComponent->ReputationTags)
+    if (IdentityComponent)
     {
-        if (!ReputationTag.IsNone())
+        for (const FName& ReputationTag : IdentityComponent->ReputationTags)
         {
-            Signals.Add(ReputationTag.ToString());
+            if (!ReputationTag.IsNone())
+            {
+                Signals.Add(ReputationTag.ToString());
+            }
+        }
+    }
+
+    if (const UWAIPersonalityComponent* PersonalityComponent = Actor ? Actor->FindComponentByClass<UWAIPersonalityComponent>() : nullptr)
+    {
+        for (const FWAIMemoryEvent& MemoryEvent : PersonalityComponent->GetMemories())
+        {
+            if (!MemoryEvent.Summary.TrimStartAndEnd().IsEmpty())
+            {
+                Signals.Add(MemoryEvent.Summary);
+            }
         }
     }
 
@@ -313,6 +325,87 @@ bool ContainsAnyIdentitySignal(const FString& IdentityText, const TArray<const T
     return false;
 }
 
+const UWanaPhysicalStateComponent* GetPhysicalStateComponent(const AActor* Actor)
+{
+    return Actor ? Actor->FindComponentByClass<UWanaPhysicalStateComponent>() : nullptr;
+}
+
+bool IsPhysicalMovementCommitLimited(const AActor* Actor)
+{
+    const UWanaPhysicalStateComponent* PhysicalStateComponent = GetPhysicalStateComponent(Actor);
+
+    if (!PhysicalStateComponent)
+    {
+        return false;
+    }
+
+    return !PhysicalStateComponent->bCanCommitToMovement
+        || PhysicalStateComponent->bNeedsRecovery
+        || PhysicalStateComponent->PhysicalState == EWanaPhysicalState::Staggered
+        || PhysicalStateComponent->PhysicalState == EWanaPhysicalState::OffBalance
+        || PhysicalStateComponent->PhysicalState == EWanaPhysicalState::Panicked;
+}
+
+bool IsPhysicalAttackCommitLimited(const AActor* Actor)
+{
+    const UWanaPhysicalStateComponent* PhysicalStateComponent = GetPhysicalStateComponent(Actor);
+
+    if (!PhysicalStateComponent)
+    {
+        return false;
+    }
+
+    return !PhysicalStateComponent->bCanCommitToAttack
+        || PhysicalStateComponent->PhysicalState == EWanaPhysicalState::Panicked
+        || PhysicalStateComponent->PhysicalState == EWanaPhysicalState::OffBalance;
+}
+
+FString GetPhysicalStateLogLabel(EWanaPhysicalState PhysicalState)
+{
+    const UEnum* PhysicalStateEnum = StaticEnum<EWanaPhysicalState>();
+    return PhysicalStateEnum
+        ? PhysicalStateEnum->GetDisplayNameTextByValue(static_cast<int64>(PhysicalState)).ToString()
+        : TEXT("Stable");
+}
+
+FString BuildPhysicalBehaviorInfluenceText(const AActor* Actor)
+{
+    const UWanaPhysicalStateComponent* PhysicalStateComponent = GetPhysicalStateComponent(Actor);
+
+    if (!PhysicalStateComponent)
+    {
+        return TEXT("limited; no readable physical state component");
+    }
+
+    return FString::Printf(
+        TEXT("%s, movement commit %s, attack commit %s, recovery %s"),
+        *GetPhysicalStateLogLabel(PhysicalStateComponent->PhysicalState),
+        PhysicalStateComponent->bCanCommitToMovement ? TEXT("ready") : TEXT("limited"),
+        PhysicalStateComponent->bCanCommitToAttack ? TEXT("ready") : TEXT("limited"),
+        PhysicalStateComponent->bNeedsRecovery ? TEXT("needed") : TEXT("not needed"));
+}
+
+FString BuildPhysicalMovementHoldReason(const AActor* Actor)
+{
+    const UWanaPhysicalStateComponent* PhysicalStateComponent = GetPhysicalStateComponent(Actor);
+
+    if (!PhysicalStateComponent)
+    {
+        return FString();
+    }
+
+    if (!IsPhysicalMovementCommitLimited(Actor))
+    {
+        return FString();
+    }
+
+    return FString::Printf(
+        TEXT("Physical state is %s with movement commit %s and recovery %s, so WanaWorks held movement and used attention/stance fallback."),
+        *GetPhysicalStateLogLabel(PhysicalStateComponent->PhysicalState),
+        PhysicalStateComponent->bCanCommitToMovement ? TEXT("ready") : TEXT("limited"),
+        PhysicalStateComponent->bNeedsRecovery ? TEXT("needed") : TEXT("not needed"));
+}
+
 EWAYBehaviorPreset ResolveContextualRecommendedBehavior(
     const AActor* ObserverActor,
     const AActor* TargetActor,
@@ -321,22 +414,19 @@ EWAYBehaviorPreset ResolveContextualRecommendedBehavior(
     const FWanaMovementReadiness& MovementReadiness,
     EWAYBehaviorPreset BaseBehavior)
 {
-    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Blocked
-        && (RelationshipProfile.RelationshipState == EWAYRelationshipState::Neutral
-            || RelationshipProfile.RelationshipState == EWAYRelationshipState::Acquaintance))
-    {
-        return EWAYBehaviorPreset::ObserveTarget;
-    }
-
-    if ((MovementReadiness.bObstaclePressureDetected || MovementReadiness.bMovementSpaceRestricted)
-        && RelationshipProfile.RelationshipState == EWAYRelationshipState::Acquaintance)
-    {
-        return EWAYBehaviorPreset::ObserveTarget;
-    }
+    const bool bMovementCommitLimited = IsPhysicalMovementCommitLimited(ObserverActor);
+    const bool bAttackCommitLimited = IsPhysicalAttackCommitLimited(ObserverActor);
+    const bool bMovementConstrained =
+        MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Blocked
+        || MovementReadiness.bMovementSpaceRestricted
+        || (MovementReadiness.bObstaclePressureDetected && !MovementReadiness.bCanAttemptMovement)
+        || bMovementCommitLimited;
 
     if (RelationshipProfile.RelationshipState == EWAYRelationshipState::Enemy || RelationshipProfile.Hostility >= 0.65f)
     {
-        return EWAYBehaviorPreset::ApproachHostile;
+        return bAttackCommitLimited
+            ? EWAYBehaviorPreset::ObserveTarget
+            : EWAYBehaviorPreset::ApproachHostile;
     }
 
     if (RelationshipProfile.RelationshipState == EWAYRelationshipState::Partner
@@ -348,7 +438,22 @@ EWAYBehaviorPreset ResolveContextualRecommendedBehavior(
 
     if (RelationshipProfile.RelationshipState == EWAYRelationshipState::Friend || RelationshipProfile.Trust >= 0.65f)
     {
-        return EWAYBehaviorPreset::FollowTarget;
+        return bMovementConstrained
+            ? EWAYBehaviorPreset::GuardTarget
+            : EWAYBehaviorPreset::FollowTarget;
+    }
+
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Blocked
+        && (RelationshipProfile.RelationshipState == EWAYRelationshipState::Neutral
+            || RelationshipProfile.RelationshipState == EWAYRelationshipState::Acquaintance))
+    {
+        return EWAYBehaviorPreset::ObserveTarget;
+    }
+
+    if ((MovementReadiness.bObstaclePressureDetected || MovementReadiness.bMovementSpaceRestricted)
+        && RelationshipProfile.RelationshipState == EWAYRelationshipState::Acquaintance)
+    {
+        return EWAYBehaviorPreset::ObserveTarget;
     }
 
     const FString IdentityText = FString::Printf(
@@ -363,11 +468,25 @@ EWAYBehaviorPreset ResolveContextualRecommendedBehavior(
 
     if (ContainsAnyIdentitySignal(IdentityText, { TEXT("hostile"), TEXT("enemy"), TEXT("aggressive"), TEXT("raider"), TEXT("soldier"), TEXT("combat") }))
     {
-        return EWAYBehaviorPreset::ApproachHostile;
+        return bAttackCommitLimited
+            ? EWAYBehaviorPreset::ObserveTarget
+            : EWAYBehaviorPreset::ApproachHostile;
+    }
+
+    if (ContainsAnyIdentitySignal(IdentityText, { TEXT("ally"), TEXT("friend"), TEXT("companion"), TEXT("escort"), TEXT("support"), TEXT("follower") }))
+    {
+        return bMovementConstrained
+            ? EWAYBehaviorPreset::GuardTarget
+            : EWAYBehaviorPreset::FollowTarget;
     }
 
     if (ReactionState == EWAYReactionState::Cautious
         || ContainsAnyIdentitySignal(IdentityText, { TEXT("scout"), TEXT("observer"), TEXT("civilian"), TEXT("cautious"), TEXT("neutral") }))
+    {
+        return EWAYBehaviorPreset::ObserveTarget;
+    }
+
+    if (bMovementCommitLimited)
     {
         return EWAYBehaviorPreset::ObserveTarget;
     }
@@ -385,10 +504,11 @@ FString BuildEvaluationInfluenceDetail(
 {
     const bool bHasIdentitySignals = !BuildIdentitySignalText(ObserverActor).IsEmpty() || !BuildIdentitySignalText(TargetActor).IsEmpty();
     return FString::Printf(
-        TEXT("WanaWorks evaluated WAY relationship (%s), WAI/WAMI identity signals (%s), and WIT movement readiness (%s). Base behavior was %s; recommended behavior is %s."),
+        TEXT("WanaWorks evaluated WAY relationship (%s), WAI/WAMI identity signals (%s), WIT movement readiness (%s), and physical readiness (%s). Base behavior was %s; recommended behavior is %s."),
         *GetRelationshipStateLogLabel(RelationshipProfile.RelationshipState),
         bHasIdentitySignals ? TEXT("available") : TEXT("limited"),
         *GetMovementCompatibilitySummary(MovementReadiness),
+        *BuildPhysicalBehaviorInfluenceText(ObserverActor),
         *GetBehaviorPresetLogLabel(BaseBehavior),
         *GetBehaviorPresetLogLabel(RecommendedBehavior));
 }
@@ -525,6 +645,20 @@ void UWAYPlayerProfileComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
     const FWanaMovementReadiness MovementReadiness = FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(ObserverActor, TargetActor);
 
+    if (IsPhysicalMovementCommitLimited(ObserverActor))
+    {
+        UE_LOG(
+            LogWanaWorksWAY,
+            Log,
+            TEXT("Stopped WanaAI reaction movement. Observer=%s Target=%s Reason=%s"),
+            *ObserverActor->GetActorNameOrLabel(),
+            *TargetActor->GetActorNameOrLabel(),
+            *BuildPhysicalMovementHoldReason(ObserverActor));
+        StopBasicReactionMovement();
+        FaceActorDirection(ObserverActor, SafeDirection);
+        return;
+    }
+
     if (!MovementReadiness.bCanAttemptMovement || !MovementReadiness.bHasUsableMovementCapability || !MovementReadiness.bHasMovementContext)
     {
         UE_LOG(
@@ -542,7 +676,15 @@ void UWAYPlayerProfileComponent::TickComponent(float DeltaTime, ELevelTick TickT
     {
     case EWAYReactionState::Hostile:
         FaceActorDirection(ObserverActor, SafeDirection);
-        MovementDirection = SafeDirection;
+        if (DirectionToTarget.SizeSquared() > FMath::Square(BasicReactionHostilePressureRange))
+        {
+            MovementDirection = SafeDirection;
+        }
+        else
+        {
+            StopBasicReactionMovement();
+            return;
+        }
         break;
 
     case EWAYReactionState::Cooperative:
@@ -807,6 +949,17 @@ bool UWAYPlayerProfileComponent::ApplyBehaviorPresetHook(AActor* TargetActor, EW
             HookDescription = FString::Printf(
                 TEXT("Follow Target: movement was blocked, so WanaWorks maintained cooperative facing and attention. %s"),
                 *MovementReadiness.Detail);
+            ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
+            break;
+        }
+
+        const FString PhysicalHoldReason = BuildPhysicalMovementHoldReason(ObserverActor);
+
+        if (!PhysicalHoldReason.IsEmpty())
+        {
+            HookDescription = FString::Printf(
+                TEXT("Follow Target: physical readiness limited movement, so WanaWorks maintained cooperative attention instead of forcing locomotion. %s"),
+                *PhysicalHoldReason);
             ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
             break;
         }
@@ -1310,6 +1463,20 @@ bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, E
     AActor* ObserverActor = GetOwner();
     const FWanaMovementReadiness MovementReadiness = FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(ObserverActor, TargetActor);
 
+    if (IsPhysicalMovementCommitLimited(ObserverActor))
+    {
+        StopBasicReactionMovement();
+        OutBehaviorDescription += FString::Printf(TEXT(" %s"), *BuildPhysicalMovementHoldReason(ObserverActor));
+        return false;
+    }
+
+    if (ReactionState == EWAYReactionState::Hostile && MovementReadiness.DistanceToTarget <= BasicReactionHostilePressureRange)
+    {
+        StopBasicReactionMovement();
+        OutBehaviorDescription += TEXT(" Movement held because the observer is already within a tense pressure range, so the hostile behavior stays deliberate instead of crowding the target.");
+        return false;
+    }
+
     if (ReactionState == EWAYReactionState::Cooperative && MovementReadiness.DistanceToTarget <= StarterFollowRange)
     {
         StopBasicReactionMovement();
@@ -1424,6 +1591,13 @@ bool UWAYPlayerProfileComponent::StartBasicReactionMovement(AActor* TargetActor,
     }
 
     const FWanaMovementReadiness MovementReadiness = FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(GetOwner(), TargetActor);
+
+    if (IsPhysicalMovementCommitLimited(GetOwner()))
+    {
+        OutBehaviorDescription += FString::Printf(TEXT(" %s"), *BuildPhysicalMovementHoldReason(GetOwner()));
+        StopBasicReactionMovement();
+        return false;
+    }
 
     if (!MovementReadiness.bSupportsLocomotionPulse)
     {

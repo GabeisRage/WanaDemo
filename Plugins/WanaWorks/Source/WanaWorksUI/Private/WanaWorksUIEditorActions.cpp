@@ -92,6 +92,11 @@ const TCHAR* GetAnimationHookRequestDisplayLabel(bool bRequested)
     return bRequested ? TEXT("Requested") : TEXT("Idle");
 }
 
+void AppendBehaviorExecutionLines(
+    FWanaCommandResponse& Response,
+    EWAYBehaviorExecutionMode ExecutionMode,
+    const FWanaMovementReadiness& MovementReadiness);
+
 struct FWanaAutomaticAnimationPreparationResult
 {
     bool bHasSkeletalAnimationStack = false;
@@ -912,6 +917,7 @@ void AppendRelationshipProfileLines(FWanaCommandResponse& Response, const AActor
     Response.OutputLines.Add(FString::Printf(TEXT("Visible Behavior: %s"), VisibleBehaviorLabel.IsEmpty() ? TEXT("(not applied yet)") : *VisibleBehaviorLabel));
     Response.OutputLines.Add(FString::Printf(TEXT("Last Applied Hook: %s"), *GetBehaviorPresetDisplayLabel(LastAppliedHook)));
     Response.OutputLines.Add(FString::Printf(TEXT("Execution Mode: %s"), *GetBehaviorExecutionModeDisplayLabel(ExecutionMode)));
+    AppendBehaviorExecutionLines(Response, ExecutionMode, MovementReadiness);
     Response.OutputLines.Add(FString::Printf(TEXT("Environment Shaping: %s"), *WanaWorksUIFormattingUtils::GetEnvironmentShapingSummaryLabel(MovementReadiness)));
     Response.OutputLines.Add(FString::Printf(TEXT("Result Notes: %s"), BehaviorExecutionDetail.IsEmpty() ? TEXT("No visible behavior has been applied to this target yet.") : *BehaviorExecutionDetail));
     Response.OutputLines.Add(FString::Printf(TEXT("Movement Confidence: %s"), *WanaWorksUIFormattingUtils::GetMovementReadinessStatusSummaryLabel(MovementReadiness)));
@@ -1070,6 +1076,74 @@ void AppendEnvironmentReadinessLines(FWanaCommandResponse& Response, const FWana
     }
 }
 
+FString BuildBehaviorMovementCompatibilityDetail(const FWanaMovementReadiness& MovementReadiness)
+{
+    return FString::Printf(
+        TEXT("%s; %s"),
+        *WanaWorksUIFormattingUtils::GetMovementReadinessStatusSummaryLabel(MovementReadiness),
+        *WanaWorksUIFormattingUtils::GetEnvironmentShapingSummaryLabel(MovementReadiness));
+}
+
+FString BuildBehaviorFallbackReasonDetail(EWAYBehaviorExecutionMode ExecutionMode, const FWanaMovementReadiness& MovementReadiness)
+{
+    switch (ExecutionMode)
+    {
+    case EWAYBehaviorExecutionMode::MovementAllowed:
+        return TEXT("No fallback was needed; WIT allowed a safe movement-aware behavior.");
+
+    case EWAYBehaviorExecutionMode::FallbackActive:
+        return MovementReadiness.Detail.IsEmpty()
+            ? TEXT("Full locomotion was limited, so WanaWorks used a small safe fallback movement.")
+            : FString::Printf(TEXT("Full locomotion was limited, so WanaWorks used a small safe fallback movement. %s"), *MovementReadiness.Detail);
+
+    case EWAYBehaviorExecutionMode::FacingOnly:
+        return MovementReadiness.Detail.IsEmpty()
+            ? TEXT("Movement was unsafe, unnecessary, or unsupported, so WanaWorks used facing/attention only.")
+            : FString::Printf(TEXT("Movement was unsafe, unnecessary, or unsupported, so WanaWorks used facing/attention only. %s"), *MovementReadiness.Detail);
+
+    case EWAYBehaviorExecutionMode::Unknown:
+    default:
+        return MovementReadiness.Detail.IsEmpty()
+            ? TEXT("Movement compatibility was unknown.")
+            : MovementReadiness.Detail;
+    }
+}
+
+FString BuildBehaviorRecommendedNextStepDetail(EWAYBehaviorExecutionMode ExecutionMode, const FWanaMovementReadiness& MovementReadiness)
+{
+    if (ExecutionMode == EWAYBehaviorExecutionMode::MovementAllowed)
+    {
+        return TEXT("Visually verify the behavior distance and repeat Test against a different target relationship.");
+    }
+
+    if (MovementReadiness.bAnimationDrivenLocomotionDetected)
+    {
+        return TEXT("Keep the facing/attention fallback until animation-driven locomotion is deliberately wired for movement.");
+    }
+
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Blocked)
+    {
+        return TEXT("Assign a reachable target or improve WIT/navigation context before expecting movement.");
+    }
+
+    if (ExecutionMode == EWAYBehaviorExecutionMode::FallbackActive)
+    {
+        return TEXT("Check the fallback step in the viewport, then add a locomotion-safe hook only if stronger movement is needed.");
+    }
+
+    return TEXT("Use Enhance/Test again after selecting clearer scene space or a better observer-target pair.");
+}
+
+void AppendBehaviorExecutionLines(
+    FWanaCommandResponse& Response,
+    EWAYBehaviorExecutionMode ExecutionMode,
+    const FWanaMovementReadiness& MovementReadiness)
+{
+    Response.OutputLines.Add(FString::Printf(TEXT("Movement Compatibility: %s"), *BuildBehaviorMovementCompatibilityDetail(MovementReadiness)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Fallback Reason: %s"), *BuildBehaviorFallbackReasonDetail(ExecutionMode, MovementReadiness)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Recommended Next Step: %s"), *BuildBehaviorRecommendedNextStepDetail(ExecutionMode, MovementReadiness)));
+}
+
 void AppendLinesWithPrefix(FWanaCommandResponse& Response, const FWanaCommandResponse& SourceResponse, const FString& Prefix)
 {
     for (const FString& OutputLine : SourceResponse.OutputLines)
@@ -1191,7 +1265,9 @@ FWanaCommandResponse ExecuteEvaluateActorPairInternal(AActor* ObserverActor, AAc
         Response.OutputLines.Add(FString::Printf(TEXT("Visible Behavior: %s"), VisibleBehaviorLabel.IsEmpty() ? TEXT("(not applied yet)") : *VisibleBehaviorLabel));
     }
     Response.OutputLines.Add(FString::Printf(TEXT("Last Applied Hook: %s"), *GetBehaviorPresetDisplayLabel(ProfileComponent->GetLastAppliedBehaviorHookForTarget(TargetActor))));
-    Response.OutputLines.Add(FString::Printf(TEXT("Execution Mode: %s"), *GetBehaviorExecutionModeDisplayLabel(ProfileComponent->GetBehaviorExecutionModeForTarget(TargetActor))));
+    const EWAYBehaviorExecutionMode ExecutionMode = ProfileComponent->GetBehaviorExecutionModeForTarget(TargetActor);
+    Response.OutputLines.Add(FString::Printf(TEXT("Execution Mode: %s"), *GetBehaviorExecutionModeDisplayLabel(ExecutionMode)));
+    AppendBehaviorExecutionLines(Response, ExecutionMode, ReadinessSnapshot.MovementReadiness);
     Response.OutputLines.Add(FString::Printf(TEXT("Environment Shaping: %s"), *WanaWorksUIFormattingUtils::GetEnvironmentShapingSummaryLabel(ReadinessSnapshot.MovementReadiness)));
     {
         const FString BehaviorExecutionDetail = ProfileComponent->GetBehaviorExecutionDetailForTarget(TargetActor);
@@ -2634,8 +2710,11 @@ FWanaCommandResponse ExecuteApplyStarterAndTestTargetCommand(const FString& Pres
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Visible Behavior:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Last Applied Hook:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Execution Mode:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Movement Compatibility:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Fallback Reason:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Environment Shaping:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Result Notes:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Recommended Next Step:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Animation Hook Application:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Facing Hook:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Turn-To-Target Hook:"));

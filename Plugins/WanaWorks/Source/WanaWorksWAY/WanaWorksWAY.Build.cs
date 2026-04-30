@@ -13,5 +13,10 @@ public class WanaWorksWAY : ModuleRules
             "Engine",
             "WanaWorksCore"
         });
+
+        PrivateDependencyModuleNames.AddRange(new[]
+        {
+            "WanaWorksWAI"
+        });
     }
 }
