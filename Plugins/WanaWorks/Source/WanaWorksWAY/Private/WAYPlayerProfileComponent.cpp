@@ -36,6 +36,14 @@ FString GetReactionStateLogLabel(EWAYReactionState ReactionState)
         : TEXT("Observational");
 }
 
+FString GetRelationshipStateLogLabel(EWAYRelationshipState RelationshipState)
+{
+    const UEnum* RelationshipEnum = StaticEnum<EWAYRelationshipState>();
+    return RelationshipEnum
+        ? RelationshipEnum->GetDisplayNameTextByValue(static_cast<int64>(RelationshipState)).ToString()
+        : TEXT("Neutral");
+}
+
 FString GetBehaviorPresetLogLabel(EWAYBehaviorPreset BehaviorPreset)
 {
     const UEnum* BehaviorEnum = StaticEnum<EWAYBehaviorPreset>();
@@ -239,6 +247,11 @@ FString GetBehaviorRecommendedNextStep(EWAYBehaviorExecutionMode ExecutionMode, 
         return TEXT("assign a separate reachable target or improve WIT/navigation context before expecting movement");
     }
 
+    if (ExecutionMode == EWAYBehaviorExecutionMode::FallbackActive)
+    {
+        return TEXT("verify the fallback in the viewport, then add a locomotion-safe hook if stronger movement is needed");
+    }
+
     return TEXT("use Enhance/Test again after selecting a clearer target or opening movement space");
 }
 
@@ -315,6 +328,12 @@ EWAYBehaviorPreset ResolveContextualRecommendedBehavior(
         return EWAYBehaviorPreset::ObserveTarget;
     }
 
+    if ((MovementReadiness.bObstaclePressureDetected || MovementReadiness.bMovementSpaceRestricted)
+        && RelationshipProfile.RelationshipState == EWAYRelationshipState::Acquaintance)
+    {
+        return EWAYBehaviorPreset::ObserveTarget;
+    }
+
     if (RelationshipProfile.RelationshipState == EWAYRelationshipState::Enemy || RelationshipProfile.Hostility >= 0.65f)
     {
         return EWAYBehaviorPreset::ApproachHostile;
@@ -367,7 +386,7 @@ FString BuildEvaluationInfluenceDetail(
     const bool bHasIdentitySignals = !BuildIdentitySignalText(ObserverActor).IsEmpty() || !BuildIdentitySignalText(TargetActor).IsEmpty();
     return FString::Printf(
         TEXT("WanaWorks evaluated WAY relationship (%s), WAI/WAMI identity signals (%s), and WIT movement readiness (%s). Base behavior was %s; recommended behavior is %s."),
-        *GetReactionStateLogLabel(UWAYPlayerProfileComponent::ResolveReactionForRelationshipState(RelationshipProfile.RelationshipState)),
+        *GetRelationshipStateLogLabel(RelationshipProfile.RelationshipState),
         bHasIdentitySignals ? TEXT("available") : TEXT("limited"),
         *GetMovementCompatibilitySummary(MovementReadiness),
         *GetBehaviorPresetLogLabel(BaseBehavior),

@@ -2788,9 +2788,10 @@ void FWanaWorksUIModule::TestActiveWorkspace()
 
             FWanaCommandResponse BehaviorExecutionResponse;
             const bool bBehaviorExecutionAttempted = ObserverActor != nullptr && TargetActor != nullptr;
+            const bool bBehaviorExecutionPrepared = ObserverActor && ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>() != nullptr;
             bool bBehaviorExecutionSucceeded = false;
 
-            if (bBehaviorExecutionAttempted)
+            if (bBehaviorExecutionAttempted && bBehaviorExecutionPrepared)
             {
                 BehaviorExecutionResponse = WanaWorksUIEditorActions::ExecuteEvaluateActorPairCommand(
                     ObserverActor,
@@ -2804,6 +2805,10 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                     bTargetFallsBackToObserver,
                     PairSourceLabel,
                     EnvironmentSnapshot);
+            }
+            else if (bBehaviorExecutionAttempted)
+            {
+                BehaviorExecutionResponse.StatusMessage = TEXT("Status: Behavior test needs Enhance before visible execution.");
             }
 
             FWanaBehaviorResultsSnapshot BehaviorSnapshot;
