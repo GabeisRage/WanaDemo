@@ -32,6 +32,9 @@ private:
     void HandleEnhancementPresetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleEnhancementWorkflowOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleRelationshipStateOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleCharacterIntelligenceIdentityRoleOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleCharacterIntelligenceRelationshipOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleCharacterIntelligenceTargetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleCharacterPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleAIPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
     void RegisterEditorLauncherMenus();
@@ -85,12 +88,18 @@ private:
     TSharedPtr<FString> GetSelectedAIPawnAssetOption() const;
     TSharedPtr<FString> GetSelectedIdentitySeedStateOption();
     TSharedPtr<FString> GetSelectedRelationshipStateOption() const;
+    TSharedPtr<FString> GetSelectedCharacterIntelligenceIdentityRoleOption() const;
+    TSharedPtr<FString> GetSelectedCharacterIntelligenceRelationshipOption() const;
+    TSharedPtr<FString> GetSelectedCharacterIntelligenceTargetOption() const;
     void RefreshProjectAssetPickerOptions();
     bool ResolvePreferredSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const;
     bool ResolvePickedSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const;
     bool ResolvePreferredSandboxPreviewActor(AActor*& OutActor, FString& OutPreviewModeLabel) const;
     bool PreparePickerDrivenSubjectForWorkflow(const FString& WorkflowContextLabel, FWanaCommandResponse& OutPreparationResponse, bool& bOutSpawnedFromPicker);
     bool ApplyWorkspaceSubjectEnhancement(const FString& WorkflowLabel, const FString& EnhancementPresetLabel, const FString& WorkspaceActionLabel);
+    bool ResolveCharacterIntelligenceObserverActor(AActor*& OutObserverActor, FString& OutSourceLabel) const;
+    bool ResolveCharacterIntelligenceTargetActor(AActor*& OutTargetActor, FString& OutSourceLabel) const;
+    void ApplyCharacterIntelligenceControlState(AActor* ObserverActor, AActor* TargetActor, TArray<FString>* OutControlNotes = nullptr);
     UObject* LoadSelectedSubjectAssetObject() const;
     UObject* LoadSelectedSubjectAssetObjectForWorkspace(const FString& WorkspaceLabel) const;
     UClass* LoadSelectedSubjectActorClass() const;
@@ -127,6 +136,7 @@ private:
     FText GetRelationshipSummaryText() const;
     FText GetIdentitySummaryText();
     FText GetIdentityFactionTagText();
+    FText GetCharacterIntelligenceControlSummaryText() const;
     bool ResolvePreferredWITReadinessPair(AActor*& OutObserverActor, AActor*& OutTargetActor, FString& OutPairSourceLabel, bool& bOutTargetFallsBackToObserver) const;
 
     TSharedRef<SDockTab> SpawnWanaWorksTab(const FSpawnTabArgs& SpawnTabArgs);
@@ -142,6 +152,9 @@ private:
     FString SelectedEnhancementWorkflowLabel;
     FString SelectedCharacterPawnAssetLabel;
     FString SelectedAIPawnAssetLabel;
+    FString SelectedCharacterIntelligenceIdentityRoleLabel;
+    FString SelectedCharacterIntelligenceRelationshipLabel;
+    FString SelectedCharacterIntelligenceTargetLabel;
     EWAYRelationshipState SelectedIdentitySeedState = EWAYRelationshipState::Neutral;
     EWAYRelationshipState SelectedRelationshipState = EWAYRelationshipState::Neutral;
     TArray<TSharedPtr<FString>> WorkflowPresetOptions;
@@ -150,6 +163,9 @@ private:
     TArray<TSharedPtr<FString>> CharacterPawnAssetOptions;
     TArray<TSharedPtr<FString>> AIPawnAssetOptions;
     TArray<TSharedPtr<FString>> RelationshipStateOptions;
+    TArray<TSharedPtr<FString>> CharacterIntelligenceIdentityRoleOptions;
+    TArray<TSharedPtr<FString>> CharacterIntelligenceRelationshipOptions;
+    TArray<TSharedPtr<FString>> CharacterIntelligenceTargetOptions;
     TMap<FString, FString> CharacterPawnAssetPathByLabel;
     TMap<FString, FString> AIPawnAssetPathByLabel;
     TWeakObjectPtr<AActor> CachedIdentityActor;

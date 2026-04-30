@@ -580,8 +580,14 @@ public:
 
     virtual ~SWanaWorksLivePreviewViewport() override
     {
-        ReleasePreviewComponents();
-        ReleasePreviewLighting();
+        PreviewViewportClient.Reset();
+        PreviewSkeletalMeshComponent = nullptr;
+        PreviewStaticMeshComponent = nullptr;
+        KeyLightComponent = nullptr;
+        FillLightComponent = nullptr;
+        RimLightComponent = nullptr;
+        PreviewObject.Reset();
+        PreviewScene.Reset();
     }
 
     virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override
@@ -709,12 +715,16 @@ private:
     {
         auto ReleaseLightComponent = [this](UDirectionalLightComponent*& LightComponent)
         {
-            if (PreviewScene && LightComponent)
+            UDirectionalLightComponent* ComponentToRelease = LightComponent;
+            LightComponent = nullptr;
+
+            if (!PreviewScene || !ComponentToRelease || !IsValid(ComponentToRelease))
             {
-                PreviewScene->RemoveComponent(LightComponent);
-                LightComponent->DestroyComponent();
-                LightComponent = nullptr;
+                return;
             }
+
+            PreviewScene->RemoveComponent(ComponentToRelease);
+            ComponentToRelease->DestroyComponent();
         };
 
         ReleaseLightComponent(KeyLightComponent);
@@ -724,18 +734,22 @@ private:
 
     void ReleasePreviewComponents()
     {
-        if (PreviewScene && PreviewSkeletalMeshComponent)
+        USkeletalMeshComponent* SkeletalMeshComponentToRelease = PreviewSkeletalMeshComponent;
+        PreviewSkeletalMeshComponent = nullptr;
+
+        if (PreviewScene && SkeletalMeshComponentToRelease && IsValid(SkeletalMeshComponentToRelease))
         {
-            PreviewScene->RemoveComponent(PreviewSkeletalMeshComponent);
-            PreviewSkeletalMeshComponent->DestroyComponent();
-            PreviewSkeletalMeshComponent = nullptr;
+            PreviewScene->RemoveComponent(SkeletalMeshComponentToRelease);
+            SkeletalMeshComponentToRelease->DestroyComponent();
         }
 
-        if (PreviewScene && PreviewStaticMeshComponent)
+        UStaticMeshComponent* StaticMeshComponentToRelease = PreviewStaticMeshComponent;
+        PreviewStaticMeshComponent = nullptr;
+
+        if (PreviewScene && StaticMeshComponentToRelease && IsValid(StaticMeshComponentToRelease))
         {
-            PreviewScene->RemoveComponent(PreviewStaticMeshComponent);
-            PreviewStaticMeshComponent->DestroyComponent();
-            PreviewStaticMeshComponent = nullptr;
+            PreviewScene->RemoveComponent(StaticMeshComponentToRelease);
+            StaticMeshComponentToRelease->DestroyComponent();
         }
     }
 
@@ -1548,6 +1562,125 @@ TSharedRef<SWidget> MakeSandboxPreviewSection(const FWanaWorksUITabBuilderArgs& 
         LOCTEXT("WanaWorksSandboxPreviewDescription", "A lightweight embedded preview card for the current working subject or finalized output. WanaWorks is the workspace, so this stays focused on the subject you are shaping inside the tool."),
         LOCTEXT("WanaWorksSandboxPreviewStatus", "LIVE"),
         true);
+}
+
+TSharedRef<SWidget> MakeCharacterIntelligenceControlCard(const FWanaWorksUITabBuilderArgs& Args)
+{
+    return SNew(SBorder)
+        .Padding(1.0f)
+        .BorderBackgroundColor(StudioAccentColor.CopyWithNewOpacity(0.28f))
+        [
+            SNew(SBorder)
+            .Padding(14.0f)
+            .BorderBackgroundColor(StudioPanelElevatedColor)
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot()
+                    .FillWidth(1.0f)
+                    [
+                        SNew(SVerticalBox)
+                        + SVerticalBox::Slot()
+                        .AutoHeight()
+                        [
+                            SNew(STextBlock)
+                            .Font(MakeStudioFont("Bold", 8))
+                            .ColorAndOpacity(StudioAccentColor.CopyWithNewOpacity(0.86f))
+                            .Text(LOCTEXT("WanaWorksStudioAIControlsEyebrow", "WAI / WAY CONTROLS"))
+                        ]
+                        + SVerticalBox::Slot()
+                        .AutoHeight()
+                        .Padding(0.0f, 3.0f, 0.0f, 0.0f)
+                        [
+                            SNew(STextBlock)
+                            .Font(MakeStudioFont("Bold", 13))
+                            .ColorAndOpacity(FLinearColor::White)
+                            .Text(LOCTEXT("WanaWorksStudioAIControlsTitle", "Identity & Relationship"))
+                        ]
+                    ]
+                    + SHorizontalBox::Slot()
+                    .AutoWidth()
+                    .VAlign(VAlign_Top)
+                    [
+                        MakeStudioPill(
+                            LOCTEXT("WanaWorksStudioAIControlsPill", "LIVE"),
+                            StudioSuccessColor.CopyWithNewOpacity(0.18f),
+                            StudioSuccessColor,
+                            7,
+                            FMargin(8.0f, 3.0f))
+                    ]
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                [
+                    SNew(STextBlock)
+                    .Font(MakeStudioFont("Regular", 9))
+                    .ColorAndOpacity(SecondaryTextColor)
+                    .AutoWrapText(true)
+                    .Text(LOCTEXT("WanaWorksStudioAIControlsDescription", "Set the AI role, assign a safe relationship target, and choose the WAY state used by Test without exposing old helper-button stacks."))
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                [
+                    MakeStringPickerControl(
+                        LOCTEXT("WanaWorksStudioAIIdentityRolePickerLabel", "AI Identity / Role"),
+                        Args.CharacterIntelligenceIdentityRoleOptions,
+                        Args.GetSelectedCharacterIntelligenceIdentityRoleOption,
+                        Args.OnCharacterIntelligenceIdentityRoleOptionSelected,
+                        LOCTEXT("WanaWorksStudioAIIdentityRolePickerDefault", "Neutral"),
+                        238.0f)
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                [
+                    MakeStringPickerControl(
+                        LOCTEXT("WanaWorksStudioAITargetPickerLabel", "Relationship Target"),
+                        Args.CharacterIntelligenceTargetOptions,
+                        Args.GetSelectedCharacterIntelligenceTargetOption,
+                        Args.OnCharacterIntelligenceTargetOptionSelected,
+                        LOCTEXT("WanaWorksStudioAITargetPickerDefault", "No Target"),
+                        238.0f)
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
+                [
+                    MakeStringPickerControl(
+                        LOCTEXT("WanaWorksStudioAIRelationshipPickerLabel", "WAY Relationship"),
+                        Args.CharacterIntelligenceRelationshipOptions,
+                        Args.GetSelectedCharacterIntelligenceRelationshipOption,
+                        Args.OnCharacterIntelligenceRelationshipOptionSelected,
+                        LOCTEXT("WanaWorksStudioAIRelationshipPickerDefault", "Unknown"),
+                        238.0f)
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                [
+                    SNew(SBorder)
+                    .Padding(FMargin(12.0f, 10.0f))
+                    .BorderBackgroundColor(StudioSoftSurfaceColor)
+                    [
+                        SNew(STextBlock)
+                        .Font(MakeStudioFont("Regular", 9))
+                        .ColorAndOpacity(SecondaryTextColor)
+                        .AutoWrapText(true)
+                        .Text_Lambda([GetCharacterIntelligenceControlSummaryText = Args.GetCharacterIntelligenceControlSummaryText]()
+                        {
+                            return GetCharacterIntelligenceControlSummaryText
+                                ? GetCharacterIntelligenceControlSummaryText()
+                                : LOCTEXT("WanaWorksStudioAIControlsSummaryFallback", "Choose an identity, target, and relationship state, then run Test to evaluate the recommended behavior.");
+                        })
+                    ]
+                ]
+            ]
+        ];
 }
 
 TSharedRef<SWidget> MakeCoreWorkflowSection(const FWanaWorksUITabBuilderArgs& Args, const FSlateFontInfo& SectionHeaderFont)
@@ -4643,24 +4776,7 @@ TSharedRef<SWidget> BuildCharacterIntelligenceWorkspaceBody(const FWanaWorksUITa
                     .AutoHeight()
                     .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                     [
-                        MakeStudioStatusCard(
-                            LOCTEXT("WanaWorksStudioAIIdentityCardTitle", "WAI / WAMI Identity"),
-                            LOCTEXT("WanaWorksStudioAIIdentityCardEyebrow", "ROLE / MEMORY / EMOTION"),
-                            Args.GetIdentitySummaryText,
-                            StudioAccentColor,
-                            5,
-                            188.0f)
-                    ]
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    [
-                        MakeStudioStatusCard(
-                            LOCTEXT("WanaWorksStudioAIProfileCardTitle", "Identity / Relationship"),
-                            LOCTEXT("WanaWorksStudioAIProfileCardEyebrow", "WAY-LITE CONTEXT"),
-                            Args.GetRelationshipSummaryText,
-                            StudioSuccessColor,
-                            6,
-                            188.0f)
+                        MakeCharacterIntelligenceControlCard(Args)
                     ])
             ]
             + SSplitter::Slot()

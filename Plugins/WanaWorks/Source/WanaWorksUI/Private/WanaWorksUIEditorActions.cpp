@@ -1157,11 +1157,18 @@ void AppendLinesWithPrefix(FWanaCommandResponse& Response, const FWanaCommandRes
 
 FWanaCommandResponse ExecuteEvaluateActorPairInternal(AActor* ObserverActor, AActor* TargetActor, bool bTargetFallsBackToObserver)
 {
-    if (!ObserverActor || !TargetActor)
+    if (!IsValid(ObserverActor) || !IsValid(TargetActor))
     {
         return MakeEditorFailureResponse(
             TEXT("Status: Observer or target is missing."),
             TEXT("Select or assign both an observer and target actor before evaluating the pair."));
+    }
+
+    if (ObserverActor->GetWorld() && TargetActor->GetWorld() && ObserverActor->GetWorld() != TargetActor->GetWorld())
+    {
+        return MakeEditorFailureResponse(
+            TEXT("Status: Observer and target are in different world contexts."),
+            TEXT("Choose actors from the same editor or PIE world before evaluating the pair."));
     }
 
     UWAYPlayerProfileComponent* ProfileComponent = ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>();
@@ -1358,7 +1365,7 @@ bool GetSelectedRelationshipContextSnapshot(FWanaSelectedRelationshipContextSnap
     const AActor* TargetActor = nullptr;
     bool bTargetFallsBackToObserver = false;
 
-    if (!GetSelectedActorPair(ObserverActor, TargetActor, bTargetFallsBackToObserver) || !ObserverActor)
+    if (!GetSelectedActorPair(ObserverActor, TargetActor, bTargetFallsBackToObserver) || !IsValid(ObserverActor))
     {
         return false;
     }
@@ -1368,7 +1375,7 @@ bool GetSelectedRelationshipContextSnapshot(FWanaSelectedRelationshipContextSnap
     OutSnapshot.ObserverActorLabel = ObserverActor->GetActorNameOrLabel();
     OutSnapshot.bObserverHasRelationshipComponent = ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>() != nullptr;
 
-    if (TargetActor)
+    if (IsValid(TargetActor))
     {
         OutSnapshot.bHasTargetActor = true;
         OutSnapshot.TargetActor = const_cast<AActor*>(TargetActor);
@@ -1384,26 +1391,32 @@ bool GetEnvironmentReadinessSnapshotForActorPair(const AActor* ObserverActor, co
     OutSnapshot = FWanaEnvironmentReadinessSnapshot();
     OutSnapshot.PairSourceLabel = PairSourceLabel;
     OutSnapshot.bTargetFallsBackToObserver = bTargetFallsBackToObserver;
+    const bool bObserverValid = IsValid(ObserverActor);
+    const bool bTargetValid = IsValid(TargetActor);
 
-    if (ObserverActor)
+    if (bObserverValid)
     {
         OutSnapshot.bHasObserverActor = true;
         OutSnapshot.ObserverActor = const_cast<AActor*>(ObserverActor);
         OutSnapshot.ObserverActorLabel = ObserverActor->GetActorNameOrLabel();
     }
 
-    if (TargetActor)
+    if (bTargetValid)
     {
         OutSnapshot.bHasTargetActor = true;
         OutSnapshot.TargetActor = const_cast<AActor*>(TargetActor);
         OutSnapshot.TargetActorLabel = TargetActor->GetActorNameOrLabel();
     }
 
-    if (ObserverActor || TargetActor)
+    if (bObserverValid && bTargetValid && ObserverActor->GetWorld() && TargetActor->GetWorld() && ObserverActor->GetWorld() != TargetActor->GetWorld())
+    {
+        OutSnapshot.MovementReadiness.Detail = TEXT("Movement blocked because observer and target are in different world contexts.");
+    }
+    else if (bObserverValid || bTargetValid)
     {
         OutSnapshot.MovementReadiness = UWITBlueprintLibrary::GetMovementReadinessForObserverTarget(
-            const_cast<AActor*>(ObserverActor),
-            const_cast<AActor*>(TargetActor));
+            bObserverValid ? const_cast<AActor*>(ObserverActor) : nullptr,
+            bTargetValid ? const_cast<AActor*>(TargetActor) : nullptr);
     }
     else
     {
@@ -1418,31 +1431,37 @@ bool GetBehaviorResultsSnapshotForActorPair(const AActor* ObserverActor, const A
     OutSnapshot = FWanaBehaviorResultsSnapshot();
     OutSnapshot.PairSourceLabel = PairSourceLabel;
     OutSnapshot.bTargetFallsBackToObserver = bTargetFallsBackToObserver;
+    const bool bObserverValid = IsValid(ObserverActor);
+    const bool bTargetValid = IsValid(TargetActor);
 
-    if (ObserverActor)
+    if (bObserverValid)
     {
         OutSnapshot.bHasObserverActor = true;
         OutSnapshot.ObserverActor = const_cast<AActor*>(ObserverActor);
         OutSnapshot.ObserverActorLabel = ObserverActor->GetActorNameOrLabel();
     }
 
-    if (TargetActor)
+    if (bTargetValid)
     {
         OutSnapshot.bHasTargetActor = true;
         OutSnapshot.TargetActor = const_cast<AActor*>(TargetActor);
         OutSnapshot.TargetActorLabel = TargetActor->GetActorNameOrLabel();
     }
 
-    if (ObserverActor || TargetActor)
+    if (bObserverValid && bTargetValid && ObserverActor->GetWorld() && TargetActor->GetWorld() && ObserverActor->GetWorld() != TargetActor->GetWorld())
+    {
+        OutSnapshot.MovementReadiness.Detail = TEXT("Movement blocked because observer and target are in different world contexts.");
+    }
+    else if (bObserverValid || bTargetValid)
     {
         OutSnapshot.MovementReadiness = UWITBlueprintLibrary::GetMovementReadinessForObserverTarget(
-            const_cast<AActor*>(ObserverActor),
-            const_cast<AActor*>(TargetActor));
+            bObserverValid ? const_cast<AActor*>(ObserverActor) : nullptr,
+            bTargetValid ? const_cast<AActor*>(TargetActor) : nullptr);
     }
 
-    const UWAYPlayerProfileComponent* ProfileComponent = ObserverActor ? ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>() : nullptr;
+    const UWAYPlayerProfileComponent* ProfileComponent = bObserverValid ? ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>() : nullptr;
 
-    if (!ProfileComponent || !TargetActor)
+    if (!ProfileComponent || !bTargetValid)
     {
         return OutSnapshot.bHasObserverActor || OutSnapshot.bHasTargetActor;
     }
@@ -1818,6 +1837,20 @@ FWanaCommandResponse ExecuteEnsureRelationshipProfileCommand()
     AActor* ObserverActor = RelationshipContext.ObserverActor.Get();
     AActor* TargetActor = RelationshipContext.TargetActor.Get();
 
+    if (!IsValid(ObserverActor) || !IsValid(TargetActor))
+    {
+        return MakeEditorFailureResponse(
+            TEXT("Status: Observer or target is missing."),
+            TEXT("Assign both an observer and relationship target before preparing WAY-lite relationship data."));
+    }
+
+    if (ObserverActor->GetWorld() && TargetActor->GetWorld() && ObserverActor->GetWorld() != TargetActor->GetWorld())
+    {
+        return MakeEditorFailureResponse(
+            TEXT("Status: Observer and target are in different world contexts."),
+            TEXT("Choose actors from the same editor or PIE world before preparing WAY-lite relationship data."));
+    }
+
     FWAYRelationshipProfile ExistingProfile;
     const UWAYPlayerProfileComponent* ExistingComponent = ObserverActor ? ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>() : nullptr;
     const bool bProfileAlreadyExists = ExistingComponent && ExistingComponent->GetRelationshipProfileForTarget(TargetActor, ExistingProfile);
@@ -1917,6 +1950,20 @@ FWanaCommandResponse ExecuteApplyRelationshipStateCommand(const FString& Relatio
 
     AActor* ObserverActor = RelationshipContext.ObserverActor.Get();
     AActor* TargetActor = RelationshipContext.TargetActor.Get();
+
+    if (!IsValid(ObserverActor) || !IsValid(TargetActor))
+    {
+        return MakeEditorFailureResponse(
+            TEXT("Status: Observer or target is missing."),
+            TEXT("Assign both an observer and relationship target before applying a WAY-lite relationship state."));
+    }
+
+    if (ObserverActor->GetWorld() && TargetActor->GetWorld() && ObserverActor->GetWorld() != TargetActor->GetWorld())
+    {
+        return MakeEditorFailureResponse(
+            TEXT("Status: Observer and target are in different world contexts."),
+            TEXT("Choose actors from the same editor or PIE world before applying a WAY-lite relationship state."));
+    }
 
     EWAYRelationshipState RelationshipState = EWAYRelationshipState::Neutral;
 

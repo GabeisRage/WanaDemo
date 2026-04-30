@@ -32,12 +32,16 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<FText(void)> GetRelationshipSummaryText;
     TFunction<FText(void)> GetIdentitySummaryText;
     TFunction<FText(void)> GetIdentityFactionTagText;
+    TFunction<FText(void)> GetCharacterIntelligenceControlSummaryText;
     const TArray<TSharedPtr<FString>>* CharacterPawnAssetOptions = nullptr;
     const TArray<TSharedPtr<FString>>* AIPawnAssetOptions = nullptr;
     const TArray<TSharedPtr<FString>>* WorkflowPresetOptions = nullptr;
     const TArray<TSharedPtr<FString>>* EnhancementPresetOptions = nullptr;
     const TArray<TSharedPtr<FString>>* EnhancementWorkflowOptions = nullptr;
     const TArray<TSharedPtr<FString>>* RelationshipStateOptions = nullptr;
+    const TArray<TSharedPtr<FString>>* CharacterIntelligenceIdentityRoleOptions = nullptr;
+    const TArray<TSharedPtr<FString>>* CharacterIntelligenceRelationshipOptions = nullptr;
+    const TArray<TSharedPtr<FString>>* CharacterIntelligenceTargetOptions = nullptr;
     TFunction<TSharedPtr<FString>(void)> GetSelectedCharacterPawnAssetOption;
     TFunction<TSharedPtr<FString>(void)> GetSelectedAIPawnAssetOption;
     TFunction<TSharedPtr<FString>(void)> GetSelectedWorkflowPresetOption;
@@ -45,6 +49,9 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<TSharedPtr<FString>(void)> GetSelectedEnhancementWorkflowOption;
     TFunction<TSharedPtr<FString>(void)> GetSelectedIdentitySeedStateOption;
     TFunction<TSharedPtr<FString>(void)> GetSelectedRelationshipStateOption;
+    TFunction<TSharedPtr<FString>(void)> GetSelectedCharacterIntelligenceIdentityRoleOption;
+    TFunction<TSharedPtr<FString>(void)> GetSelectedCharacterIntelligenceRelationshipOption;
+    TFunction<TSharedPtr<FString>(void)> GetSelectedCharacterIntelligenceTargetOption;
     TFunction<void(const FText&)> OnCommandTextChanged;
     TFunction<void(const FText&)> OnIdentityFactionTagTextChanged;
     TFunction<void(const FString&)> OnWorkspaceSelected;
@@ -56,6 +63,9 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<void(TSharedPtr<FString>)> OnEnhancementWorkflowOptionSelected;
     TFunction<void(TSharedPtr<FString>)> OnIdentitySeedStateOptionSelected;
     TFunction<void(TSharedPtr<FString>)> OnRelationshipStateOptionSelected;
+    TFunction<void(TSharedPtr<FString>)> OnCharacterIntelligenceIdentityRoleOptionSelected;
+    TFunction<void(TSharedPtr<FString>)> OnCharacterIntelligenceRelationshipOptionSelected;
+    TFunction<void(TSharedPtr<FString>)> OnCharacterIntelligenceTargetOptionSelected;
     TFunction<void(void)> OnRunCommand;
     TFunction<void(void)> OnClearLog;
     TFunction<void(void)> OnEnsureIdentityComponent;

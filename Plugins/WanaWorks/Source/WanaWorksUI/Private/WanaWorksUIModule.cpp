@@ -6,6 +6,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Blueprint.h"
 #include "Engine/SkeletalMesh.h"
+#include "EngineUtils.h"
 #include "Engine/World.h"
 #include "Editor.h"
 #include "Framework/Application/SlateApplication.h"
@@ -16,6 +17,7 @@
 #include "GameFramework/PawnMovementComponent.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Modules/ModuleManager.h"
+#include "ScopedTransaction.h"
 #include "Selection.h"
 #include "Textures/SlateIcon.h"
 #include "ToolMenus.h"
@@ -30,6 +32,7 @@
 #include "WanaWorksUISummaryText.h"
 #include "WanaWorksUIStyle.h"
 #include "WanaWorksUITabBuilder.h"
+#include "WanaIdentityComponent.h"
 #include "WAYPlayerProfileComponent.h"
 #include "Widgets/Docking/SDockTab.h"
 
@@ -129,6 +132,177 @@ FString GetPresetRecommendedBehaviorLabel(const FString& EnhancementPresetLabel,
     const EWAYReactionState ReactionState = UWAYPlayerProfileComponent::ResolveReactionForRelationshipState(RelationshipState);
     const EWAYBehaviorPreset BehaviorPreset = UWAYPlayerProfileComponent::ResolveRecommendedBehaviorForReactionState(ReactionState);
     return UIFmt::GetBehaviorPresetSummaryLabel(BehaviorPreset);
+}
+
+TSharedPtr<FString> FindStringOptionByLabel(const TArray<TSharedPtr<FString>>& Options, const FString& Label)
+{
+    for (const TSharedPtr<FString>& Option : Options)
+    {
+        if (Option.IsValid() && Option->Equals(Label, ESearchCase::IgnoreCase))
+        {
+            return Option;
+        }
+    }
+
+    return nullptr;
+}
+
+EWAYRelationshipState MapCharacterIntelligenceIdentityRoleToSeedState(const FString& RoleLabel)
+{
+    if (RoleLabel.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase))
+    {
+        return EWAYRelationshipState::Enemy;
+    }
+
+    if (RoleLabel.Equals(TEXT("Guard"), ESearchCase::IgnoreCase))
+    {
+        return EWAYRelationshipState::Partner;
+    }
+
+    if (RoleLabel.Equals(TEXT("Companion"), ESearchCase::IgnoreCase))
+    {
+        return EWAYRelationshipState::Friend;
+    }
+
+    if (RoleLabel.Equals(TEXT("Patrol"), ESearchCase::IgnoreCase)
+        || RoleLabel.Equals(TEXT("Observer"), ESearchCase::IgnoreCase))
+    {
+        return EWAYRelationshipState::Acquaintance;
+    }
+
+    return EWAYRelationshipState::Neutral;
+}
+
+EWAYRelationshipState MapCharacterIntelligenceRelationshipLabelToWAYState(const FString& RelationshipLabel)
+{
+    if (RelationshipLabel.Equals(TEXT("Friend"), ESearchCase::IgnoreCase))
+    {
+        return EWAYRelationshipState::Friend;
+    }
+
+    if (RelationshipLabel.Equals(TEXT("Ally"), ESearchCase::IgnoreCase))
+    {
+        return EWAYRelationshipState::Partner;
+    }
+
+    if (RelationshipLabel.Equals(TEXT("Suspicious"), ESearchCase::IgnoreCase))
+    {
+        return EWAYRelationshipState::Acquaintance;
+    }
+
+    if (RelationshipLabel.Equals(TEXT("Enemy"), ESearchCase::IgnoreCase)
+        || RelationshipLabel.Equals(TEXT("Target"), ESearchCase::IgnoreCase))
+    {
+        return EWAYRelationshipState::Enemy;
+    }
+
+    return EWAYRelationshipState::Neutral;
+}
+
+FString GetCharacterIntelligenceRoleFactionTag(const FString& RoleLabel)
+{
+    const FString TrimmedRole = RoleLabel.TrimStartAndEnd();
+    return TrimmedRole.IsEmpty() ? FString(TEXT("neutral")) : TrimmedRole.ToLower();
+}
+
+FString GetCharacterIntelligenceRecommendationLabel(const FString& IdentityRoleLabel, const FString& RelationshipLabel, bool bHasTarget)
+{
+    if (!bHasTarget)
+    {
+        return TEXT("Observe Target (target needed)");
+    }
+
+    if (RelationshipLabel.Equals(TEXT("Enemy"), ESearchCase::IgnoreCase)
+        || RelationshipLabel.Equals(TEXT("Target"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Approach Hostile");
+    }
+
+    if (RelationshipLabel.Equals(TEXT("Ally"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Guard Target");
+    }
+
+    if (RelationshipLabel.Equals(TEXT("Friend"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Follow Target");
+    }
+
+    if (RelationshipLabel.Equals(TEXT("Suspicious"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Observe Target");
+    }
+
+    if (IdentityRoleLabel.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Approach Hostile");
+    }
+
+    if (IdentityRoleLabel.Equals(TEXT("Guard"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Guard Target");
+    }
+
+    if (IdentityRoleLabel.Equals(TEXT("Companion"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Follow Target");
+    }
+
+    return TEXT("Observe Target");
+}
+
+AActor* GetFirstEditorSelectedActor()
+{
+    USelection* SelectedActors = GEditor ? GEditor->GetSelectedActors() : nullptr;
+
+    if (!SelectedActors || SelectedActors->Num() == 0)
+    {
+        return nullptr;
+    }
+
+    for (FSelectionIterator SelectionIt(*SelectedActors); SelectionIt; ++SelectionIt)
+    {
+        if (AActor* SelectedActor = Cast<AActor>(*SelectionIt))
+        {
+            return IsValid(SelectedActor) ? SelectedActor : nullptr;
+        }
+    }
+
+    return nullptr;
+}
+
+ACharacter* FindEditorPlayerCharacterCandidate()
+{
+    UWorld* EditorWorld = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+
+    if (!EditorWorld)
+    {
+        return nullptr;
+    }
+
+    ACharacter* FirstCharacter = nullptr;
+
+    for (TActorIterator<ACharacter> It(EditorWorld); It; ++It)
+    {
+        ACharacter* Candidate = *It;
+
+        if (!IsValid(Candidate))
+        {
+            continue;
+        }
+
+        if (!FirstCharacter)
+        {
+            FirstCharacter = Candidate;
+        }
+
+        if (Candidate->AutoPossessPlayer != EAutoReceiveInput::Disabled)
+        {
+            return Candidate;
+        }
+    }
+
+    return FirstCharacter;
 }
 
 FWanaWorkflowPresetConfig BuildWorkflowPresetConfig(
@@ -845,6 +1019,9 @@ void FWanaWorksUIModule::StartupModule()
     SelectedEnhancementWorkflowLabel = TEXT("Create Working Copy");
     SelectedCharacterPawnAssetLabel.Reset();
     SelectedAIPawnAssetLabel.Reset();
+    SelectedCharacterIntelligenceIdentityRoleLabel = TEXT("Neutral");
+    SelectedCharacterIntelligenceRelationshipLabel = TEXT("Unknown");
+    SelectedCharacterIntelligenceTargetLabel = TEXT("No Target");
     bWorkspaceAnalysisInitialized = false;
     LastAnalysisWorkspaceLabel.Reset();
     LastAnalysisStatusSummary = TEXT("Analyze has not run yet.");
@@ -924,6 +1101,32 @@ void FWanaWorksUIModule::StartupModule()
         MakeShared<FString>(TEXT("Partner")),
         MakeShared<FString>(TEXT("Enemy")),
         MakeShared<FString>(TEXT("Neutral"))
+    };
+    CharacterIntelligenceIdentityRoleOptions =
+    {
+        MakeShared<FString>(TEXT("Neutral")),
+        MakeShared<FString>(TEXT("Hostile")),
+        MakeShared<FString>(TEXT("Guard")),
+        MakeShared<FString>(TEXT("Companion")),
+        MakeShared<FString>(TEXT("Civilian")),
+        MakeShared<FString>(TEXT("Patrol")),
+        MakeShared<FString>(TEXT("Observer"))
+    };
+    CharacterIntelligenceRelationshipOptions =
+    {
+        MakeShared<FString>(TEXT("Unknown")),
+        MakeShared<FString>(TEXT("Neutral")),
+        MakeShared<FString>(TEXT("Friend")),
+        MakeShared<FString>(TEXT("Ally")),
+        MakeShared<FString>(TEXT("Suspicious")),
+        MakeShared<FString>(TEXT("Enemy")),
+        MakeShared<FString>(TEXT("Target"))
+    };
+    CharacterIntelligenceTargetOptions =
+    {
+        MakeShared<FString>(TEXT("No Target")),
+        MakeShared<FString>(TEXT("Current Editor Selection")),
+        MakeShared<FString>(TEXT("Player Character"))
     };
     RefreshProjectAssetPickerOptions();
 
@@ -1130,6 +1333,193 @@ void FWanaWorksUIModule::HandleRelationshipStateOptionSelected(TSharedPtr<FStrin
     {
         SelectedRelationshipState = ParsedRelationshipState;
     }
+}
+
+void FWanaWorksUIModule::HandleCharacterIntelligenceIdentityRoleOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    if (!SelectedOption.IsValid())
+    {
+        return;
+    }
+
+    SelectedCharacterIntelligenceIdentityRoleLabel = *SelectedOption;
+    SelectedIdentitySeedState = MapCharacterIntelligenceIdentityRoleToSeedState(SelectedCharacterIntelligenceIdentityRoleLabel);
+    IdentityFactionTagText = GetCharacterIntelligenceRoleFactionTag(SelectedCharacterIntelligenceIdentityRoleLabel);
+    bWorkspaceAnalysisInitialized = false;
+
+    AActor* ObserverActor = nullptr;
+    FString ObserverSourceLabel;
+    ResolveCharacterIntelligenceObserverActor(ObserverActor, ObserverSourceLabel);
+
+    AActor* TargetActor = nullptr;
+    FString TargetSourceLabel;
+    ResolveCharacterIntelligenceTargetActor(TargetActor, TargetSourceLabel);
+
+    TArray<FString> ControlNotes;
+    ApplyCharacterIntelligenceControlState(ObserverActor, TargetActor, &ControlNotes);
+
+    const FString RecommendedBehavior = GetCharacterIntelligenceRecommendationLabel(
+        SelectedCharacterIntelligenceIdentityRoleLabel,
+        SelectedCharacterIntelligenceRelationshipLabel,
+        TargetActor != nullptr);
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = ObserverActor != nullptr;
+    Response.StatusMessage = ObserverActor
+        ? FString::Printf(TEXT("Status: AI identity set to %s."), *SelectedCharacterIntelligenceIdentityRoleLabel)
+        : FString::Printf(TEXT("Status: AI identity set to %s. No compatible AI subject selected."), *SelectedCharacterIntelligenceIdentityRoleLabel);
+    Response.OutputLines.Add(FString::Printf(TEXT("AI Subject: %s"), ObserverActor ? *ObserverActor->GetActorNameOrLabel() : TEXT("(none)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("AI Identity: %s"), *SelectedCharacterIntelligenceIdentityRoleLabel));
+    Response.OutputLines.Add(FString::Printf(TEXT("Default Seed: %s"), *UIFmt::GetRelationshipStateLabel(SelectedIdentitySeedState)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Recommended Behavior: %s"), *RecommendedBehavior));
+
+    for (const FString& ControlNote : ControlNotes)
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Readiness Notes: %s"), *ControlNote));
+    }
+
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::HandleCharacterIntelligenceRelationshipOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    if (!SelectedOption.IsValid())
+    {
+        return;
+    }
+
+    SelectedCharacterIntelligenceRelationshipLabel = *SelectedOption;
+    SelectedRelationshipState = MapCharacterIntelligenceRelationshipLabelToWAYState(SelectedCharacterIntelligenceRelationshipLabel);
+    bWorkspaceAnalysisInitialized = false;
+
+    AActor* ObserverActor = nullptr;
+    FString ObserverSourceLabel;
+    ResolveCharacterIntelligenceObserverActor(ObserverActor, ObserverSourceLabel);
+
+    AActor* TargetActor = nullptr;
+    FString TargetSourceLabel;
+    ResolveCharacterIntelligenceTargetActor(TargetActor, TargetSourceLabel);
+
+    TArray<FString> ControlNotes;
+    ApplyCharacterIntelligenceControlState(ObserverActor, TargetActor, &ControlNotes);
+
+    const FString RecommendedBehavior = GetCharacterIntelligenceRecommendationLabel(
+        SelectedCharacterIntelligenceIdentityRoleLabel,
+        SelectedCharacterIntelligenceRelationshipLabel,
+        TargetActor != nullptr);
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = ObserverActor != nullptr && TargetActor != nullptr;
+
+    if (!ObserverActor)
+    {
+        Response.StatusMessage = FString::Printf(TEXT("Status: Relationship set to %s. No compatible AI subject selected."), *SelectedCharacterIntelligenceRelationshipLabel);
+    }
+    else if (!TargetActor)
+    {
+        Response.StatusMessage = FString::Printf(TEXT("Status: Relationship set to %s. No relationship target selected."), *SelectedCharacterIntelligenceRelationshipLabel);
+    }
+    else
+    {
+        Response.StatusMessage = FString::Printf(TEXT("Status: Relationship set to %s. Recommended behavior: %s."), *SelectedCharacterIntelligenceRelationshipLabel, *RecommendedBehavior);
+    }
+
+    Response.OutputLines.Add(FString::Printf(TEXT("AI Subject: %s"), ObserverActor ? *ObserverActor->GetActorNameOrLabel() : TEXT("(none)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Relationship Target: %s"), TargetActor ? *TargetActor->GetActorNameOrLabel() : TEXT("(none)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("WAY Relationship: %s"), *SelectedCharacterIntelligenceRelationshipLabel));
+    Response.OutputLines.Add(FString::Printf(TEXT("WAY Runtime State: %s"), *UIFmt::GetRelationshipStateLabel(SelectedRelationshipState)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Recommended Behavior: %s"), *RecommendedBehavior));
+
+    for (const FString& ControlNote : ControlNotes)
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Readiness Notes: %s"), *ControlNote));
+    }
+
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::HandleCharacterIntelligenceTargetOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    if (!SelectedOption.IsValid())
+    {
+        return;
+    }
+
+    SelectedCharacterIntelligenceTargetLabel = *SelectedOption;
+    bWorkspaceAnalysisInitialized = false;
+
+    AActor* ObserverActor = nullptr;
+    FString ObserverSourceLabel;
+    ResolveCharacterIntelligenceObserverActor(ObserverActor, ObserverSourceLabel);
+
+    AActor* TargetActor = nullptr;
+    FString TargetSourceLabel;
+
+    if (SelectedCharacterIntelligenceTargetLabel.Equals(TEXT("No Target"), ESearchCase::IgnoreCase))
+    {
+        SandboxTargetActor.Reset();
+        TargetSourceLabel = TEXT("No Target");
+    }
+    else if (SelectedCharacterIntelligenceTargetLabel.Equals(TEXT("Current Editor Selection"), ESearchCase::IgnoreCase))
+    {
+        TargetActor = GetFirstEditorSelectedActor();
+        TargetSourceLabel = TEXT("Current Editor Selection");
+    }
+    else if (SelectedCharacterIntelligenceTargetLabel.Equals(TEXT("Player Character"), ESearchCase::IgnoreCase))
+    {
+        TargetActor = FindEditorPlayerCharacterCandidate();
+        TargetSourceLabel = TEXT("Player Character");
+    }
+
+    if (TargetActor)
+    {
+        SandboxTargetActor = TargetActor;
+    }
+    else if (!SelectedCharacterIntelligenceTargetLabel.Equals(TEXT("No Target"), ESearchCase::IgnoreCase))
+    {
+        SandboxTargetActor.Reset();
+    }
+
+    TArray<FString> ControlNotes;
+    ApplyCharacterIntelligenceControlState(ObserverActor, SandboxTargetActor.Get(), &ControlNotes);
+
+    const FString RecommendedBehavior = GetCharacterIntelligenceRecommendationLabel(
+        SelectedCharacterIntelligenceIdentityRoleLabel,
+        SelectedCharacterIntelligenceRelationshipLabel,
+        SandboxTargetActor.IsValid());
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = SelectedCharacterIntelligenceTargetLabel.Equals(TEXT("No Target"), ESearchCase::IgnoreCase)
+        || SandboxTargetActor.IsValid();
+
+    if (SelectedCharacterIntelligenceTargetLabel.Equals(TEXT("No Target"), ESearchCase::IgnoreCase))
+    {
+        Response.StatusMessage = TEXT("Status: Relationship target cleared.");
+    }
+    else if (!SandboxTargetActor.IsValid())
+    {
+        Response.StatusMessage = FString::Printf(TEXT("Status: No valid %s target found."), *SelectedCharacterIntelligenceTargetLabel);
+    }
+    else
+    {
+        Response.StatusMessage = FString::Printf(TEXT("Status: Target set to %s."), *SandboxTargetActor->GetActorNameOrLabel());
+    }
+
+    Response.OutputLines.Add(FString::Printf(TEXT("AI Subject: %s"), ObserverActor ? *ObserverActor->GetActorNameOrLabel() : TEXT("(none)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Relationship Target: %s"), SandboxTargetActor.IsValid() ? *SandboxTargetActor->GetActorNameOrLabel() : TEXT("(none)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Target Source: %s"), TargetSourceLabel.IsEmpty() ? *SelectedCharacterIntelligenceTargetLabel : *TargetSourceLabel));
+    Response.OutputLines.Add(FString::Printf(TEXT("WAY Relationship: %s"), *SelectedCharacterIntelligenceRelationshipLabel));
+    Response.OutputLines.Add(FString::Printf(TEXT("Recommended Behavior: %s"), *RecommendedBehavior));
+
+    for (const FString& ControlNote : ControlNotes)
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Readiness Notes: %s"), *ControlNote));
+    }
+
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
 }
 
 void FWanaWorksUIModule::UpdateEnhancementResultsState(
@@ -1578,7 +1968,7 @@ UObject* FWanaWorksUIModule::GetSandboxPreviewObject() const
 
 bool FWanaWorksUIModule::IsActorCompatibleWithWorkspacePreview(const AActor* Actor, const FString& WorkspaceLabel) const
 {
-    if (!Actor || WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    if (!IsValid(Actor) || WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
     {
         return false;
     }
@@ -1708,6 +2098,149 @@ bool FWanaWorksUIModule::ResolvePreferredSandboxPreviewActor(AActor*& OutActor, 
     }
 
     return false;
+}
+
+bool FWanaWorksUIModule::ResolveCharacterIntelligenceObserverActor(AActor*& OutObserverActor, FString& OutSourceLabel) const
+{
+    OutObserverActor = nullptr;
+    OutSourceLabel = TEXT("No compatible AI subject selected");
+    const FString AIWorkspaceLabel(TEXT("AI"));
+
+    if (LastEnhancementResultsActor.IsValid()
+        && IsActorCompatibleWithWorkspacePreview(LastEnhancementResultsActor.Get(), AIWorkspaceLabel))
+    {
+        OutObserverActor = LastEnhancementResultsActor.Get();
+        OutSourceLabel = TEXT("Working/enhanced AI subject");
+        return true;
+    }
+
+    if (SandboxObserverActor.IsValid()
+        && IsActorCompatibleWithWorkspacePreview(SandboxObserverActor.Get(), AIWorkspaceLabel))
+    {
+        OutObserverActor = SandboxObserverActor.Get();
+        OutSourceLabel = TEXT("Assigned Character Intelligence subject");
+        return true;
+    }
+
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+
+    if (ResolvePreferredSubjectSnapshot(Snapshot)
+        && Snapshot.bHasSelectedActor
+        && Snapshot.SelectedActor.IsValid()
+        && IsActorCompatibleWithWorkspacePreview(Snapshot.SelectedActor.Get(), AIWorkspaceLabel))
+    {
+        OutObserverActor = Snapshot.SelectedActor.Get();
+        OutSourceLabel = Snapshot.bIsProjectAsset ? TEXT("Picked AI asset") : TEXT("Editor-selected AI subject");
+        return true;
+    }
+
+    return false;
+}
+
+bool FWanaWorksUIModule::ResolveCharacterIntelligenceTargetActor(AActor*& OutTargetActor, FString& OutSourceLabel) const
+{
+    OutTargetActor = nullptr;
+    OutSourceLabel = SelectedCharacterIntelligenceTargetLabel.IsEmpty()
+        ? TEXT("No Target")
+        : SelectedCharacterIntelligenceTargetLabel;
+
+    if (SelectedCharacterIntelligenceTargetLabel.Equals(TEXT("No Target"), ESearchCase::IgnoreCase))
+    {
+        return false;
+    }
+
+    if (SandboxTargetActor.IsValid())
+    {
+        OutTargetActor = SandboxTargetActor.Get();
+        OutSourceLabel = SelectedCharacterIntelligenceTargetLabel.IsEmpty()
+            ? TEXT("Assigned relationship target")
+            : SelectedCharacterIntelligenceTargetLabel;
+        return true;
+    }
+
+    if (SelectedCharacterIntelligenceTargetLabel.Equals(TEXT("Current Editor Selection"), ESearchCase::IgnoreCase))
+    {
+        if (AActor* SelectedActor = GetFirstEditorSelectedActor())
+        {
+            OutTargetActor = SelectedActor;
+            OutSourceLabel = TEXT("Current Editor Selection");
+            return true;
+        }
+    }
+
+    if (SelectedCharacterIntelligenceTargetLabel.Equals(TEXT("Player Character"), ESearchCase::IgnoreCase))
+    {
+        if (ACharacter* PlayerCharacter = FindEditorPlayerCharacterCandidate())
+        {
+            OutTargetActor = PlayerCharacter;
+            OutSourceLabel = TEXT("Player Character");
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void FWanaWorksUIModule::ApplyCharacterIntelligenceControlState(AActor* ObserverActor, AActor* TargetActor, TArray<FString>* OutControlNotes)
+{
+    auto AddControlNote = [OutControlNotes](const FString& Note)
+    {
+        if (OutControlNotes && !Note.IsEmpty())
+        {
+            OutControlNotes->Add(Note);
+        }
+    };
+
+    if (!IsValid(ObserverActor))
+    {
+        AddControlNote(TEXT("No compatible AI subject selected. Choose an AI Pawn/NPC or click Enhance to prepare a working subject."));
+        return;
+    }
+
+    if (UWanaIdentityComponent* IdentityComponent = ObserverActor->FindComponentByClass<UWanaIdentityComponent>())
+    {
+        const FString RoleFactionTag = GetCharacterIntelligenceRoleFactionTag(SelectedCharacterIntelligenceIdentityRoleLabel);
+        FScopedTransaction Transaction(LOCTEXT("WanaWorksApplyCharacterIntelligenceIdentityControlTransaction", "Apply WanaWorks Character Intelligence Identity Control"));
+        ObserverActor->Modify();
+        IdentityComponent->SetFlags(RF_Transactional);
+        IdentityComponent->Modify();
+        IdentityComponent->FactionTag = FName(*RoleFactionTag);
+        IdentityComponent->DefaultRelationshipSeed.RelationshipState = SelectedIdentitySeedState;
+        ObserverActor->MarkPackageDirty();
+        AddControlNote(FString::Printf(TEXT("WAI/WAMI identity control applied as %s with %s default seed."), *SelectedCharacterIntelligenceIdentityRoleLabel, *UIFmt::GetRelationshipStateLabel(SelectedIdentitySeedState)));
+    }
+    else
+    {
+        AddControlNote(TEXT("WAI/WAMI identity component missing. Click Enhance to prepare identity support before applying role data to the subject."));
+    }
+
+    if (!IsValid(TargetActor))
+    {
+        AddControlNote(TEXT("No relationship target selected. WAY-lite behavior will use a safe observe-style recommendation until a target is assigned."));
+        return;
+    }
+
+    if (ObserverActor->GetWorld() && TargetActor->GetWorld() && ObserverActor->GetWorld() != TargetActor->GetWorld())
+    {
+        AddControlNote(TEXT("Selected target belongs to a different world context. WAY-lite relationship data was not applied."));
+        return;
+    }
+
+    if (UWAYPlayerProfileComponent* ProfileComponent = ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>())
+    {
+        FScopedTransaction Transaction(LOCTEXT("WanaWorksApplyCharacterIntelligenceRelationshipControlTransaction", "Apply WanaWorks Character Intelligence Relationship Control"));
+        ObserverActor->Modify();
+        ProfileComponent->SetFlags(RF_Transactional);
+        ProfileComponent->Modify();
+        ProfileComponent->EnsureRelationshipProfileForTarget(TargetActor);
+        ProfileComponent->SetRelationshipStateForTarget(TargetActor, SelectedRelationshipState);
+        ObserverActor->MarkPackageDirty();
+        AddControlNote(FString::Printf(TEXT("WAY-lite relationship set to %s for %s."), *SelectedCharacterIntelligenceRelationshipLabel, *TargetActor->GetActorNameOrLabel()));
+    }
+    else
+    {
+        AddControlNote(TEXT("WAY component missing. Click Enhance to prepare relationship support before applying target-specific relationship data."));
+    }
 }
 
 bool FWanaWorksUIModule::PreparePickerDrivenSubjectForWorkflow(
@@ -3018,6 +3551,13 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             bool bTargetFallsBackToObserver = false;
             ResolvePreferredWITReadinessPair(ObserverActor, TargetActor, PairSourceLabel, bTargetFallsBackToObserver);
 
+            TArray<FString> ControlNotes;
+            ApplyCharacterIntelligenceControlState(ObserverActor, TargetActor, &ControlNotes);
+            const FString ControlRecommendedBehavior = GetCharacterIntelligenceRecommendationLabel(
+                SelectedCharacterIntelligenceIdentityRoleLabel,
+                SelectedCharacterIntelligenceRelationshipLabel,
+                TargetActor != nullptr);
+
             FWanaEnvironmentReadinessSnapshot EnvironmentSnapshot;
             WanaWorksUIEditorActions::GetEnvironmentReadinessSnapshotForActorPair(
                 ObserverActor,
@@ -3067,7 +3607,10 @@ void FWanaWorksUIModule::TestActiveWorkspace()
 
             AddAnalysisItem(BehaviorItems, Result, TEXT("AI Controller"), bAIControllerReady ? TEXT("Ready") : TEXT("Missing"), Snapshot.LinkedAIControllerLabel.IsEmpty() ? TEXT("No linked AI Controller detected.") : Snapshot.LinkedAIControllerLabel);
             AddAnalysisItem(BehaviorItems, Result, TEXT("WAI / WAMI"), Snapshot.bHasWAIComponent ? TEXT("Ready") : TEXT("Limited"), Snapshot.bHasWAIComponent ? TEXT("Identity, memory, emotion, and role layer is readable.") : TEXT("AI can be tested, but WAI/WAMI is not attached yet."));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("AI Identity Role"), ObserverActor && ObserverActor->FindComponentByClass<UWanaIdentityComponent>() ? TEXT("Ready") : TEXT("Limited"), FString::Printf(TEXT("%s biases behavior toward %s."), SelectedCharacterIntelligenceIdentityRoleLabel.IsEmpty() ? TEXT("Neutral") : *SelectedCharacterIntelligenceIdentityRoleLabel, *ControlRecommendedBehavior));
             AddAnalysisItem(BehaviorItems, Result, TEXT("WAY-lite Relationship"), Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), Snapshot.bHasWAYComponent ? TEXT("Relationship/adaptation layer is readable.") : TEXT("Relationship behavior is limited until WAY-lite is attached."));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Relationship Target"), TargetActor ? TEXT("Ready") : TEXT("Limited"), TargetActor ? TargetActor->GetActorNameOrLabel() : TEXT("No relationship target selected."));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Selected Relationship"), TargetActor && ObserverActor && ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>() ? TEXT("Ready") : TEXT("Limited"), FString::Printf(TEXT("%s maps to runtime state %s."), SelectedCharacterIntelligenceRelationshipLabel.IsEmpty() ? TEXT("Unknown") : *SelectedCharacterIntelligenceRelationshipLabel, *UIFmt::GetRelationshipStateLabel(SelectedRelationshipState)));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Behavior Results"), BehaviorSnapshot.bHasWAYComponent && BehaviorSnapshot.bHasRelationshipProfile ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.bHasWAYComponent ? TEXT("Behavior result data is readable.") : TEXT("Behavior result is limited until WAY-lite has usable relationship data."));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Requested Behavior"), BehaviorSnapshot.RecommendedBehavior != EWAYBehaviorPreset::None ? TEXT("Ready") : TEXT("Limited"), UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Visible Behavior"), !BehaviorSnapshot.VisibleBehaviorLabel.IsEmpty() ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.VisibleBehaviorLabel.IsEmpty() ? TEXT("No visible starter behavior was applied.") : BehaviorSnapshot.VisibleBehaviorLabel);
@@ -3077,6 +3620,18 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             AddAnalysisItem(BehaviorItems, Result, TEXT("Result Notes"), bBehaviorExecutionSucceeded ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.BehaviorExecutionDetail.IsEmpty() ? TEXT("No behavior test detail was available.") : BehaviorSnapshot.BehaviorExecutionDetail);
             AddAnalysisItem(BehaviorItems, Result, TEXT("Behavior Next Step"), TEXT("Recommended"), BuildAIBehaviorRecommendedNextStepDetail(BehaviorSnapshot.ExecutionMode, BehaviorSnapshot.MovementReadiness));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Behavior Test"), bBehaviorExecutionSucceeded ? TEXT("Ready") : TEXT("Limited"), bBehaviorExecutionAttempted ? BehaviorExecutionResponse.StatusMessage : TEXT("No observer-target pair was available for visible behavior execution."));
+
+            if (!ControlNotes.IsEmpty())
+            {
+                const bool bControlStateLimited = ControlNotes.ContainsByPredicate([](const FString& Note)
+                {
+                    return Note.Contains(TEXT("missing"), ESearchCase::IgnoreCase)
+                        || Note.Contains(TEXT("No "), ESearchCase::CaseSensitive)
+                        || Note.Contains(TEXT("different world"), ESearchCase::IgnoreCase)
+                        || Note.Contains(TEXT("Needs"), ESearchCase::IgnoreCase);
+                });
+                AddAnalysisItem(BehaviorItems, Result, TEXT("Control Safety"), bControlStateLimited ? TEXT("Limited") : TEXT("Ready"), FString::Join(ControlNotes, TEXT(" ")));
+            }
 
             AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), Snapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"), Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : Snapshot.LinkedAnimationBlueprintLabel);
             AddAnalysisItem(AnimationItems, Result, TEXT("WanaAnimation"), bAnimationReady ? TEXT("Ready") : TEXT("Limited"), Snapshot.AnimationAutomaticIntegrationDetail.IsEmpty() ? TEXT("Animation integration is not fully prepared yet.") : Snapshot.AnimationAutomaticIntegrationDetail);
@@ -3339,6 +3894,31 @@ bool FWanaWorksUIModule::ResolvePreferredWITReadinessPair(AActor*& OutObserverAc
     OutTargetActor = nullptr;
     OutPairSourceLabel = TEXT("No active pair");
     bOutTargetFallsBackToObserver = false;
+
+    const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
+
+    if (WorkspaceLabel.Equals(TEXT("AI"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Character Intelligence"), ESearchCase::IgnoreCase))
+    {
+        AActor* ControlObserverActor = nullptr;
+        FString ObserverSourceLabel;
+        ResolveCharacterIntelligenceObserverActor(ControlObserverActor, ObserverSourceLabel);
+
+        AActor* ControlTargetActor = nullptr;
+        FString TargetSourceLabel;
+        ResolveCharacterIntelligenceTargetActor(ControlTargetActor, TargetSourceLabel);
+
+        if (ControlObserverActor || ControlTargetActor)
+        {
+            OutObserverActor = ControlObserverActor;
+            OutTargetActor = ControlTargetActor;
+            OutPairSourceLabel = FString::Printf(
+                TEXT("Character Intelligence controls (%s / %s)"),
+                ObserverSourceLabel.IsEmpty() ? TEXT("no subject") : *ObserverSourceLabel,
+                TargetSourceLabel.IsEmpty() ? TEXT("no target") : *TargetSourceLabel);
+            return true;
+        }
+    }
 
     FWanaSelectedRelationshipContextSnapshot SelectionSnapshot;
     const bool bHasSelectionSnapshot = WanaWorksUIEditorActions::GetSelectedRelationshipContextSnapshot(SelectionSnapshot) && SelectionSnapshot.bHasObserverActor;
@@ -4577,6 +5157,30 @@ TSharedPtr<FString> FWanaWorksUIModule::GetSelectedIdentitySeedStateOption()
     return nullptr;
 }
 
+TSharedPtr<FString> FWanaWorksUIModule::GetSelectedCharacterIntelligenceIdentityRoleOption() const
+{
+    const FString SelectedLabel = SelectedCharacterIntelligenceIdentityRoleLabel.IsEmpty()
+        ? TEXT("Neutral")
+        : SelectedCharacterIntelligenceIdentityRoleLabel;
+    return FindStringOptionByLabel(CharacterIntelligenceIdentityRoleOptions, SelectedLabel);
+}
+
+TSharedPtr<FString> FWanaWorksUIModule::GetSelectedCharacterIntelligenceRelationshipOption() const
+{
+    const FString SelectedLabel = SelectedCharacterIntelligenceRelationshipLabel.IsEmpty()
+        ? TEXT("Unknown")
+        : SelectedCharacterIntelligenceRelationshipLabel;
+    return FindStringOptionByLabel(CharacterIntelligenceRelationshipOptions, SelectedLabel);
+}
+
+TSharedPtr<FString> FWanaWorksUIModule::GetSelectedCharacterIntelligenceTargetOption() const
+{
+    const FString SelectedLabel = SelectedCharacterIntelligenceTargetLabel.IsEmpty()
+        ? TEXT("No Target")
+        : SelectedCharacterIntelligenceTargetLabel;
+    return FindStringOptionByLabel(CharacterIntelligenceTargetOptions, SelectedLabel);
+}
+
 bool FWanaWorksUIModule::HasCurrentWorkspaceAnalysis() const
 {
     return bWorkspaceAnalysisInitialized
@@ -4930,6 +5534,51 @@ FText FWanaWorksUIModule::GetIdentityFactionTagText()
     return FText::FromString(IdentityFactionTagText);
 }
 
+FText FWanaWorksUIModule::GetCharacterIntelligenceControlSummaryText() const
+{
+    AActor* ObserverActor = nullptr;
+    FString ObserverSourceLabel;
+    ResolveCharacterIntelligenceObserverActor(ObserverActor, ObserverSourceLabel);
+
+    AActor* TargetActor = nullptr;
+    FString TargetSourceLabel;
+    ResolveCharacterIntelligenceTargetActor(TargetActor, TargetSourceLabel);
+
+    const UWanaIdentityComponent* IdentityComponent = IsValid(ObserverActor)
+        ? ObserverActor->FindComponentByClass<UWanaIdentityComponent>()
+        : nullptr;
+    const UWAYPlayerProfileComponent* ProfileComponent = IsValid(ObserverActor)
+        ? ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>()
+        : nullptr;
+    const FString RecommendationLabel = GetCharacterIntelligenceRecommendationLabel(
+        SelectedCharacterIntelligenceIdentityRoleLabel,
+        SelectedCharacterIntelligenceRelationshipLabel,
+        TargetActor != nullptr);
+
+    FString Summary = FString::Printf(
+        TEXT("AI Subject: %s\nSubject Source: %s\nAI Identity Role: %s\nWAI / WAMI: %s\nRelationship Target: %s\nTarget Source: %s\nWAY Relationship: %s\nWAY-lite: %s\nCurrent Recommendation: %s"),
+        IsValid(ObserverActor) ? *ObserverActor->GetActorNameOrLabel() : TEXT("(none)"),
+        ObserverSourceLabel.IsEmpty() ? TEXT("(none)") : *ObserverSourceLabel,
+        SelectedCharacterIntelligenceIdentityRoleLabel.IsEmpty() ? TEXT("Neutral") : *SelectedCharacterIntelligenceIdentityRoleLabel,
+        IdentityComponent ? TEXT("Ready") : TEXT("Needs Enhance"),
+        IsValid(TargetActor) ? *TargetActor->GetActorNameOrLabel() : TEXT("(none)"),
+        TargetSourceLabel.IsEmpty() ? TEXT("(none)") : *TargetSourceLabel,
+        SelectedCharacterIntelligenceRelationshipLabel.IsEmpty() ? TEXT("Unknown") : *SelectedCharacterIntelligenceRelationshipLabel,
+        ProfileComponent ? TEXT("Ready") : TEXT("Needs Enhance"),
+        *RecommendationLabel);
+
+    if (!IsValid(ObserverActor))
+    {
+        Summary += TEXT("\nStatus: No compatible AI subject selected.");
+    }
+    else if (!IsValid(TargetActor))
+    {
+        Summary += TEXT("\nStatus: Select a target to let WAY-lite drive Follow, Guard, Observe, or Approach Hostile.");
+    }
+
+    return FText::FromString(Summary);
+}
+
 TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& SpawnTabArgs)
 {
     FWanaWorksUITabBuilderArgs BuilderArgs;
@@ -4959,12 +5608,16 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetRelationshipSummaryText = [this]() { return GetRelationshipSummaryText(); };
     BuilderArgs.GetIdentitySummaryText = [this]() { return GetIdentitySummaryText(); };
     BuilderArgs.GetIdentityFactionTagText = [this]() { return GetIdentityFactionTagText(); };
+    BuilderArgs.GetCharacterIntelligenceControlSummaryText = [this]() { return GetCharacterIntelligenceControlSummaryText(); };
     BuilderArgs.CharacterPawnAssetOptions = &CharacterPawnAssetOptions;
     BuilderArgs.AIPawnAssetOptions = &AIPawnAssetOptions;
     BuilderArgs.WorkflowPresetOptions = &WorkflowPresetOptions;
     BuilderArgs.EnhancementPresetOptions = &EnhancementPresetOptions;
     BuilderArgs.EnhancementWorkflowOptions = &EnhancementWorkflowOptions;
     BuilderArgs.RelationshipStateOptions = &RelationshipStateOptions;
+    BuilderArgs.CharacterIntelligenceIdentityRoleOptions = &CharacterIntelligenceIdentityRoleOptions;
+    BuilderArgs.CharacterIntelligenceRelationshipOptions = &CharacterIntelligenceRelationshipOptions;
+    BuilderArgs.CharacterIntelligenceTargetOptions = &CharacterIntelligenceTargetOptions;
     BuilderArgs.GetSelectedCharacterPawnAssetOption = [this]() { return GetSelectedCharacterPawnAssetOption(); };
     BuilderArgs.GetSelectedAIPawnAssetOption = [this]() { return GetSelectedAIPawnAssetOption(); };
     BuilderArgs.GetSelectedWorkflowPresetOption = [this]() { return GetSelectedWorkflowPresetOption(); };
@@ -4972,6 +5625,9 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetSelectedEnhancementWorkflowOption = [this]() { return GetSelectedEnhancementWorkflowOption(); };
     BuilderArgs.GetSelectedIdentitySeedStateOption = [this]() { return GetSelectedIdentitySeedStateOption(); };
     BuilderArgs.GetSelectedRelationshipStateOption = [this]() { return GetSelectedRelationshipStateOption(); };
+    BuilderArgs.GetSelectedCharacterIntelligenceIdentityRoleOption = [this]() { return GetSelectedCharacterIntelligenceIdentityRoleOption(); };
+    BuilderArgs.GetSelectedCharacterIntelligenceRelationshipOption = [this]() { return GetSelectedCharacterIntelligenceRelationshipOption(); };
+    BuilderArgs.GetSelectedCharacterIntelligenceTargetOption = [this]() { return GetSelectedCharacterIntelligenceTargetOption(); };
     BuilderArgs.OnCommandTextChanged = [this](const FText& NewText) { HandleCommandTextChanged(NewText); };
     BuilderArgs.OnIdentityFactionTagTextChanged = [this](const FText& NewText) { HandleIdentityFactionTagTextChanged(NewText); };
     BuilderArgs.OnWorkspaceSelected = [this](const FString& WorkspaceLabel) { HandleWorkspaceSelected(WorkspaceLabel); };
@@ -4983,6 +5639,9 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.OnEnhancementWorkflowOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleEnhancementWorkflowOptionSelected(SelectedOption); };
     BuilderArgs.OnIdentitySeedStateOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleIdentitySeedStateOptionSelected(SelectedOption); };
     BuilderArgs.OnRelationshipStateOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleRelationshipStateOptionSelected(SelectedOption); };
+    BuilderArgs.OnCharacterIntelligenceIdentityRoleOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterIntelligenceIdentityRoleOptionSelected(SelectedOption); };
+    BuilderArgs.OnCharacterIntelligenceRelationshipOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterIntelligenceRelationshipOptionSelected(SelectedOption); };
+    BuilderArgs.OnCharacterIntelligenceTargetOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterIntelligenceTargetOptionSelected(SelectedOption); };
     BuilderArgs.OnRunCommand = [this]() { RunCommand(); };
     BuilderArgs.OnClearLog = [this]() { ClearLog(); };
     BuilderArgs.OnEnsureIdentityComponent = [this]() { EnsureIdentityComponent(); };
