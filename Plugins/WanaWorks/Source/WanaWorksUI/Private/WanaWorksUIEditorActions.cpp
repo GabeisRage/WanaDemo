@@ -1129,6 +1129,8 @@ FWanaCommandResponse ExecuteEvaluateActorPairInternal(AActor* ObserverActor, AAc
     }
 
     const FWAYTargetEvaluation Evaluation = ProfileComponent->EvaluateTarget(TargetActor);
+    const bool bStarterHookApplied = Evaluation.RecommendedBehavior != EWAYBehaviorPreset::None
+        && ProfileComponent->ApplyBehaviorPresetHook(TargetActor, Evaluation.RecommendedBehavior);
 
     if (bNeedsTransaction)
     {
@@ -1171,7 +1173,9 @@ FWanaCommandResponse ExecuteEvaluateActorPairInternal(AActor* ObserverActor, AAc
 
     FWanaCommandResponse Response;
     Response.bSucceeded = true;
-    Response.StatusMessage = TEXT("Status: Live target evaluation complete.");
+    Response.StatusMessage = bStarterHookApplied
+        ? TEXT("Status: Character Intelligence behavior test complete.")
+        : TEXT("Status: Character Intelligence behavior test limited.");
     Response.OutputLines.Add(FString::Printf(TEXT("Observer: %s"), *ObserverActor->GetActorNameOrLabel()));
     Response.OutputLines.Add(FString::Printf(TEXT("Target: %s"), *TargetActor->GetActorNameOrLabel()));
     AppendEnvironmentReadinessLines(Response, ReadinessSnapshot);
@@ -1179,6 +1183,8 @@ FWanaCommandResponse ExecuteEvaluateActorPairInternal(AActor* ObserverActor, AAc
     Response.OutputLines.Add(FString::Printf(TEXT("Relationship State: %s"), *GetRelationshipStateDisplayLabel(Evaluation.RelationshipProfile.RelationshipState)));
     Response.OutputLines.Add(FString::Printf(TEXT("Reaction State: %s"), *GetReactionStateDisplayLabel(Evaluation.ReactionState)));
     Response.OutputLines.Add(FString::Printf(TEXT("Recommended Behavior: %s"), *GetBehaviorPresetDisplayLabel(Evaluation.RecommendedBehavior)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Requested Behavior: %s"), *GetBehaviorPresetDisplayLabel(Evaluation.RecommendedBehavior)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Behavior Execution: %s"), bStarterHookApplied ? TEXT("Applied") : TEXT("Limited")));
     Response.OutputLines.Add(FString::Printf(TEXT("Starter Hook: %s"), Evaluation.RecommendedBehavior != EWAYBehaviorPreset::None ? TEXT("Available") : TEXT("Not Available")));
     {
         const FString VisibleBehaviorLabel = ProfileComponent->GetVisibleBehaviorLabelForTarget(TargetActor).TrimStartAndEnd();

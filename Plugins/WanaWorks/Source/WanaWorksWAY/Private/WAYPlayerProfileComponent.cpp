@@ -169,6 +169,211 @@ float GetFollowFallbackMoveDistance(float DistanceToTarget)
     return FMath::Clamp(DistanceToTarget - StarterFollowRange, 55.0f, BasicReactionMoveDistance * 0.90f);
 }
 
+FVector GetFallbackMoveOffset(EWAYReactionState ReactionState, const FVector& SafeDirection, float DistanceToTarget)
+{
+    const float MoveDistance = ReactionState == EWAYReactionState::Cooperative
+        ? GetFollowFallbackMoveDistance(DistanceToTarget)
+        : GetFallbackMoveDistance(ReactionState, DistanceToTarget);
+
+    return ReactionState == EWAYReactionState::Cautious
+        ? -SafeDirection * MoveDistance
+        : SafeDirection * MoveDistance;
+}
+
+FString GetMovementCompatibilitySummary(const FWanaMovementReadiness& MovementReadiness)
+{
+    switch (MovementReadiness.ReadinessLevel)
+    {
+    case EWanaMovementReadinessLevel::Allowed:
+        return MovementReadiness.bSupportsLocomotionPulse
+            ? TEXT("locomotion-safe movement available")
+            : TEXT("movement available through conservative fallback");
+
+    case EWanaMovementReadinessLevel::Limited:
+        return MovementReadiness.bSupportsDirectActorMove
+            ? TEXT("movement limited; direct fallback available")
+            : TEXT("movement limited; facing fallback preferred");
+
+    case EWanaMovementReadinessLevel::Unclear:
+        return TEXT("movement context low-confidence; fallback-first behavior preferred");
+
+    case EWanaMovementReadinessLevel::Blocked:
+    default:
+        return TEXT("movement blocked; facing and attention fallback required");
+    }
+}
+
+FString GetFallbackReasonSummary(EWAYBehaviorExecutionMode ExecutionMode, const FWanaMovementReadiness& MovementReadiness)
+{
+    switch (ExecutionMode)
+    {
+    case EWAYBehaviorExecutionMode::MovementAllowed:
+        return TEXT("none; WIT movement readiness allowed a safe locomotion pulse");
+
+    case EWAYBehaviorExecutionMode::FallbackActive:
+        return FString::Printf(TEXT("full locomotion was limited, so WanaWorks used a small safe fallback. %s"), *MovementReadiness.Detail);
+
+    case EWAYBehaviorExecutionMode::FacingOnly:
+        return FString::Printf(TEXT("movement was unsafe or unnecessary, so WanaWorks used facing/attention only. %s"), *MovementReadiness.Detail);
+
+    case EWAYBehaviorExecutionMode::Unknown:
+    default:
+        return MovementReadiness.Detail.IsEmpty() ? TEXT("movement compatibility was unknown") : MovementReadiness.Detail;
+    }
+}
+
+FString GetBehaviorRecommendedNextStep(EWAYBehaviorExecutionMode ExecutionMode, const FWanaMovementReadiness& MovementReadiness)
+{
+    if (ExecutionMode == EWAYBehaviorExecutionMode::MovementAllowed)
+    {
+        return TEXT("keep testing with different relationship targets to validate the visible behavior loop");
+    }
+
+    if (MovementReadiness.bAnimationDrivenLocomotionDetected)
+    {
+        return TEXT("keep the fallback for now; animation-driven locomotion should be integrated deliberately before movement is forced");
+    }
+
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Blocked)
+    {
+        return TEXT("assign a separate reachable target or improve WIT/navigation context before expecting movement");
+    }
+
+    return TEXT("use Enhance/Test again after selecting a clearer target or opening movement space");
+}
+
+FString BuildBehaviorExecutionReport(
+    EWAYBehaviorPreset RequestedBehavior,
+    const FString& VisibleBehaviorLabel,
+    EWAYBehaviorExecutionMode ExecutionMode,
+    const FWanaMovementReadiness& MovementReadiness,
+    const FString& ResultNotes)
+{
+    return FString::Printf(
+        TEXT("Requested Behavior: %s\nVisible Behavior: %s\nExecution Mode: %s\nMovement Compatibility: %s\nFallback Reason: %s\nResult Notes: %s\nRecommended Next Step: %s"),
+        *GetBehaviorPresetLogLabel(RequestedBehavior),
+        VisibleBehaviorLabel.IsEmpty() ? TEXT("(none)") : *VisibleBehaviorLabel,
+        *StaticEnum<EWAYBehaviorExecutionMode>()->GetDisplayNameTextByValue(static_cast<int64>(ExecutionMode)).ToString(),
+        *GetMovementCompatibilitySummary(MovementReadiness),
+        *GetFallbackReasonSummary(ExecutionMode, MovementReadiness),
+        ResultNotes.IsEmpty() ? TEXT("No additional notes.") : *ResultNotes,
+        *GetBehaviorRecommendedNextStep(ExecutionMode, MovementReadiness));
+}
+
+FString BuildIdentitySignalText(const AActor* Actor)
+{
+    const UWanaIdentityComponent* IdentityComponent = Actor ? Actor->FindComponentByClass<UWanaIdentityComponent>() : nullptr;
+
+    if (!IdentityComponent)
+    {
+        return FString();
+    }
+
+    TArray<FString> Signals;
+
+    if (!IdentityComponent->FactionTag.IsNone())
+    {
+        Signals.Add(IdentityComponent->FactionTag.ToString());
+    }
+
+    for (const FName& ReputationTag : IdentityComponent->ReputationTags)
+    {
+        if (!ReputationTag.IsNone())
+        {
+            Signals.Add(ReputationTag.ToString());
+        }
+    }
+
+    return FString::Join(Signals, TEXT(" "));
+}
+
+bool ContainsAnyIdentitySignal(const FString& IdentityText, const TArray<const TCHAR*>& Signals)
+{
+    for (const TCHAR* Signal : Signals)
+    {
+        if (IdentityText.Contains(Signal, ESearchCase::IgnoreCase))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+EWAYBehaviorPreset ResolveContextualRecommendedBehavior(
+    const AActor* ObserverActor,
+    const AActor* TargetActor,
+    const FWAYRelationshipProfile& RelationshipProfile,
+    EWAYReactionState ReactionState,
+    const FWanaMovementReadiness& MovementReadiness,
+    EWAYBehaviorPreset BaseBehavior)
+{
+    if (MovementReadiness.ReadinessLevel == EWanaMovementReadinessLevel::Blocked
+        && (RelationshipProfile.RelationshipState == EWAYRelationshipState::Neutral
+            || RelationshipProfile.RelationshipState == EWAYRelationshipState::Acquaintance))
+    {
+        return EWAYBehaviorPreset::ObserveTarget;
+    }
+
+    if (RelationshipProfile.RelationshipState == EWAYRelationshipState::Enemy || RelationshipProfile.Hostility >= 0.65f)
+    {
+        return EWAYBehaviorPreset::ApproachHostile;
+    }
+
+    if (RelationshipProfile.RelationshipState == EWAYRelationshipState::Partner
+        || RelationshipProfile.Attachment >= 0.65f
+        || RelationshipProfile.Respect >= 0.70f)
+    {
+        return EWAYBehaviorPreset::GuardTarget;
+    }
+
+    if (RelationshipProfile.RelationshipState == EWAYRelationshipState::Friend || RelationshipProfile.Trust >= 0.65f)
+    {
+        return EWAYBehaviorPreset::FollowTarget;
+    }
+
+    const FString IdentityText = FString::Printf(
+        TEXT("%s %s"),
+        *BuildIdentitySignalText(ObserverActor),
+        *BuildIdentitySignalText(TargetActor));
+
+    if (ContainsAnyIdentitySignal(IdentityText, { TEXT("guard"), TEXT("protector"), TEXT("sentinel"), TEXT("security") }))
+    {
+        return EWAYBehaviorPreset::GuardTarget;
+    }
+
+    if (ContainsAnyIdentitySignal(IdentityText, { TEXT("hostile"), TEXT("enemy"), TEXT("aggressive"), TEXT("raider"), TEXT("soldier"), TEXT("combat") }))
+    {
+        return EWAYBehaviorPreset::ApproachHostile;
+    }
+
+    if (ReactionState == EWAYReactionState::Cautious
+        || ContainsAnyIdentitySignal(IdentityText, { TEXT("scout"), TEXT("observer"), TEXT("civilian"), TEXT("cautious"), TEXT("neutral") }))
+    {
+        return EWAYBehaviorPreset::ObserveTarget;
+    }
+
+    return BaseBehavior;
+}
+
+FString BuildEvaluationInfluenceDetail(
+    const AActor* ObserverActor,
+    const AActor* TargetActor,
+    const FWAYRelationshipProfile& RelationshipProfile,
+    const FWanaMovementReadiness& MovementReadiness,
+    EWAYBehaviorPreset BaseBehavior,
+    EWAYBehaviorPreset RecommendedBehavior)
+{
+    const bool bHasIdentitySignals = !BuildIdentitySignalText(ObserverActor).IsEmpty() || !BuildIdentitySignalText(TargetActor).IsEmpty();
+    return FString::Printf(
+        TEXT("WanaWorks evaluated WAY relationship (%s), WAI/WAMI identity signals (%s), and WIT movement readiness (%s). Base behavior was %s; recommended behavior is %s."),
+        *GetReactionStateLogLabel(UWAYPlayerProfileComponent::ResolveReactionForRelationshipState(RelationshipProfile.RelationshipState)),
+        bHasIdentitySignals ? TEXT("available") : TEXT("limited"),
+        *GetMovementCompatibilitySummary(MovementReadiness),
+        *GetBehaviorPresetLogLabel(BaseBehavior),
+        *GetBehaviorPresetLogLabel(RecommendedBehavior));
+}
+
 FString DescribeBasicReactionBehavior(AActor* ObserverActor, AActor* TargetActor, EWAYReactionState ReactionState)
 {
     if (!ObserverActor || !TargetActor)
@@ -190,15 +395,15 @@ FString DescribeBasicReactionBehavior(AActor* ObserverActor, AActor* TargetActor
     switch (ReactionState)
     {
     case EWAYReactionState::Hostile:
-        return TEXT("Locked attention on the target and attempted a deliberate hostile advance.");
+        return TEXT("Locked attention on the target and attempted a deliberate, tense hostile advance.");
 
     case EWAYReactionState::Cooperative:
-        return TEXT("Held a cooperative follow-ready stance and kept attention on the target.");
+        return TEXT("Held cooperative attention and followed only enough to maintain a respectful distance.");
 
     case EWAYReactionState::Protective:
         return DirectionToTarget.SizeSquared() > FMath::Square(BasicReactionProtectiveRange)
-            ? TEXT("Moved to establish a clearer guard position near the target.")
-            : TEXT("Held a readable guard stance near the target and faced outward protectively.");
+            ? TEXT("Moved to establish a clearer protective range near the target.")
+            : TEXT("Held a deliberate guard state near the target and faced outward protectively.");
 
     case EWAYReactionState::Cautious:
         return TEXT("Kept attention on the target and prepared a cautious retreat.");
@@ -244,6 +449,7 @@ void ApplyReactionFacing(AActor* ObserverActor, const FVector& SafeDirection, EW
 bool IsMovementDrivenReaction(EWAYReactionState ReactionState)
 {
     return ReactionState == EWAYReactionState::Hostile
+        || ReactionState == EWAYReactionState::Cooperative
         || ReactionState == EWAYReactionState::Protective
         || ReactionState == EWAYReactionState::Cautious;
 }
@@ -438,8 +644,15 @@ FWAYTargetEvaluation UWAYPlayerProfileComponent::EvaluateTarget(AActor* TargetAc
 
     Evaluation.RelationshipProfile = EnsureRelationshipProfileForObservedTarget(TargetActor);
     Evaluation.ReactionState = ResolveReactionForRelationshipState(Evaluation.RelationshipProfile.RelationshipState);
-    Evaluation.RecommendedBehavior = ResolveRecommendedBehaviorForReactionState(Evaluation.ReactionState);
     const FWanaMovementReadiness MovementReadiness = FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(GetOwner(), TargetActor);
+    const EWAYBehaviorPreset BaseRecommendedBehavior = ResolveRecommendedBehaviorForReactionState(Evaluation.ReactionState);
+    Evaluation.RecommendedBehavior = ResolveContextualRecommendedBehavior(
+        GetOwner(),
+        TargetActor,
+        Evaluation.RelationshipProfile,
+        Evaluation.ReactionState,
+        MovementReadiness,
+        BaseRecommendedBehavior);
     const EWAYBehaviorExecutionMode ExecutionMode = ResolveBehaviorExecutionModeForMovementReadiness(MovementReadiness);
     CachedBehaviorExecutionModes.Add(TargetActor, ExecutionMode);
     UpdateAnimationHookState(
@@ -449,7 +662,13 @@ FWAYTargetEvaluation UWAYPlayerProfileComponent::EvaluateTarget(AActor* TargetAc
         ExecutionMode,
         true,
         true,
-        TEXT("Evaluation updated the current animation hook state for this target."));
+        BuildEvaluationInfluenceDetail(
+            GetOwner(),
+            TargetActor,
+            Evaluation.RelationshipProfile,
+            MovementReadiness,
+            BaseRecommendedBehavior,
+            Evaluation.RecommendedBehavior));
 
     const EWAYReactionState* PreviousReaction = CachedReactionStates.Find(TargetActor);
     const EWAYBehaviorPreset* PreviousBehavior = CachedRecommendedBehaviors.Find(TargetActor);
@@ -535,20 +754,20 @@ bool UWAYPlayerProfileComponent::ApplyBehaviorPresetHook(AActor* TargetActor, EW
     {
     case EWAYBehaviorPreset::ApproachHostile:
         ApplyReactionFacing(ObserverActor, SafeDirection, EWAYReactionState::Hostile, DistanceToTarget);
-        HookDescription = TEXT("Starter hook locked attention on the hostile target and attempted a deliberate approach.");
+        HookDescription = TEXT("Approach Hostile: locked attention on the target and attempted a deliberate, tense approach.");
         TryApplyMovementReaction(TargetActor, EWAYReactionState::Hostile, SafeDirection, HookDescription, &ExecutionMode);
         break;
 
     case EWAYBehaviorPreset::GuardTarget:
         ApplyReactionFacing(ObserverActor, SafeDirection, EWAYReactionState::Protective, DistanceToTarget);
-        HookDescription = TEXT("Starter hook entered a readable guard stance around the target.");
+        HookDescription = TEXT("Guard Target: entered a readable protective state around the target.");
         TryApplyMovementReaction(TargetActor, EWAYReactionState::Protective, SafeDirection, HookDescription, &ExecutionMode);
         break;
 
     case EWAYBehaviorPreset::ObserveTarget:
         StopBasicReactionMovement();
         ApplyReactionFacing(ObserverActor, SafeDirection, EWAYReactionState::Observational, DistanceToTarget);
-        HookDescription = TEXT("Starter hook held an attentive observation stance and kept focus on the target.");
+        HookDescription = TEXT("Observe Target: stable target attention active; holding position intentionally.");
         ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
         break;
 
@@ -559,7 +778,7 @@ bool UWAYPlayerProfileComponent::ApplyBehaviorPresetHook(AActor* TargetActor, EW
 
         if (DistanceToTarget <= StarterFollowRange)
         {
-            HookDescription = TEXT("Starter hook held a follow-ready stance near the target and maintained clear attention.");
+            HookDescription = TEXT("Follow Target: target is already within follow range, so WanaWorks maintained cooperative attention instead of crowding.");
             ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
             break;
         }
@@ -567,7 +786,7 @@ bool UWAYPlayerProfileComponent::ApplyBehaviorPresetHook(AActor* TargetActor, EW
         if (!MovementReadiness.bCanAttemptMovement)
         {
             HookDescription = FString::Printf(
-                TEXT("Starter hook held a follow-ready stance, but follow movement was blocked. %s Falling back to facing-only behavior."),
+                TEXT("Follow Target: movement was blocked, so WanaWorks maintained cooperative facing and attention. %s"),
                 *MovementReadiness.Detail);
             ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
             break;
@@ -578,7 +797,7 @@ bool UWAYPlayerProfileComponent::ApplyBehaviorPresetHook(AActor* TargetActor, EW
         if (StartBasicReactionMovement(TargetActor, EWAYReactionState::Cooperative, MovementCompatibilityDetail, BasicReactionFollowMoveInputScale, BasicReactionFollowMovePulseDuration))
         {
             HookDescription = FString::Printf(
-                TEXT("Starter hook requested a deliberate follow step toward the target. Movement-compatible execution was used. %s"),
+                TEXT("Follow Target: requested a controlled follow step while preserving a reasonable distance. Movement-compatible execution was used. %s"),
                 *MovementReadiness.Detail);
             ExecutionMode = EWAYBehaviorExecutionMode::MovementAllowed;
 
@@ -594,14 +813,14 @@ bool UWAYPlayerProfileComponent::ApplyBehaviorPresetHook(AActor* TargetActor, EW
         if (MovementReadiness.bSupportsDirectActorMove && TryMoveActor(ObserverActor, SafeDirection * GetFollowFallbackMoveDistance(DistanceToTarget)))
         {
             HookDescription = FString::Printf(
-                TEXT("Starter hook stepped toward the target with a safe actor fallback. Fallback movement was used. %s"),
+                TEXT("Follow Target: stepped toward the target with a small safe actor fallback. Fallback movement was used. %s"),
                 *MovementReadiness.Detail);
             ExecutionMode = EWAYBehaviorExecutionMode::FallbackActive;
             break;
         }
 
         HookDescription = FString::Printf(
-            TEXT("Starter hook held a follow-ready stance, but no locomotion-compatible follow path was available. %s"),
+            TEXT("Follow Target: no locomotion-compatible follow path was available, so WanaWorks held cooperative attention. %s"),
             *MovementReadiness.Detail);
         ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
         break;
@@ -616,10 +835,18 @@ bool UWAYPlayerProfileComponent::ApplyBehaviorPresetHook(AActor* TargetActor, EW
         break;
     }
 
+    const FString VisibleBehaviorLabel = GetVisibleBehaviorLabel(BehaviorPreset, ResolveReactionStateForBehaviorPreset(BehaviorPreset));
+    HookDescription = BuildBehaviorExecutionReport(
+        BehaviorPreset,
+        VisibleBehaviorLabel,
+        ExecutionMode,
+        MovementReadiness,
+        HookDescription);
+
     CachedBehaviorExecutionModes.Add(TargetActor, ExecutionMode);
     CacheBehaviorExecutionResult(
         TargetActor,
-        GetVisibleBehaviorLabel(BehaviorPreset, ResolveReactionStateForBehaviorPreset(BehaviorPreset)),
+        VisibleBehaviorLabel,
         HookDescription,
         ExecutionMode);
     UpdateAnimationHookState(
@@ -681,16 +908,24 @@ bool UWAYPlayerProfileComponent::ApplyBasicReactionBehavior(AActor* TargetActor)
     FString BehaviorDescription = DescribeBasicReactionBehavior(ObserverActor, TargetActor, ReactionState);
     EWAYBehaviorExecutionMode ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
     TryApplyMovementReaction(TargetActor, ReactionState, SafeDirection, BehaviorDescription, &ExecutionMode);
+    const EWAYBehaviorPreset BehaviorPreset = ResolveRecommendedBehaviorForReactionState(ReactionState);
+    const FString VisibleBehaviorLabel = GetVisibleBehaviorLabel(BehaviorPreset, ReactionState);
+    BehaviorDescription = BuildBehaviorExecutionReport(
+        BehaviorPreset,
+        VisibleBehaviorLabel,
+        ExecutionMode,
+        FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(ObserverActor, TargetActor),
+        BehaviorDescription);
     CachedBehaviorExecutionModes.Add(TargetActor, ExecutionMode);
     CacheBehaviorExecutionResult(
         TargetActor,
-        GetVisibleBehaviorLabel(ResolveRecommendedBehaviorForReactionState(ReactionState), ReactionState),
+        VisibleBehaviorLabel,
         BehaviorDescription,
         ExecutionMode);
     UpdateAnimationHookState(
         TargetActor,
         ReactionState,
-        ResolveRecommendedBehaviorForReactionState(ReactionState),
+        BehaviorPreset,
         ExecutionMode,
         true,
         true,
@@ -751,6 +986,11 @@ EWAYBehaviorPreset UWAYPlayerProfileComponent::GetRecommendedBehaviorForTarget(A
     if (!TargetActor)
     {
         return EWAYBehaviorPreset::None;
+    }
+
+    if (const EWAYBehaviorPreset* CachedBehavior = CachedRecommendedBehaviors.Find(TargetActor))
+    {
+        return *CachedBehavior;
     }
 
     return ResolveRecommendedBehaviorForReactionState(GetReactionForTarget(TargetActor));
@@ -905,16 +1145,24 @@ void UWAYPlayerProfileComponent::HandleReactionChanged(AActor* ObserverActor, AA
     ApplyReactionFacing(ObserverActor, SafeDirection, ReactionState, DistanceToTarget);
     EWAYBehaviorExecutionMode ExecutionMode = EWAYBehaviorExecutionMode::FacingOnly;
     TryApplyMovementReaction(TargetActor, ReactionState, SafeDirection, BehaviorDescription, &ExecutionMode);
+    const EWAYBehaviorPreset BehaviorPreset = ResolveRecommendedBehaviorForReactionState(ReactionState);
+    const FString VisibleBehaviorLabel = GetVisibleBehaviorLabel(BehaviorPreset, ReactionState);
+    BehaviorDescription = BuildBehaviorExecutionReport(
+        BehaviorPreset,
+        VisibleBehaviorLabel,
+        ExecutionMode,
+        FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(ObserverActor, TargetActor),
+        BehaviorDescription);
     CachedBehaviorExecutionModes.Add(TargetActor, ExecutionMode);
     CacheBehaviorExecutionResult(
         TargetActor,
-        GetVisibleBehaviorLabel(ResolveRecommendedBehaviorForReactionState(ReactionState), ReactionState),
+        VisibleBehaviorLabel,
         BehaviorDescription,
         ExecutionMode);
     UpdateAnimationHookState(
         TargetActor,
         ReactionState,
-        ResolveRecommendedBehaviorForReactionState(ReactionState),
+        BehaviorPreset,
         ExecutionMode,
         true,
         true,
@@ -1043,6 +1291,13 @@ bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, E
     AActor* ObserverActor = GetOwner();
     const FWanaMovementReadiness MovementReadiness = FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(ObserverActor, TargetActor);
 
+    if (ReactionState == EWAYReactionState::Cooperative && MovementReadiness.DistanceToTarget <= StarterFollowRange)
+    {
+        StopBasicReactionMovement();
+        OutBehaviorDescription += TEXT(" Movement held because the observer is already within a comfortable follow range, so the behavior stays cooperative instead of crowding the target.");
+        return false;
+    }
+
     if (ReactionState == EWAYReactionState::Protective && MovementReadiness.DistanceToTarget <= BasicReactionProtectiveRange)
     {
         StopBasicReactionMovement();
@@ -1061,11 +1316,7 @@ bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, E
     {
         if (MovementReadiness.bSupportsDirectActorMove && ObserverActor)
         {
-            const FVector FallbackOffset = ReactionState == EWAYReactionState::Hostile
-                ? SafeDirection * GetFallbackMoveDistance(ReactionState, MovementReadiness.DistanceToTarget)
-                : ReactionState == EWAYReactionState::Cautious
-                    ? -SafeDirection * GetFallbackMoveDistance(ReactionState, MovementReadiness.DistanceToTarget)
-                    : SafeDirection * GetFallbackMoveDistance(ReactionState, MovementReadiness.DistanceToTarget);
+            const FVector FallbackOffset = GetFallbackMoveOffset(ReactionState, SafeDirection, MovementReadiness.DistanceToTarget);
 
             if (TryMoveActor(ObserverActor, FallbackOffset))
             {
@@ -1109,11 +1360,7 @@ bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, E
 
     if (MovementReadiness.bSupportsDirectActorMove && ObserverActor)
     {
-        const FVector FallbackOffset = ReactionState == EWAYReactionState::Hostile
-            ? SafeDirection * GetFallbackMoveDistance(ReactionState, MovementReadiness.DistanceToTarget)
-            : ReactionState == EWAYReactionState::Cautious
-                ? -SafeDirection * GetFallbackMoveDistance(ReactionState, MovementReadiness.DistanceToTarget)
-                : SafeDirection * GetFallbackMoveDistance(ReactionState, MovementReadiness.DistanceToTarget);
+        const FVector FallbackOffset = GetFallbackMoveOffset(ReactionState, SafeDirection, MovementReadiness.DistanceToTarget);
 
         if (TryMoveActor(ObserverActor, FallbackOffset))
         {
@@ -1126,7 +1373,9 @@ bool UWAYPlayerProfileComponent::TryApplyMovementReaction(AActor* TargetActor, E
                 ? TEXT("Locked attention on the target and advanced with a deliberate safe actor fallback.")
                 : ReactionState == EWAYReactionState::Cautious
                     ? TEXT("Held attention on the target and backed away with a readable safe actor fallback.")
-                    : TEXT("Closed distance with a safe actor fallback, then settled into a clearer guard-ready stance.");
+                    : ReactionState == EWAYReactionState::Cooperative
+                        ? TEXT("Stepped toward the target with a controlled follow fallback, then settled back into cooperative attention.")
+                        : TEXT("Closed distance with a safe actor fallback, then settled into a clearer guard-ready stance.");
             OutBehaviorDescription += FString::Printf(TEXT(" Fallback movement was used because the environment limited full movement execution. %s"), *MovementReadiness.Detail);
             return true;
         }

@@ -333,11 +333,16 @@ void TrackAnalysisStatus(FWanaAnalysisResult& Result, const FString& Status)
 {
     if (Status.Equals(TEXT("Ready"), ESearchCase::IgnoreCase)
         || Status.Equals(TEXT("Present"), ESearchCase::IgnoreCase)
-        || Status.Equals(TEXT("Detected"), ESearchCase::IgnoreCase))
+        || Status.Equals(TEXT("Detected"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("Built"), ESearchCase::IgnoreCase))
     {
         ++Result.ReadyCount;
     }
-    else if (Status.Equals(TEXT("Missing"), ESearchCase::IgnoreCase))
+    else if (Status.Equals(TEXT("Missing"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("Blocked"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("Needs Analyze"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("Needs Enhance"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("Needs Test"), ESearchCase::IgnoreCase))
     {
         ++Result.MissingCount;
     }
@@ -396,6 +401,66 @@ FString BuildAnalysisStatusText(const FWanaAnalysisResult& Result)
         Result.MissingCount,
         Result.LimitedCount,
         Result.NotSupportedCount);
+}
+
+FString BuildWorkspaceTestStatusText(const FWanaAnalysisResult& Result, const FString& ResultLabel)
+{
+    return FString::Printf(
+        TEXT("%s test complete: %s. %d ready, %d missing, %d limited, %d not supported."),
+        Result.DisplayWorkspaceLabel.IsEmpty() ? TEXT("Workspace") : *Result.DisplayWorkspaceLabel,
+        ResultLabel.IsEmpty() ? TEXT("validation finished") : *ResultLabel,
+        Result.ReadyCount,
+        Result.MissingCount,
+        Result.LimitedCount,
+        Result.NotSupportedCount);
+}
+
+FString BuildWorkspaceBuildStatusText(const FString& WorkspaceLabel, const FString& BuildState, const FString& OutputPath)
+{
+    FString StatePhrase = TEXT("complete");
+
+    if (BuildState.Equals(TEXT("Built with Limitations"), ESearchCase::IgnoreCase))
+    {
+        StatePhrase = TEXT("complete with limitations");
+    }
+    else if (BuildState.Equals(TEXT("Blocked"), ESearchCase::IgnoreCase))
+    {
+        StatePhrase = TEXT("blocked");
+    }
+    else if (BuildState.Equals(TEXT("Built"), ESearchCase::IgnoreCase))
+    {
+        StatePhrase = TEXT("complete");
+    }
+    else if (!BuildState.IsEmpty())
+    {
+        StatePhrase = BuildState;
+    }
+
+    const FString OutputSuffix = OutputPath.IsEmpty()
+        ? FString(TEXT("."))
+        : FString::Printf(TEXT(": %s"), *OutputPath);
+
+    return FString::Printf(
+        TEXT("%s build %s%s"),
+        WorkspaceLabel.IsEmpty() ? TEXT("Workspace") : *WorkspaceLabel,
+        *StatePhrase,
+        *OutputSuffix);
+}
+
+FString ExtractResponseOutputValue(const FWanaCommandResponse& Response, const FString& Prefix)
+{
+    const FString MatchPrefix = Prefix.EndsWith(TEXT(":")) ? Prefix : FString::Printf(TEXT("%s:"), *Prefix);
+
+    for (const FString& Line : Response.OutputLines)
+    {
+        if (Line.StartsWith(MatchPrefix))
+        {
+            FString Value = Line.RightChop(MatchPrefix.Len()).TrimStartAndEnd();
+            return Value;
+        }
+    }
+
+    return FString();
 }
 
 const AActor* ResolveAnalysisActor(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot, const UClass* SubjectClass)
@@ -1498,6 +1563,151 @@ bool FWanaWorksUIModule::PreparePickerDrivenSubjectForWorkflow(
     return true;
 }
 
+bool FWanaWorksUIModule::ApplyWorkspaceSubjectEnhancement(
+    const FString& WorkflowLabel,
+    const FString& EnhancementPresetLabel,
+    const FString& WorkspaceActionLabel)
+{
+    FWanaSelectedCharacterEnhancementSnapshot SourceSnapshot;
+    ResolvePreferredSubjectSnapshot(SourceSnapshot);
+    const bool bHasSourceSnapshot = SourceSnapshot.bHasSelectedActor;
+    FWanaCommandResponse WorkflowResponse;
+    FWanaCommandResponse EnhancementResponse;
+    FWanaCommandResponse AIReadyResponse;
+    FWanaCommandResponse PreparationResponse;
+    const bool bUseSandboxDuplicate = WorkflowLabel == TEXT("Create Sandbox Duplicate")
+        || WorkflowLabel == TEXT("Create Working Copy");
+    const bool bUseAIReadyPrep = WorkflowLabel == TEXT("Convert to AI-Ready Test Subject");
+    bool bSpawnedFromPicker = false;
+
+    if (!PreparePickerDrivenSubjectForWorkflow(WorkflowLabel, PreparationResponse, bSpawnedFromPicker))
+    {
+        PreparationResponse.OutputLines.Insert(FString::Printf(TEXT("Workspace Action: %s"), *WorkspaceActionLabel), 0);
+        ApplyResponse(PreparationResponse);
+        RefreshReactiveUI(true);
+        return false;
+    }
+
+    if (!bHasSourceSnapshot)
+    {
+        ResolvePreferredSubjectSnapshot(SourceSnapshot);
+    }
+
+    if (bUseSandboxDuplicate && !bSpawnedFromPicker)
+    {
+        WorkflowResponse = WanaWorksUIEditorActions::ExecuteCreateSandboxDuplicateCommand();
+
+        if (!WorkflowResponse.bSucceeded)
+        {
+            WorkflowResponse.OutputLines.Insert(FString::Printf(TEXT("Workspace Action: %s"), *WorkspaceActionLabel), 0);
+            ApplyResponse(WorkflowResponse);
+            RefreshReactiveUI(true);
+            return false;
+        }
+    }
+
+    EnhancementResponse = WanaWorksUIEditorActions::ExecuteApplyCharacterEnhancementCommand(EnhancementPresetLabel);
+
+    if (!EnhancementResponse.bSucceeded)
+    {
+        EnhancementResponse.OutputLines.Insert(FString::Printf(TEXT("Workspace Action: %s"), *WorkspaceActionLabel), 0);
+        ApplyResponse(EnhancementResponse);
+        RefreshReactiveUI(true);
+        return false;
+    }
+
+    if (bUseAIReadyPrep)
+    {
+        AIReadyResponse = WanaWorksUIEditorActions::ExecutePrepareSelectedActorForAITestCommand();
+
+        if (!AIReadyResponse.bSucceeded)
+        {
+            AIReadyResponse.OutputLines.Insert(FString::Printf(TEXT("Workspace Action: %s"), *WorkspaceActionLabel), 0);
+            ApplyResponse(AIReadyResponse);
+            RefreshReactiveUI(true);
+            return false;
+        }
+    }
+
+    FWanaSelectedCharacterEnhancementSnapshot ActiveSnapshot;
+    const bool bHasActiveSnapshot = WanaWorksUIEditorActions::GetSelectedCharacterEnhancementSnapshot(ActiveSnapshot) && ActiveSnapshot.bHasSelectedActor;
+
+    if (bHasActiveSnapshot)
+    {
+        SandboxObserverActor = ActiveSnapshot.SelectedActor;
+    }
+
+    const FString SourceSubjectLabel = SourceSnapshot.SelectedActorLabel.IsEmpty()
+        ? TEXT("(picked subject)")
+        : SourceSnapshot.SelectedActorLabel;
+    const FString ActiveSubjectLabel = bHasActiveSnapshot ? ActiveSnapshot.SelectedActorLabel : SourceSubjectLabel;
+
+    UpdateEnhancementResultsState(
+        &SourceSnapshot,
+        bHasActiveSnapshot ? &ActiveSnapshot : &SourceSnapshot,
+        WorkflowLabel,
+        true,
+        bUseSandboxDuplicate || bSpawnedFromPicker,
+        true);
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = true;
+    Response.StatusMessage = FString::Printf(TEXT("Status: %s complete. Original preserved."), *WorkspaceActionLabel);
+    Response.OutputLines.Add(FString::Printf(TEXT("Workspace Action: %s"), *WorkspaceActionLabel));
+    Response.OutputLines.Add(FString::Printf(TEXT("Source Subject: %s"), *SourceSubjectLabel));
+    Response.OutputLines.Add(FString::Printf(TEXT("Active Subject: %s"), *ActiveSubjectLabel));
+    Response.OutputLines.Add(FString::Printf(TEXT("Workflow Path: %s"), *WorkflowLabel));
+    Response.OutputLines.Add(FString::Printf(TEXT("Preset Used: %s"), *EnhancementPresetLabel));
+    Response.OutputLines.Add(TEXT("Original Source: Preserved"));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Working Subject: %s"),
+        (bUseSandboxDuplicate || bSpawnedFromPicker) ? TEXT("Prepared") : TEXT("Existing selected actor")));
+
+    if (bHasActiveSnapshot)
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Identity / Profile: %s"), ActiveSnapshot.bHasIdentityComponent ? TEXT("Ready") : TEXT("Limited")));
+        Response.OutputLines.Add(FString::Printf(TEXT("WAY-lite Relationship: %s"), ActiveSnapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited")));
+        Response.OutputLines.Add(FString::Printf(TEXT("WAI / WAMI: %s"), ActiveSnapshot.bHasWAIComponent ? TEXT("Ready") : TEXT("Limited")));
+        Response.OutputLines.Add(FString::Printf(TEXT("WanaAnimation: %s"), *UIFmt::GetAutomaticAnimationIntegrationStatusLabel(ActiveSnapshot.AnimationAutomaticIntegrationStatus)));
+        Response.OutputLines.Add(FString::Printf(TEXT("Physical State: %s"), ActiveSnapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited")));
+        Response.OutputLines.Add(FString::Printf(TEXT("AI Readiness: %s"), *ActiveSnapshot.AIReadinessSummary));
+    }
+
+    UIFmt::AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Components Added:"));
+    UIFmt::AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Already Present:"));
+    UIFmt::AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Compatibility Notes:"));
+
+    if (bSpawnedFromPicker)
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: WanaWorks generated a working subject from the picked asset before applying enhancement."));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Picked Subject Asset:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Detected Source Anim BP:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Workspace Animation Integration Target:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Automatic Anim Integration:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Auto-Attach:"));
+        UIFmt::AppendLinesWithPrefix(Response, PreparationResponse, TEXT("Auto-Wire:"));
+    }
+    else if (bUseSandboxDuplicate)
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: WanaWorks created a working copy before applying enhancement."));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Detected Source Anim BP:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Workspace Animation Integration Target:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Automatic Anim Integration:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Auto-Attach:"));
+        UIFmt::AppendLinesWithPrefix(Response, WorkflowResponse, TEXT("Auto-Wire:"));
+    }
+
+    if (bUseAIReadyPrep)
+    {
+        UIFmt::AppendLinesWithPrefix(Response, AIReadyResponse, TEXT("AI-Ready Preparation:"));
+        UIFmt::AppendLinesWithPrefix(Response, AIReadyResponse, TEXT("AI Controller Class:"));
+    }
+
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
+    return true;
+}
+
 bool FWanaWorksUIModule::RestoreSubjectPickerFromAssetPath(const FString& AssetPath)
 {
     if (AssetPath.IsEmpty())
@@ -2257,6 +2467,406 @@ void FWanaWorksUIModule::CreateWorkingCopy()
     }
 
     ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::EnhanceActiveWorkspace()
+{
+    const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
+
+    if (!HasCurrentWorkspaceAnalysis())
+    {
+        AnalyzeActiveWorkspace();
+    }
+
+    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    {
+        const FString WorldLabel = GetEditorWorldLabel();
+        const int32 SelectedActorCount = GetEditorSelectedActorCount();
+        const FString SceneSelectionLabel = FString::Printf(TEXT("%d actor(s) captured as optional scene context."), SelectedActorCount);
+        const FString WorldContextLabel = WorldLabel.IsEmpty() ? TEXT("No editor world available yet.") : WorldLabel;
+
+        bWorkspaceAnalysisInitialized = true;
+        LastAnalysisWorkspaceLabel = WorkspaceLabel;
+        LastAnalysisStatusSummary = TEXT("Level Design prepared for WIT environment scan.");
+        LastAnalysisPrimarySummary = FString::Printf(
+            TEXT("Semantic World Preparation\nWorld Context: %s\nScene Selection: %s\nOriginal Level: Preserved\nGenerated Assets: None\nWorkspace Mode: WIT semantic environment understanding is ready for scan-based analysis."),
+            *WorldContextLabel,
+            *SceneSelectionLabel);
+        LastAnalysisWITSummary = FString::Printf(
+            TEXT("WIT Preparation\nEnvironment Scan Readiness: Ready\nCover Meaning: Prepared placeholder - scan not run yet\nObstacle Meaning: Prepared placeholder - scan not run yet\nMovement Space: Prepared placeholder - scan not run yet\nBoundary / Navigation Context: Ready for lightweight WIT analysis\nScene Context: %s\nRecommended Next Step: Run Analyze to classify cover, obstacles, boundaries, and movement-space meaning."),
+            *SceneSelectionLabel);
+        LastAnalysisBehaviorSummary = LastAnalysisWITSummary;
+        LastAnalysisAnimationSummary = LastAnalysisWITSummary;
+        LastAnalysisPhysicalSummary = LastAnalysisWITSummary;
+        LastAnalysisSuggestedSummary = TEXT("Level Design Enhancement Result\nPrepared Systems: WIT semantic scan readiness, scene context, cover/obstacle/movement-space placeholders\nApplied Changes: None\nOriginal Level: Preserved\nRecommended Next Step: Analyze the scene, then use a later Level Design pass for generation or placement.");
+        StatusMessage = TEXT("Status: Level Design prepared for WIT environment scan. Original level preserved.");
+        RefreshReactiveUI(true);
+        return;
+    }
+
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+    const bool bHasSubject = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
+
+    if (!bHasSubject)
+    {
+        StatusMessage = WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase)
+            ? TEXT("Status: Character enhancement limited. Choose a Character Blueprint or Pawn first.")
+            : TEXT("Status: Character Intelligence enhancement limited. Choose an AI Pawn or NPC first.");
+        RefreshReactiveUI(true);
+        return;
+    }
+
+    const bool bCharacterBuildingWorkspace = WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase);
+    const FString EnhancementPresetLabel = bCharacterBuildingWorkspace
+        ? FString(TEXT("Identity Only"))
+        : FString(TEXT("Full WanaAI Starter"));
+    const FString WorkspaceActionLabel = bCharacterBuildingWorkspace
+        ? FString(TEXT("Character Building enhancement"))
+        : FString(TEXT("Character Intelligence enhancement"));
+
+    if (!ApplyWorkspaceSubjectEnhancement(TEXT("Create Working Copy"), EnhancementPresetLabel, WorkspaceActionLabel))
+    {
+        return;
+    }
+
+    AnalyzeActiveWorkspace();
+
+    FWanaSelectedCharacterEnhancementSnapshot ActiveSnapshot;
+    const bool bHasActiveSnapshot = ResolvePreferredSubjectSnapshot(ActiveSnapshot) && ActiveSnapshot.bHasSelectedActor;
+
+    if (bCharacterBuildingWorkspace)
+    {
+        LastAnalysisSuggestedSummary = FString::Printf(
+            TEXT("Character Build Preparation Result\nOriginal Source: Preserved\nWorking Subject: %s\nCharacter Profile: %s\nRig & Animation: %s\nMovement / Playability: %s\nBuild Readiness: Prepared for clean WanaWorks output\nRecommended Next Step: Test the prepared character, then Build when the preview and readiness cards look correct."),
+            bHasActiveSnapshot ? *ActiveSnapshot.SelectedActorLabel : TEXT("(working subject)"),
+            bHasActiveSnapshot && ActiveSnapshot.bHasIdentityComponent ? TEXT("Ready") : TEXT("Limited"),
+            bHasActiveSnapshot ? *UIFmt::GetAutomaticAnimationIntegrationStatusLabel(ActiveSnapshot.AnimationAutomaticIntegrationStatus) : TEXT("Limited"),
+            bHasActiveSnapshot && ActiveSnapshot.bIsPawnActor ? TEXT("Ready") : TEXT("Limited"));
+        StatusMessage = TEXT("Status: Character build preparation complete. Original preserved.");
+    }
+    else
+    {
+        LastAnalysisSuggestedSummary = FString::Printf(
+            TEXT("Character Intelligence Enhancement Result\nOriginal Source: Preserved\nWorking Subject: %s\nWAI / WAMI: %s\nWAY-lite: %s\nWanaAnimation: %s\nWanaCombat-lite / Physical State: %s\nWIT Awareness: Prepared for semantic readiness analysis\nRecommended Next Step: Test the enhanced NPC/AI, then Analyze again after behavior or environment context changes."),
+            bHasActiveSnapshot ? *ActiveSnapshot.SelectedActorLabel : TEXT("(working subject)"),
+            bHasActiveSnapshot && ActiveSnapshot.bHasWAIComponent ? TEXT("Ready") : TEXT("Limited"),
+            bHasActiveSnapshot && ActiveSnapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"),
+            bHasActiveSnapshot ? *UIFmt::GetAutomaticAnimationIntegrationStatusLabel(ActiveSnapshot.AnimationAutomaticIntegrationStatus) : TEXT("Limited"),
+            bHasActiveSnapshot && ActiveSnapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited"));
+        StatusMessage = TEXT("Status: Character Intelligence enhancement applied. Original preserved.");
+    }
+
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::TestActiveWorkspace()
+{
+    const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
+
+    if (!HasCurrentWorkspaceAnalysis())
+    {
+        AnalyzeActiveWorkspace();
+    }
+
+    FWanaAnalysisResult Result;
+    Result.WorkspaceLabel = WorkspaceLabel;
+    Result.DisplayWorkspaceLabel = GetWorkspaceDisplayLabel(WorkspaceLabel);
+
+    TArray<FWanaAnalysisItem> PrimaryItems;
+    TArray<FWanaAnalysisItem> AnimationItems;
+    TArray<FWanaAnalysisItem> PhysicalItems;
+    TArray<FWanaAnalysisItem> BehaviorItems;
+    TArray<FWanaAnalysisItem> WITItems;
+    TArray<FWanaAnalysisItem> SuggestedItems;
+    FString RecommendedAction;
+    FString ResultLabel;
+
+    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    {
+        const FString WorldLabel = GetEditorWorldLabel();
+        const int32 SelectedActorCount = GetEditorSelectedActorCount();
+        AActor* ObserverActor = nullptr;
+        AActor* TargetActor = nullptr;
+        FString PairSourceLabel;
+        bool bTargetFallsBackToObserver = false;
+        ResolvePreferredWITReadinessPair(ObserverActor, TargetActor, PairSourceLabel, bTargetFallsBackToObserver);
+
+        FWanaEnvironmentReadinessSnapshot EnvironmentSnapshot;
+        WanaWorksUIEditorActions::GetEnvironmentReadinessSnapshotForActorPair(
+            ObserverActor,
+            TargetActor,
+            bTargetFallsBackToObserver,
+            PairSourceLabel,
+            EnvironmentSnapshot);
+
+        const bool bHasWorldContext = !WorldLabel.IsEmpty();
+        const bool bHasWITPair = EnvironmentSnapshot.bHasObserverActor && EnvironmentSnapshot.bHasTargetActor;
+        const bool bHasMovementContext = bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext;
+
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("World Context"),
+            bHasWorldContext ? TEXT("Ready") : TEXT("Missing"),
+            bHasWorldContext ? WorldLabel : TEXT("No editor world is available for semantic testing yet."));
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("Selected Scene Context"),
+            SelectedActorCount > 0 ? TEXT("Ready") : TEXT("Limited"),
+            FString::Printf(TEXT("%d actor(s) selected. Selection is optional for this safe Level Design test."), SelectedActorCount));
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("Level Modification"),
+            TEXT("Ready"),
+            TEXT("Test V1 is read-only: no modular assets are spawned and the current level is preserved."));
+
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("WIT Scan Readiness"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? TEXT("Observer-target context is available for semantic world testing.") : TEXT("WIT scan context is not assigned yet; prepare or select scene actors for richer semantic testing."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Navigation Context"),
+            bHasMovementContext ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Navigation remains unknown until a WIT movement context is available."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Cover Meaning"),
+            TEXT("Limited"),
+            TEXT("Cover classification is not persisted in Test V1; this pass validates readiness only."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Obstacle Meaning"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? UIFmt::GetObstaclePressureSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Obstacle meaning has not been scanned yet."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Movement Space"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? UIFmt::GetMovementSpaceSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Movement-space meaning has not been scanned yet."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Level Generation"),
+            TEXT("Not Supported"),
+            TEXT("Prompt-based level generation is intentionally outside this Test V1 phase."));
+
+        RecommendedAction = bHasWITPair
+            ? TEXT("Analyze the semantic world context again after selecting scan targets, then use a later WIT pass for classification.")
+            : TEXT("Prepare or select scene context, then run Analyze before future WIT scan work.");
+        ResultLabel = !bHasWorldContext
+            ? TEXT("world context is missing")
+            : (bHasWITPair ? TEXT("WIT scan is ready but classification has not run") : TEXT("world context is available but WIT scan context is limited"));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Next Step"), TEXT("Recommended"), RecommendedAction);
+
+        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Semantic World Test Result"), PrimaryItems, RecommendedAction);
+        Result.WITSummary = BuildAnalysisCardText(TEXT("WIT Readiness Test"), WITItems, RecommendedAction);
+        Result.AnimationSummary = Result.WITSummary;
+        Result.PhysicalSummary = Result.WITSummary;
+        Result.BehaviorSummary = Result.WITSummary;
+        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Level Test Recommendations"), SuggestedItems, RecommendedAction);
+    }
+    else
+    {
+        FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+        const bool bHasSubject = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
+        const UClass* SubjectClass = LoadSelectedSubjectActorClassForWorkspace(WorkspaceLabel);
+        const AActor* AnalysisActor = bHasSubject ? ResolveAnalysisActor(Snapshot, SubjectClass) : nullptr;
+        const bool bCharacterBuildingWorkspace = WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase);
+        FString SkeletalMeshLabel;
+        FString SkeletonLabel;
+        const bool bHasSkeletalMeshAsset = GetSkeletalMeshAndSkeletonLabels(AnalysisActor, SkeletalMeshLabel, SkeletonLabel);
+        const bool bHasMovementComponent = HasPawnMovementComponent(AnalysisActor);
+        const bool bHasCameraOrControlComponent = ComponentClassNameContainsAny(AnalysisActor, {TEXT("Camera"), TEXT("SpringArm"), TEXT("Control"), TEXT("Input")});
+        AActor* PreviewActor = nullptr;
+        FString PreviewModeLabel;
+        const bool bPreviewReady = ResolvePreferredSandboxPreviewActor(PreviewActor, PreviewModeLabel) && PreviewActor != nullptr;
+        const bool bWorkingSubjectReady = bEnhancementResultsInitialized && LastEnhancementResultsActor.IsValid();
+
+        if (!bHasSubject)
+        {
+            AddAnalysisItem(
+                PrimaryItems,
+                Result,
+                bCharacterBuildingWorkspace ? TEXT("Character Subject") : TEXT("AI Subject"),
+                TEXT("Missing"),
+                bCharacterBuildingWorkspace ? TEXT("Choose a Character Blueprint or playable Character Pawn before testing.") : TEXT("Choose an AI Pawn or NPC subject before testing."));
+            AddAnalysisItem(
+                SuggestedItems,
+                Result,
+                TEXT("Test Result"),
+                TEXT("Limited"),
+                TEXT("Test blocked until a compatible subject is selected in this workspace."));
+
+            RecommendedAction = bCharacterBuildingWorkspace
+                ? TEXT("Select a Character Blueprint or Pawn, then Analyze or Enhance before testing again.")
+                : TEXT("Select an AI Pawn or NPC, then Analyze or Enhance before testing again.");
+            ResultLabel = TEXT("test blocked because no compatible subject is selected");
+            Result.PrimarySummary = BuildAnalysisCardText(bCharacterBuildingWorkspace ? TEXT("Character Test Blocked") : TEXT("AI Test Blocked"), PrimaryItems, RecommendedAction);
+            Result.AnimationSummary = Result.PrimarySummary;
+            Result.PhysicalSummary = Result.PrimarySummary;
+            Result.BehaviorSummary = Result.PrimarySummary;
+            Result.WITSummary = Result.PrimarySummary;
+            Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Test Recommendations"), SuggestedItems, RecommendedAction);
+        }
+        else if (bCharacterBuildingWorkspace)
+        {
+            const bool bRigReady = !SkeletonLabel.IsEmpty() && !SkeletonLabel.Equals(TEXT("(no skeleton asset)"));
+            const bool bAnimationReady = Snapshot.bHasAnimBlueprint;
+            const bool bBuildReady = Snapshot.bHasSkeletalMeshComponent && Snapshot.bHasAnimBlueprint;
+
+            AddAnalysisItem(PrimaryItems, Result, TEXT("Character Subject"), TEXT("Ready"), Snapshot.SelectedActorLabel);
+            AddAnalysisItem(
+                PrimaryItems,
+                Result,
+                TEXT("Preview Stage"),
+                bPreviewReady ? TEXT("Ready") : TEXT("Limited"),
+                bPreviewReady ? FString::Printf(TEXT("Preview is showing %s."), *PreviewModeLabel) : TEXT("No live preview subject is available yet."));
+            AddAnalysisItem(
+                PrimaryItems,
+                Result,
+                TEXT("Character Profile"),
+                Snapshot.bHasIdentityComponent ? TEXT("Ready") : TEXT("Limited"),
+                Snapshot.bHasIdentityComponent ? TEXT("Character profile/readiness layer is available.") : TEXT("Character profile is not attached yet; Enhance can prepare it on a working copy."));
+
+            AddAnalysisItem(AnimationItems, Result, TEXT("Skeletal Mesh"), Snapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Missing"), bHasSkeletalMeshAsset ? SkeletalMeshLabel : TEXT("No skeletal mesh asset detected."));
+            AddAnalysisItem(AnimationItems, Result, TEXT("Skeleton / Rig"), bRigReady ? TEXT("Ready") : TEXT("Limited"), bRigReady ? SkeletonLabel : TEXT("Skeleton or rig could not be confirmed."));
+            AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), bAnimationReady ? TEXT("Ready") : TEXT("Limited"), Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : Snapshot.LinkedAnimationBlueprintLabel);
+
+            AddAnalysisItem(PhysicalItems, Result, TEXT("Movement Component"), bHasMovementComponent ? TEXT("Ready") : TEXT("Limited"), bHasMovementComponent ? TEXT("Movement component is present for playability validation.") : TEXT("No movement component detected; playability is limited."));
+            AddAnalysisItem(PhysicalItems, Result, TEXT("Camera / Control Setup"), bHasCameraOrControlComponent ? TEXT("Ready") : TEXT("Limited"), bHasCameraOrControlComponent ? TEXT("Camera, spring arm, control, or input-style component detected.") : TEXT("Camera/control setup is unknown and preserved."));
+            AddAnalysisItem(PhysicalItems, Result, TEXT("Playability"), Snapshot.bIsPawnActor && Snapshot.bHasSkeletalMeshComponent && bHasMovementComponent ? TEXT("Ready") : TEXT("Limited"), TEXT("Test validates playable-character signals without replacing movement or input."));
+
+            AddAnalysisItem(SuggestedItems, Result, TEXT("Build Readiness"), bBuildReady ? TEXT("Ready") : TEXT("Limited"), bBuildReady ? TEXT("Mesh and animation are detected; character is ready for build preparation.") : TEXT("Build readiness is limited until mesh and animation are both detected."));
+            AddAnalysisItem(SuggestedItems, Result, TEXT("Output Status"), bWorkingSubjectReady ? TEXT("Ready") : TEXT("Limited"), bWorkingSubjectReady ? TEXT("A WanaWorks working subject is available for safe output flow.") : TEXT("Enhancement has not prepared a working subject in this session yet."));
+
+            RecommendedAction = bBuildReady
+                ? TEXT("Build can proceed after any desired character-facing enhancement or visual review.")
+                : TEXT("Run Enhance to prepare profile/readiness state, then fix missing mesh or animation setup before Build.");
+            ResultLabel = bBuildReady ? TEXT("character preview, rig, and animation are ready") : TEXT("character test is limited by missing build-readiness signals");
+            Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Test Result"), PrimaryItems, RecommendedAction);
+            Result.AnimationSummary = BuildAnalysisCardText(TEXT("Rig & Animation Test"), AnimationItems, RecommendedAction);
+            Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Movement / Playability Test"), PhysicalItems, RecommendedAction);
+            Result.BehaviorSummary = Result.PrimarySummary;
+            Result.WITSummary = Result.PrimarySummary;
+            Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Build Readiness Test"), SuggestedItems, RecommendedAction);
+        }
+        else
+        {
+            const bool bAIControllerReady = Snapshot.bHasAIControllerClass;
+            const bool bMovementReady = Snapshot.bIsPawnActor && (bHasMovementComponent || Snapshot.bAutoPossessAIEnabled);
+            const bool bAnimationReady =
+                Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Applied
+                || Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Ready
+                || Snapshot.bHasAnimBlueprint;
+            const bool bPhysicalReady = Snapshot.bHasPhysicalStateComponent;
+            const bool bBehaviorReady = Snapshot.bHasWAIComponent && Snapshot.bHasWAYComponent;
+            const bool bReadyForBuild = bAIControllerReady && bAnimationReady && bPhysicalReady && bBehaviorReady;
+
+            AActor* ObserverActor = nullptr;
+            AActor* TargetActor = nullptr;
+            FString PairSourceLabel;
+            bool bTargetFallsBackToObserver = false;
+            ResolvePreferredWITReadinessPair(ObserverActor, TargetActor, PairSourceLabel, bTargetFallsBackToObserver);
+
+            FWanaEnvironmentReadinessSnapshot EnvironmentSnapshot;
+            WanaWorksUIEditorActions::GetEnvironmentReadinessSnapshotForActorPair(
+                ObserverActor,
+                TargetActor,
+                bTargetFallsBackToObserver,
+                PairSourceLabel,
+                EnvironmentSnapshot);
+
+            FWanaCommandResponse BehaviorExecutionResponse;
+            const bool bBehaviorExecutionAttempted = ObserverActor != nullptr && TargetActor != nullptr;
+            bool bBehaviorExecutionSucceeded = false;
+
+            if (bBehaviorExecutionAttempted)
+            {
+                BehaviorExecutionResponse = WanaWorksUIEditorActions::ExecuteEvaluateActorPairCommand(
+                    ObserverActor,
+                    TargetActor,
+                    bTargetFallsBackToObserver);
+                bBehaviorExecutionSucceeded = BehaviorExecutionResponse.bSucceeded;
+
+                WanaWorksUIEditorActions::GetEnvironmentReadinessSnapshotForActorPair(
+                    ObserverActor,
+                    TargetActor,
+                    bTargetFallsBackToObserver,
+                    PairSourceLabel,
+                    EnvironmentSnapshot);
+            }
+
+            FWanaBehaviorResultsSnapshot BehaviorSnapshot;
+            WanaWorksUIEditorActions::GetBehaviorResultsSnapshotForActorPair(
+                ObserverActor,
+                TargetActor,
+                bTargetFallsBackToObserver,
+                PairSourceLabel,
+                BehaviorSnapshot);
+
+            const bool bHasWITPair = EnvironmentSnapshot.bHasObserverActor && EnvironmentSnapshot.bHasTargetActor;
+
+            AddAnalysisItem(PrimaryItems, Result, TEXT("AI Test Subject"), TEXT("Ready"), Snapshot.SelectedActorLabel);
+            AddAnalysisItem(PrimaryItems, Result, TEXT("Working / Enhanced Subject"), bWorkingSubjectReady ? TEXT("Ready") : TEXT("Limited"), bWorkingSubjectReady ? FString::Printf(TEXT("%s is available as the WanaWorks working subject."), *LastEnhancementResultsActorLabel) : TEXT("Enhancement has not prepared a working subject in this session; testing selected subject readiness instead."));
+            AddAnalysisItem(PrimaryItems, Result, TEXT("Preview Stage"), bPreviewReady ? TEXT("Ready") : TEXT("Limited"), bPreviewReady ? FString::Printf(TEXT("Stage can show %s."), *PreviewModeLabel) : TEXT("Preview subject is not available yet."));
+
+            AddAnalysisItem(BehaviorItems, Result, TEXT("AI Controller"), bAIControllerReady ? TEXT("Ready") : TEXT("Missing"), Snapshot.LinkedAIControllerLabel.IsEmpty() ? TEXT("No linked AI Controller detected.") : Snapshot.LinkedAIControllerLabel);
+            AddAnalysisItem(BehaviorItems, Result, TEXT("WAI / WAMI"), Snapshot.bHasWAIComponent ? TEXT("Ready") : TEXT("Limited"), Snapshot.bHasWAIComponent ? TEXT("Identity, memory, emotion, and role layer is readable.") : TEXT("AI can be tested, but WAI/WAMI is not attached yet."));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("WAY-lite Relationship"), Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), Snapshot.bHasWAYComponent ? TEXT("Relationship/adaptation layer is readable.") : TEXT("Relationship behavior is limited until WAY-lite is attached."));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Behavior Results"), BehaviorSnapshot.bHasWAYComponent && BehaviorSnapshot.bHasRelationshipProfile ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.bHasWAYComponent ? TEXT("Behavior result data is readable.") : TEXT("Behavior result is limited until WAY-lite has usable relationship data."));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Requested Behavior"), BehaviorSnapshot.RecommendedBehavior != EWAYBehaviorPreset::None ? TEXT("Ready") : TEXT("Limited"), UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Visible Behavior"), !BehaviorSnapshot.VisibleBehaviorLabel.IsEmpty() ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.VisibleBehaviorLabel.IsEmpty() ? TEXT("No visible starter behavior was applied.") : BehaviorSnapshot.VisibleBehaviorLabel);
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Execution Mode"), bBehaviorExecutionSucceeded ? TEXT("Ready") : TEXT("Limited"), UIFmt::GetBehaviorExecutionModeSummaryLabel(BehaviorSnapshot.ExecutionMode));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Movement Compatibility"), BehaviorSnapshot.MovementReadiness.bCanAttemptMovement ? TEXT("Ready") : TEXT("Limited"), UIFmt::GetEnvironmentShapingSummaryLabel(BehaviorSnapshot.MovementReadiness));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Result Notes"), bBehaviorExecutionSucceeded ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.BehaviorExecutionDetail.IsEmpty() ? TEXT("No behavior test detail was available.") : BehaviorSnapshot.BehaviorExecutionDetail);
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Behavior Test"), bBehaviorExecutionSucceeded ? TEXT("Ready") : TEXT("Limited"), bBehaviorExecutionAttempted ? BehaviorExecutionResponse.StatusMessage : TEXT("No observer-target pair was available for visible behavior execution."));
+
+            AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), Snapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"), Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : Snapshot.LinkedAnimationBlueprintLabel);
+            AddAnalysisItem(AnimationItems, Result, TEXT("WanaAnimation"), bAnimationReady ? TEXT("Ready") : TEXT("Limited"), Snapshot.AnimationAutomaticIntegrationDetail.IsEmpty() ? TEXT("Animation integration is not fully prepared yet.") : Snapshot.AnimationAutomaticIntegrationDetail);
+
+            AddAnalysisItem(PhysicalItems, Result, TEXT("Movement / Facing"), bMovementReady ? TEXT("Ready") : TEXT("Limited"), bMovementReady ? TEXT("Movement or facing readiness is available without forcing locomotion.") : TEXT("Movement-safe execution is limited; fallback facing/attention behavior should be used."));
+            AddAnalysisItem(PhysicalItems, Result, TEXT("Physical State"), bPhysicalReady ? TEXT("Ready") : TEXT("Limited"), bPhysicalReady ? TEXT("Readable body-state layer is available for physical response testing.") : TEXT("Physical state layer is missing; visible disruption testing is limited."));
+            AddAnalysisItem(PhysicalItems, Result, TEXT("WanaCombat-lite"), bPhysicalReady && Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), TEXT("Combat-lite validation stays additive and does not replace Behavior Trees, controllers, or locomotion."));
+
+            AddAnalysisItem(WITItems, Result, TEXT("WIT Awareness"), bHasWITPair ? TEXT("Ready") : TEXT("Limited"), bHasWITPair ? UIFmt::GetEnvironmentShapingSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("No active WIT observer-target context is assigned yet."));
+            AddAnalysisItem(WITItems, Result, TEXT("Navigation Context"), bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext ? TEXT("Ready") : TEXT("Limited"), bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Navigation remains unknown until WIT context is available."));
+
+            AddAnalysisItem(SuggestedItems, Result, TEXT("Ready for Build"), bReadyForBuild ? TEXT("Ready") : TEXT("Limited"), bReadyForBuild ? TEXT("AI subject has the core readable systems expected for this V1 workflow.") : TEXT("Run Enhance or resolve limited systems before treating the subject as build-ready."));
+
+            RecommendedAction = bReadyForBuild
+                ? TEXT("Use Build after visual review, or Test again after changing behavior/environment context.")
+                : TEXT("Run Enhance to prepare missing WanaWorks layers, then Test again before Build.");
+            ResultLabel = bReadyForBuild ? TEXT("AI subject is enhanced and ready for build review") : TEXT("AI behavior readiness is limited but safe fallback data is available");
+            Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Intelligence Test Result"), PrimaryItems, RecommendedAction);
+            Result.AnimationSummary = BuildAnalysisCardText(TEXT("Animation Integration Test"), AnimationItems, RecommendedAction);
+            Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Physical / Movement Test"), PhysicalItems, RecommendedAction);
+            Result.BehaviorSummary = BuildAnalysisCardText(TEXT("Behavior Readiness Test"), BehaviorItems, RecommendedAction);
+            Result.WITSummary = BuildAnalysisCardText(TEXT("WIT Environment Test"), WITItems, RecommendedAction);
+            Result.SuggestedSummary = BuildAnalysisCardText(TEXT("AI Test Recommendations"), SuggestedItems, RecommendedAction);
+        }
+    }
+
+    Result.StatusSummary = BuildWorkspaceTestStatusText(Result, ResultLabel);
+    bWorkspaceAnalysisInitialized = true;
+    LastAnalysisWorkspaceLabel = Result.WorkspaceLabel;
+    LastAnalysisStatusSummary = Result.StatusSummary;
+    LastAnalysisPrimarySummary = Result.PrimarySummary;
+    LastAnalysisAnimationSummary = Result.AnimationSummary;
+    LastAnalysisPhysicalSummary = Result.PhysicalSummary;
+    LastAnalysisBehaviorSummary = Result.BehaviorSummary;
+    LastAnalysisWITSummary = Result.WITSummary;
+    LastAnalysisSuggestedSummary = Result.SuggestedSummary;
+    StatusMessage = FString::Printf(TEXT("Status: %s"), *Result.StatusSummary);
     RefreshReactiveUI(true);
 }
 
@@ -3103,6 +3713,150 @@ void FWanaWorksUIModule::EvaluateSandboxPair()
 
 void FWanaWorksUIModule::FinalizeSandboxBuild()
 {
+    const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
+    const FString DisplayWorkspaceLabel = GetWorkspaceDisplayLabel(WorkspaceLabel);
+
+    if (!HasCurrentWorkspaceAnalysis())
+    {
+        AnalyzeActiveWorkspace();
+    }
+
+    const bool bHadTestResult = HasCurrentWorkspaceAnalysis()
+        && LastAnalysisStatusSummary.Contains(TEXT("test complete"), ESearchCase::IgnoreCase);
+
+    if (!bHadTestResult)
+    {
+        TestActiveWorkspace();
+    }
+
+    FWanaAnalysisResult Result;
+    Result.WorkspaceLabel = WorkspaceLabel;
+    Result.DisplayWorkspaceLabel = DisplayWorkspaceLabel;
+
+    TArray<FWanaAnalysisItem> PrimaryItems;
+    TArray<FWanaAnalysisItem> AnimationItems;
+    TArray<FWanaAnalysisItem> PhysicalItems;
+    TArray<FWanaAnalysisItem> BehaviorItems;
+    TArray<FWanaAnalysisItem> WITItems;
+    TArray<FWanaAnalysisItem> SuggestedItems;
+
+    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    {
+        const FString WorldLabel = GetEditorWorldLabel();
+        const int32 SelectedActorCount = GetEditorSelectedActorCount();
+        AActor* ObserverActor = nullptr;
+        AActor* TargetActor = nullptr;
+        FString PairSourceLabel;
+        bool bTargetFallsBackToObserver = false;
+        ResolvePreferredWITReadinessPair(ObserverActor, TargetActor, PairSourceLabel, bTargetFallsBackToObserver);
+
+        FWanaEnvironmentReadinessSnapshot EnvironmentSnapshot;
+        WanaWorksUIEditorActions::GetEnvironmentReadinessSnapshotForActorPair(
+            ObserverActor,
+            TargetActor,
+            bTargetFallsBackToObserver,
+            PairSourceLabel,
+            EnvironmentSnapshot);
+
+        const bool bHasWorldContext = !WorldLabel.IsEmpty();
+        const bool bHasWITPair = EnvironmentSnapshot.bHasObserverActor && EnvironmentSnapshot.bHasTargetActor;
+        const bool bHasMovementContext = bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext;
+        const FString ReportPath = TEXT("/Game/WanaWorks/Builds");
+        const FString BuildState = bHasWorldContext ? TEXT("Built with Limitations") : TEXT("Blocked");
+        const FString RecommendedAction = bHasWorldContext
+            ? TEXT("Use this semantic-world build summary as the V1 output, then run a later WIT pass for persisted cover, obstacle, and movement-space classification.")
+            : TEXT("Open a valid editor world before preparing a Level Design build summary.");
+
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("World Context"),
+            bHasWorldContext ? TEXT("Ready") : TEXT("Blocked"),
+            bHasWorldContext ? WorldLabel : TEXT("No editor world is available for Level Design build output."));
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("Selected Actors"),
+            SelectedActorCount > 0 ? TEXT("Ready") : TEXT("Limited"),
+            FString::Printf(TEXT("%d actor(s) captured as optional scene context."), SelectedActorCount));
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("Output / Report"),
+            bHasWorldContext ? TEXT("Built with Limitations") : TEXT("Blocked"),
+            bHasWorldContext ? TEXT("In-app WIT semantic-world summary prepared. No level assets were generated in Build V1.") : TEXT("No report was prepared because world context is missing."));
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("Output Location"),
+            TEXT("Limited"),
+            FString::Printf(TEXT("%s is reserved for future persisted WIT report assets; this phase reports in-app only."), *ReportPath));
+
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("WIT Preparation"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? TEXT("Semantic scan context is available for WIT world understanding.") : TEXT("WIT scan context is limited; no cover/obstacle report asset was generated."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Navigation Context"),
+            bHasMovementContext ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Navigation context remains unknown until a WIT movement pair is available."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Cover Meaning"),
+            TEXT("Limited"),
+            TEXT("Cover classification output is future work and was not faked in this build."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Obstacle Meaning"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? UIFmt::GetObstaclePressureSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Obstacle meaning has not been scanned yet."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Movement Space"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? UIFmt::GetMovementSpaceSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("Movement-space meaning has not been scanned yet."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Full Level Generation"),
+            TEXT("Not Supported"),
+            TEXT("Prompt-based modular level generation is not implemented in Build V1."));
+
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Build State"), BuildState, bHasWorldContext ? TEXT("Semantic world output summary is ready in WanaWorks.") : TEXT("Build is blocked until an editor world is available."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Original Level"), TEXT("Ready"), TEXT("Preserved. Build V1 did not spawn or move level actors."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Recommended Next Step"), TEXT("Recommended"), RecommendedAction);
+
+        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Semantic World Build Summary"), PrimaryItems, RecommendedAction);
+        Result.WITSummary = BuildAnalysisCardText(TEXT("WIT Output Readiness"), WITItems, RecommendedAction);
+        Result.AnimationSummary = Result.WITSummary;
+        Result.PhysicalSummary = Result.WITSummary;
+        Result.BehaviorSummary = Result.WITSummary;
+        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Level Design Build Result"), SuggestedItems, RecommendedAction);
+        Result.StatusSummary = BuildWorkspaceBuildStatusText(DisplayWorkspaceLabel, BuildState, bHasWorldContext ? TEXT("in-app WIT summary prepared") : FString());
+        bWorkspaceAnalysisInitialized = true;
+        LastAnalysisWorkspaceLabel = Result.WorkspaceLabel;
+        LastAnalysisStatusSummary = Result.StatusSummary;
+        LastAnalysisPrimarySummary = Result.PrimarySummary;
+        LastAnalysisAnimationSummary = Result.AnimationSummary;
+        LastAnalysisPhysicalSummary = Result.PhysicalSummary;
+        LastAnalysisBehaviorSummary = Result.BehaviorSummary;
+        LastAnalysisWITSummary = Result.WITSummary;
+        LastAnalysisSuggestedSummary = Result.SuggestedSummary;
+        StatusMessage = FString::Printf(TEXT("Status: %s"), *Result.StatusSummary);
+        RefreshReactiveUI(true);
+        return;
+    }
+
+    FWanaSelectedCharacterEnhancementSnapshot SourceSnapshot;
+    const bool bHasSourceSnapshot = ResolvePreferredSubjectSnapshot(SourceSnapshot) && SourceSnapshot.bHasSelectedActor;
+
     FWanaCommandResponse PreparationResponse;
     bool bSpawnedFromPicker = false;
 
@@ -3133,9 +3887,29 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
     if (!BuildSourceActor)
     {
         FWanaCommandResponse Response;
-        Response.StatusMessage = TEXT("Status: No working subject available for build.");
-        Response.OutputLines.Add(TEXT("Create or select a working copy in WanaWorks before building the final output asset."));
+        Response.StatusMessage = TEXT("Status: Build blocked. No working subject available.");
+        Response.OutputLines.Add(TEXT("Choose a subject or run Enhance before building the final output asset."));
         ApplyResponse(Response);
+
+        AddAnalysisItem(PrimaryItems, Result, TEXT("Build Source"), TEXT("Blocked"), TEXT("No compatible working or selected subject is available."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Recommended Next Step"), TEXT("Recommended"), TEXT("Select a subject, run Enhance or Test, then Build again."));
+        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Build Blocked"), PrimaryItems, TEXT("Select a subject, run Enhance or Test, then Build again."));
+        Result.AnimationSummary = Result.PrimarySummary;
+        Result.PhysicalSummary = Result.PrimarySummary;
+        Result.BehaviorSummary = Result.PrimarySummary;
+        Result.WITSummary = Result.PrimarySummary;
+        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Build Result"), SuggestedItems, FString());
+        Result.StatusSummary = BuildWorkspaceBuildStatusText(DisplayWorkspaceLabel, TEXT("Blocked"), FString());
+        bWorkspaceAnalysisInitialized = true;
+        LastAnalysisWorkspaceLabel = Result.WorkspaceLabel;
+        LastAnalysisStatusSummary = Result.StatusSummary;
+        LastAnalysisPrimarySummary = Result.PrimarySummary;
+        LastAnalysisAnimationSummary = Result.AnimationSummary;
+        LastAnalysisPhysicalSummary = Result.PhysicalSummary;
+        LastAnalysisBehaviorSummary = Result.BehaviorSummary;
+        LastAnalysisWITSummary = Result.WITSummary;
+        LastAnalysisSuggestedSummary = Result.SuggestedSummary;
+        StatusMessage = FString::Printf(TEXT("Status: %s"), *Result.StatusSummary);
         RefreshReactiveUI(true);
         return;
     }
@@ -3147,7 +3921,157 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         BuildResponse.OutputLines.Insert(TEXT("Workspace Notes: WanaWorks created a working subject from the project picker before building the final asset."), 1);
     }
 
+    const FString OutputName = ExtractResponseOutputValue(BuildResponse, TEXT("Finalized Output"));
+    const FString OutputPath = ExtractResponseOutputValue(BuildResponse, TEXT("Finalized Output Path"));
+    FString OutputDetail = TEXT("No output path was returned.");
+    if (!OutputPath.IsEmpty())
+    {
+        OutputDetail = FString::Printf(
+            TEXT("%s saved at %s"),
+            OutputName.IsEmpty() ? TEXT("Finalized Blueprint") : *OutputName,
+            *OutputPath);
+    }
+    const bool bCharacterBuildingWorkspace = WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase);
+    const FWanaSelectedCharacterEnhancementSnapshot& EffectiveSnapshot = bHasWorkingSnapshot ? WorkingSnapshot : SourceSnapshot;
+    const bool bHasEffectiveSnapshot = bHasWorkingSnapshot || bHasSourceSnapshot;
+    const AActor* AnalysisActor = bHasEffectiveSnapshot ? ResolveAnalysisActor(EffectiveSnapshot, EffectiveSnapshot.SelectedActor.IsValid() ? EffectiveSnapshot.SelectedActor->GetClass() : nullptr) : BuildSourceActor;
+    FString SkeletalMeshLabel;
+    FString SkeletonLabel;
+    const bool bHasSkeletalMeshAsset = GetSkeletalMeshAndSkeletonLabels(AnalysisActor, SkeletalMeshLabel, SkeletonLabel);
+    const bool bHasMovementComponent = HasPawnMovementComponent(AnalysisActor);
+    const bool bHasCameraOrControlComponent = ComponentClassNameContainsAny(AnalysisActor, {TEXT("Camera"), TEXT("SpringArm"), TEXT("Control"), TEXT("Input")});
+    const bool bTestWasAvailable = LastAnalysisStatusSummary.Contains(TEXT("test complete"), ESearchCase::IgnoreCase);
+    const bool bAnimationReady = EffectiveSnapshot.bHasAnimBlueprint
+        || EffectiveSnapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Applied
+        || EffectiveSnapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Ready;
+
+    bool bBuildHasLimitations = !BuildResponse.bSucceeded || !bTestWasAvailable;
+
+    if (bCharacterBuildingWorkspace)
+    {
+        bBuildHasLimitations = bBuildHasLimitations
+            || !EffectiveSnapshot.bHasSkeletalMeshComponent
+            || !EffectiveSnapshot.bHasAnimBlueprint
+            || !bHasMovementComponent
+            || !bHasCameraOrControlComponent;
+    }
+    else
+    {
+        bBuildHasLimitations = bBuildHasLimitations
+            || !EffectiveSnapshot.bHasAIControllerClass
+            || !EffectiveSnapshot.bHasWAIComponent
+            || !EffectiveSnapshot.bHasWAYComponent
+            || !EffectiveSnapshot.bHasPhysicalStateComponent
+            || !bAnimationReady;
+    }
+
+    const FString BuildState = !BuildResponse.bSucceeded
+        ? FString(TEXT("Blocked"))
+        : (bBuildHasLimitations ? FString(TEXT("Built with Limitations")) : FString(TEXT("Built")));
+    const FString RecommendedAction = BuildResponse.bSucceeded
+        ? TEXT("Review the finalized output in /Game/WanaWorks/Builds, then iterate with Enhance/Test if any limited systems matter for this subject.")
+        : TEXT("Resolve the blocked build condition, then run Build again.");
+
+    if (bCharacterBuildingWorkspace)
+    {
+        AddAnalysisItem(PrimaryItems, Result, TEXT("Source Character"), bHasSourceSnapshot ? TEXT("Ready") : TEXT("Limited"), bHasSourceSnapshot ? SourceSnapshot.SelectedActorLabel : TEXT("Source subject was inferred from the active working subject."));
+        AddAnalysisItem(PrimaryItems, Result, TEXT("Working Character Used"), TEXT("Ready"), BuildSourceActor->GetActorNameOrLabel());
+        AddAnalysisItem(PrimaryItems, Result, TEXT("Original Source"), TEXT("Ready"), TEXT("Preserved. Build created a separate finalized output."));
+        AddAnalysisItem(PrimaryItems, Result, TEXT("Final Output"), BuildResponse.bSucceeded ? BuildState : TEXT("Blocked"), OutputDetail);
+
+        AddAnalysisItem(AnimationItems, Result, TEXT("Skeletal Mesh"), EffectiveSnapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Limited"), bHasSkeletalMeshAsset ? SkeletalMeshLabel : TEXT("No skeletal mesh asset detected."));
+        AddAnalysisItem(AnimationItems, Result, TEXT("Skeleton / Rig"), !SkeletonLabel.IsEmpty() && !SkeletonLabel.Equals(TEXT("(no skeleton asset)")) ? TEXT("Ready") : TEXT("Limited"), SkeletonLabel.IsEmpty() ? TEXT("Skeleton or rig could not be confirmed.") : SkeletonLabel);
+        AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), EffectiveSnapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : EffectiveSnapshot.LinkedAnimationBlueprintLabel);
+
+        AddAnalysisItem(PhysicalItems, Result, TEXT("Movement / Playability"), bHasMovementComponent ? TEXT("Ready") : TEXT("Limited"), bHasMovementComponent ? TEXT("Movement component is present.") : TEXT("Movement component was not detected."));
+        AddAnalysisItem(PhysicalItems, Result, TEXT("Camera / Control"), bHasCameraOrControlComponent ? TEXT("Ready") : TEXT("Limited"), bHasCameraOrControlComponent ? TEXT("Camera, spring arm, control, or input-style component detected.") : TEXT("Camera/control setup is unknown and was preserved."));
+        AddAnalysisItem(BehaviorItems, Result, TEXT("Character Profile"), EffectiveSnapshot.bHasIdentityComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.bHasIdentityComponent ? TEXT("Character profile/readiness layer is present.") : TEXT("Character profile was not detected."));
+        AddAnalysisItem(BehaviorItems, Result, TEXT("Character Systems"), EffectiveSnapshot.bHasIdentityComponent && EffectiveSnapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), TEXT("Character-side identity and relationship context remain additive."));
+
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Build Status"), BuildState, BuildResponse.bSucceeded ? TEXT("Character build output completed without touching the original.") : TEXT("Character build did not complete."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Output Path"), BuildResponse.bSucceeded ? TEXT("Built") : TEXT("Blocked"), OutputPath.IsEmpty() ? TEXT("/Game/WanaWorks/Builds") : OutputPath);
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Validation"), bTestWasAvailable ? TEXT("Ready") : TEXT("Limited"), bTestWasAvailable ? TEXT("Test readiness was available before Build.") : TEXT("Build used lightweight readiness because Test had not been run yet."));
+
+        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Build Output"), PrimaryItems, RecommendedAction);
+        Result.AnimationSummary = BuildAnalysisCardText(TEXT("Rig & Animation Build Readiness"), AnimationItems, RecommendedAction);
+        Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Movement / Playability Build Readiness"), PhysicalItems, RecommendedAction);
+        Result.BehaviorSummary = BuildAnalysisCardText(TEXT("Character Systems Build Readiness"), BehaviorItems, RecommendedAction);
+        Result.WITSummary = Result.BehaviorSummary;
+        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Character Build Result"), SuggestedItems, RecommendedAction);
+    }
+    else
+    {
+        AActor* ObserverActor = nullptr;
+        AActor* TargetActor = nullptr;
+        FString PairSourceLabel;
+        bool bTargetFallsBackToObserver = false;
+        ResolvePreferredWITReadinessPair(ObserverActor, TargetActor, PairSourceLabel, bTargetFallsBackToObserver);
+
+        FWanaEnvironmentReadinessSnapshot EnvironmentSnapshot;
+        WanaWorksUIEditorActions::GetEnvironmentReadinessSnapshotForActorPair(
+            ObserverActor,
+            TargetActor,
+            bTargetFallsBackToObserver,
+            PairSourceLabel,
+            EnvironmentSnapshot);
+
+        FWanaBehaviorResultsSnapshot BehaviorSnapshot;
+        WanaWorksUIEditorActions::GetBehaviorResultsSnapshotForActorPair(
+            ObserverActor,
+            TargetActor,
+            bTargetFallsBackToObserver,
+            PairSourceLabel,
+            BehaviorSnapshot);
+
+        const bool bHasWITPair = EnvironmentSnapshot.bHasObserverActor && EnvironmentSnapshot.bHasTargetActor;
+
+        AddAnalysisItem(PrimaryItems, Result, TEXT("Source AI / NPC"), bHasSourceSnapshot ? TEXT("Ready") : TEXT("Limited"), bHasSourceSnapshot ? SourceSnapshot.SelectedActorLabel : TEXT("Source subject was inferred from the active working subject."));
+        AddAnalysisItem(PrimaryItems, Result, TEXT("Working AI Used"), TEXT("Ready"), BuildSourceActor->GetActorNameOrLabel());
+        AddAnalysisItem(PrimaryItems, Result, TEXT("Original Source"), TEXT("Ready"), TEXT("Preserved. Build created a separate finalized output."));
+        AddAnalysisItem(PrimaryItems, Result, TEXT("Final Output"), BuildResponse.bSucceeded ? BuildState : TEXT("Blocked"), OutputDetail);
+
+        AddAnalysisItem(BehaviorItems, Result, TEXT("AI Controller"), EffectiveSnapshot.bHasAIControllerClass ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.LinkedAIControllerLabel.IsEmpty() ? TEXT("No linked AI Controller detected.") : EffectiveSnapshot.LinkedAIControllerLabel);
+        AddAnalysisItem(BehaviorItems, Result, TEXT("WAI / WAMI"), EffectiveSnapshot.bHasWAIComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.bHasWAIComponent ? TEXT("Identity, memory, emotion, and role layer is present.") : TEXT("WAI/WAMI was not detected."));
+        AddAnalysisItem(BehaviorItems, Result, TEXT("WAY-lite"), EffectiveSnapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.bHasWAYComponent ? TEXT("Relationship/adaptation layer is present.") : TEXT("WAY-lite was not detected."));
+        AddAnalysisItem(BehaviorItems, Result, TEXT("Behavior Results"), BehaviorSnapshot.bHasWAYComponent && BehaviorSnapshot.bHasRelationshipProfile ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.bHasWAYComponent ? TEXT("Relationship-aware behavior data is readable.") : TEXT("Behavior result is limited until WAY-lite data is available."));
+
+        AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), EffectiveSnapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : EffectiveSnapshot.LinkedAnimationBlueprintLabel);
+        AddAnalysisItem(AnimationItems, Result, TEXT("WanaAnimation"), bAnimationReady ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.AnimationAutomaticIntegrationDetail.IsEmpty() ? TEXT("Animation integration is limited or not prepared.") : EffectiveSnapshot.AnimationAutomaticIntegrationDetail);
+        AddAnalysisItem(PhysicalItems, Result, TEXT("Physical State"), EffectiveSnapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.bHasPhysicalStateComponent ? TEXT("Readable body-state layer is available.") : TEXT("Physical state layer was not detected."));
+        AddAnalysisItem(PhysicalItems, Result, TEXT("WanaCombat-lite"), EffectiveSnapshot.bHasPhysicalStateComponent && EffectiveSnapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), TEXT("Combat-lite readiness stays additive and does not replace AI logic."));
+
+        AddAnalysisItem(WITItems, Result, TEXT("WIT Awareness"), bHasWITPair ? TEXT("Ready") : TEXT("Limited"), bHasWITPair ? UIFmt::GetEnvironmentShapingSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("WIT observer-target context is not assigned yet."));
+        AddAnalysisItem(WITItems, Result, TEXT("Navigation Context"), bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext ? TEXT("Ready") : TEXT("Limited"), bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Navigation context remains unknown until WIT context is available."));
+
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Build Status"), BuildState, BuildResponse.bSucceeded ? TEXT("Character Intelligence output completed without touching the original.") : TEXT("Character Intelligence build did not complete."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Output Path"), BuildResponse.bSucceeded ? TEXT("Built") : TEXT("Blocked"), OutputPath.IsEmpty() ? TEXT("/Game/WanaWorks/Builds") : OutputPath);
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Validation"), bTestWasAvailable ? TEXT("Ready") : TEXT("Limited"), bTestWasAvailable ? TEXT("Test readiness was available before Build.") : TEXT("Build used lightweight readiness because Test had not been run yet."));
+
+        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Intelligence Build Output"), PrimaryItems, RecommendedAction);
+        Result.AnimationSummary = BuildAnalysisCardText(TEXT("WanaAnimation Build Readiness"), AnimationItems, RecommendedAction);
+        Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Physical / Combat-lite Build Readiness"), PhysicalItems, RecommendedAction);
+        Result.BehaviorSummary = BuildAnalysisCardText(TEXT("AI Systems Build Readiness"), BehaviorItems, RecommendedAction);
+        Result.WITSummary = BuildAnalysisCardText(TEXT("WIT Build Readiness"), WITItems, RecommendedAction);
+        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("AI Build Result"), SuggestedItems, RecommendedAction);
+    }
+
+    Result.StatusSummary = BuildWorkspaceBuildStatusText(DisplayWorkspaceLabel, BuildState, OutputPath);
+    BuildResponse.StatusMessage = FString::Printf(TEXT("Status: %s"), *Result.StatusSummary);
+    BuildResponse.OutputLines.Insert(FString::Printf(TEXT("Workspace Build State: %s"), *BuildState), 0);
+    BuildResponse.OutputLines.Insert(FString::Printf(TEXT("Workspace: %s"), *DisplayWorkspaceLabel), 0);
+
     ApplyResponse(BuildResponse);
+
+    bWorkspaceAnalysisInitialized = true;
+    LastAnalysisWorkspaceLabel = Result.WorkspaceLabel;
+    LastAnalysisStatusSummary = Result.StatusSummary;
+    LastAnalysisPrimarySummary = Result.PrimarySummary;
+    LastAnalysisAnimationSummary = Result.AnimationSummary;
+    LastAnalysisPhysicalSummary = Result.PhysicalSummary;
+    LastAnalysisBehaviorSummary = Result.BehaviorSummary;
+    LastAnalysisWITSummary = Result.WITSummary;
+    LastAnalysisSuggestedSummary = Result.SuggestedSummary;
+    StatusMessage = FString::Printf(TEXT("Status: %s"), *Result.StatusSummary);
     RefreshReactiveUI(true);
 }
 
@@ -3476,6 +4400,13 @@ FText FWanaWorksUIModule::GetSandboxPreviewSummaryText() const
         return FText::FromString(TEXT("Stage: Semantic World Stage Ready\nContext: Level Design / WIT\nPreview: Environment context\nNext Step: Scan environment or select modular assets to begin."));
     }
 
+    if (HasCurrentWorkspaceAnalysis()
+        && LastAnalysisStatusSummary.Contains(TEXT("test complete"), ESearchCase::IgnoreCase)
+        && !LastAnalysisPrimarySummary.IsEmpty())
+    {
+        return FText::FromString(LastAnalysisPrimarySummary);
+    }
+
     FWanaSelectedCharacterEnhancementSnapshot Snapshot;
     const bool bHasSnapshot = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
     FString PreviewModeLabel;
@@ -3797,6 +4728,8 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.OnSaveWorkflowPreset = [this]() { SaveCurrentStateAsWorkflowPreset(); };
     BuilderArgs.OnShowWorkflowPresetSummary = [this]() { ShowSelectedWorkflowPresetSummary(); };
     BuilderArgs.OnCreateWorkingCopy = [this]() { CreateWorkingCopy(); };
+    BuilderArgs.OnEnhanceWorkspace = [this]() { EnhanceActiveWorkspace(); };
+    BuilderArgs.OnTestWorkspace = [this]() { TestActiveWorkspace(); };
     BuilderArgs.OnApplyCharacterEnhancement = [this]() { ApplyCharacterEnhancement(); };
     BuilderArgs.OnApplyStarterAndTestTarget = [this]() { ApplyStarterAndTestTarget(); };
     BuilderArgs.OnAnalyzeWorkspace = [this]() { AnalyzeActiveWorkspace(); };

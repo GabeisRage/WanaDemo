@@ -3899,7 +3899,7 @@ TSharedRef<SWidget> MakeStudioWorkflowStrip(const FWanaWorksUITabBuilderArgs& Ar
                     ? LOCTEXT("WanaWorksStudioWorkflowEnhanceAIText", "Attach the character-intelligence orchestration layer to the existing Character BP, AI Controller, Behavior Tree or State Tree, and Anim BP stack without destructive replacement.")
                     : LOCTEXT("WanaWorksStudioWorkflowEnhanceCharacterText", "Augment the current character stack non-destructively across skeletal mesh, rig, animation blueprint, identity, and build-readiness context."),
                 WorkspaceAccent,
-                Args.OnApplyCharacterEnhancement)
+                Args.OnEnhanceWorkspace)
         ]
         + SHorizontalBox::Slot()
         .FillWidth(1.0f)
@@ -3912,7 +3912,7 @@ TSharedRef<SWidget> MakeStudioWorkflowStrip(const FWanaWorksUITabBuilderArgs& Ar
                     ? LOCTEXT("WanaWorksStudioWorkflowTestAIText", "Run the WanaUI-guided character-intelligence pass with WAI/WAMI state, WanaAnimation-lite hooks, WanaCombat-lite response, and WAY-lite adaptation in view.")
                     : LOCTEXT("WanaWorksStudioWorkflowTestCharacterText", "Run the character-facing readiness pass and validate preview, movement/playability state, animation bridge safety, and authored stack integrity."),
                 StudioAccentBlueColor,
-                Args.OnApplyStarterAndTestTarget)
+                Args.OnTestWorkspace)
         ]
         + SHorizontalBox::Slot()
         .FillWidth(1.0f)
@@ -4948,7 +4948,7 @@ TSharedRef<SWidget> MakeLevelWorkspaceWorkflowStrip(const FWanaWorksUITabBuilder
                 LOCTEXT("WanaWorksStudioLevelWorkflowEnhanceTile", "Enhance"),
                 LOCTEXT("WanaWorksStudioLevelWorkflowEnhanceText", "Prepare the semantic world context so level-facing meaning can augment the active UE5-native character stack without polluting Character Intelligence."),
                 LevelAccentColor,
-                Args.OnApplyCharacterEnhancement)
+                Args.OnEnhanceWorkspace)
         ]
         + SHorizontalBox::Slot()
         .FillWidth(1.0f)
@@ -4959,7 +4959,7 @@ TSharedRef<SWidget> MakeLevelWorkspaceWorkflowStrip(const FWanaWorksUITabBuilder
                 LOCTEXT("WanaWorksStudioLevelWorkflowTestTile", "Test"),
                 LOCTEXT("WanaWorksStudioLevelWorkflowTestText", "Run a level-facing pass so the current subject, space meaning, and scene context stay readable inside the world workspace."),
                 StudioAccentBlueColor,
-                Args.OnEvaluateLiveTarget)
+                Args.OnTestWorkspace)
         ]
         + SHorizontalBox::Slot()
         .FillWidth(1.0f)

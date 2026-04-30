@@ -68,6 +68,8 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<void(void)> OnSaveWorkflowPreset;
     TFunction<void(void)> OnShowWorkflowPresetSummary;
     TFunction<void(void)> OnCreateWorkingCopy;
+    TFunction<void(void)> OnEnhanceWorkspace;
+    TFunction<void(void)> OnTestWorkspace;
     TFunction<void(void)> OnApplyCharacterEnhancement;
     TFunction<void(void)> OnApplyStarterAndTestTarget;
     TFunction<void(void)> OnAnalyzeWorkspace;

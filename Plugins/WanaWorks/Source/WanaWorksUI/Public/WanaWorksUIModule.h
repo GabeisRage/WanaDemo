@@ -56,6 +56,8 @@ private:
     void SaveCurrentStateAsWorkflowPreset();
     void ShowSelectedWorkflowPresetSummary();
     void CreateWorkingCopy();
+    void EnhanceActiveWorkspace();
+    void TestActiveWorkspace();
     void ApplyCharacterEnhancement();
     void ApplyStarterAndTestTarget();
     void AnalyzeActiveWorkspace();
@@ -88,6 +90,7 @@ private:
     bool ResolvePickedSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const;
     bool ResolvePreferredSandboxPreviewActor(AActor*& OutActor, FString& OutPreviewModeLabel) const;
     bool PreparePickerDrivenSubjectForWorkflow(const FString& WorkflowContextLabel, FWanaCommandResponse& OutPreparationResponse, bool& bOutSpawnedFromPicker);
+    bool ApplyWorkspaceSubjectEnhancement(const FString& WorkflowLabel, const FString& EnhancementPresetLabel, const FString& WorkspaceActionLabel);
     UObject* LoadSelectedSubjectAssetObject() const;
     UObject* LoadSelectedSubjectAssetObjectForWorkspace(const FString& WorkspaceLabel) const;
     UClass* LoadSelectedSubjectActorClass() const;
