@@ -753,7 +753,23 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
         OutSnapshot.bAnimationFacingHookRequested = AnimationHookState.bFacingHookRequested;
         OutSnapshot.bAnimationTurnToTargetRequested = AnimationHookState.bTurnToTargetRequested;
         OutSnapshot.bAnimationLocomotionHintSafe = AnimationHookState.bLocomotionSafeExecutionHint;
+        OutSnapshot.bAnimationMovementLimitedFallbackHint = AnimationHookState.bMovementLimitedFallbackHint;
+        OutSnapshot.bAnimationOutwardGuardHintRequested = AnimationHookState.bOutwardGuardHintRequested;
+        OutSnapshot.bAnimationPhysicalReactionStateAvailable = AnimationHookState.bPhysicalReactionStateAvailable;
         OutSnapshot.AnimationHookApplicationStatus = AnimationHookState.ApplicationStatus;
+        OutSnapshot.AnimationRelationshipState = AnimationHookState.RelationshipState;
+        OutSnapshot.AnimationPhysicalState = AnimationHookState.PhysicalState;
+        OutSnapshot.AnimationPhysicalStabilityScore = AnimationHookState.PhysicalStabilityScore;
+        OutSnapshot.AnimationPhysicalRecoveryProgress = AnimationHookState.PhysicalRecoveryProgress;
+        OutSnapshot.AnimationPhysicalInstabilityAlpha = AnimationHookState.PhysicalInstabilityAlpha;
+        OutSnapshot.AnimationPhysicalImpactDirection = AnimationHookState.PhysicalImpactDirection;
+        OutSnapshot.AnimationPhysicalImpactStrength = AnimationHookState.PhysicalImpactStrength;
+        OutSnapshot.AnimationBehaviorIntent = AnimationHookState.BehaviorIntent;
+        OutSnapshot.AnimationVisibleBehaviorLabel = AnimationHookState.VisibleBehaviorLabel;
+        OutSnapshot.AnimationIdentityRoleHint = AnimationHookState.IdentityRoleHint;
+        OutSnapshot.AnimationPostureHint = AnimationHookState.PostureHint;
+        OutSnapshot.AnimationPostureCategory = AnimationHookState.PostureCategory;
+        OutSnapshot.AnimationFallbackHint = AnimationHookState.FallbackHint;
         OutSnapshot.AnimationHookDetail = AnimationHookState.Detail;
 
         if (OutSnapshot.AnimationHookApplicationStatus == EWAYAnimationHookApplicationStatus::NotAvailable)
@@ -923,8 +939,16 @@ void AppendRelationshipProfileLines(FWanaCommandResponse& Response, const AActor
     Response.OutputLines.Add(FString::Printf(TEXT("Movement Confidence: %s"), *WanaWorksUIFormattingUtils::GetMovementReadinessStatusSummaryLabel(MovementReadiness)));
     Response.OutputLines.Add(FString::Printf(TEXT("Environment Shaping: %s"), *WanaWorksUIFormattingUtils::GetEnvironmentShapingSummaryLabel(MovementReadiness)));
     Response.OutputLines.Add(FString::Printf(TEXT("Animation Hook Application: %s"), *GetAnimationHookApplicationStatusDisplayLabel(AnimationHookApplicationStatus)));
-    Response.OutputLines.Add(FString::Printf(TEXT("Facing Hook: %s"), GetAnimationHookRequestDisplayLabel(AnimationHookState.bFacingHookRequested)));
-    Response.OutputLines.Add(FString::Printf(TEXT("Turn-To-Target Hook: %s"), GetAnimationHookRequestDisplayLabel(AnimationHookState.bTurnToTargetRequested)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Animation Behavior Intent: %s"), bAnimationHookMatchesTarget ? *AnimationHookState.BehaviorIntent : TEXT("(not driven yet)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Animation Posture Hint: %s"), bAnimationHookMatchesTarget ? *AnimationHookState.PostureHint : TEXT("(not driven yet)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Animation Posture Category: %s"), bAnimationHookMatchesTarget ? *AnimationHookState.PostureCategory : TEXT("(not driven yet)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Animation Identity Role Hint: %s"), bAnimationHookMatchesTarget ? *AnimationHookState.IdentityRoleHint : TEXT("(limited context)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Animation Fallback Hint: %s"), bAnimationHookMatchesTarget ? *AnimationHookState.FallbackHint : TEXT("(not driven yet)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Facing Hook: %s"), GetAnimationHookRequestDisplayLabel(bAnimationHookMatchesTarget && AnimationHookState.bFacingHookRequested)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Turn-To-Target Hook: %s"), GetAnimationHookRequestDisplayLabel(bAnimationHookMatchesTarget && AnimationHookState.bTurnToTargetRequested)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Movement-Limited Animation Hook: %s"), GetAnimationHookRequestDisplayLabel(bAnimationHookMatchesTarget && AnimationHookState.bMovementLimitedFallbackHint)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Outward Guard Hook: %s"), GetAnimationHookRequestDisplayLabel(bAnimationHookMatchesTarget && AnimationHookState.bOutwardGuardHintRequested)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Physical Reaction Hook: %s"), GetAnimationHookRequestDisplayLabel(bAnimationHookMatchesTarget && AnimationHookState.bPhysicalReactionStateAvailable)));
     Response.OutputLines.Add(FString::Printf(TEXT("Animation Hook Notes: %s"), AnimationHookDetail.IsEmpty() ? TEXT("No animation hook notes available.") : *AnimationHookDetail));
     Response.OutputLines.Add(FString::Printf(TEXT("Trust: %.2f"), Profile.Trust));
     Response.OutputLines.Add(FString::Printf(TEXT("Fear: %.2f"), Profile.Fear));
@@ -1295,6 +1319,30 @@ FWanaCommandResponse ExecuteEvaluateActorPairInternal(AActor* ObserverActor, AAc
         TEXT("Turn-To-Target Hook: %s"),
         GetAnimationHookRequestDisplayLabel(bAnimationHookMatchesTarget && AnimationHookState.bTurnToTargetRequested)));
     Response.OutputLines.Add(FString::Printf(
+        TEXT("Animation Behavior Intent: %s"),
+        bAnimationHookMatchesTarget ? *AnimationHookState.BehaviorIntent : TEXT("(not driven yet)")));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Animation Posture Hint: %s"),
+        bAnimationHookMatchesTarget ? *AnimationHookState.PostureHint : TEXT("(not driven yet)")));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Animation Posture Category: %s"),
+        bAnimationHookMatchesTarget ? *AnimationHookState.PostureCategory : TEXT("(not driven yet)")));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Animation Identity Role Hint: %s"),
+        bAnimationHookMatchesTarget ? *AnimationHookState.IdentityRoleHint : TEXT("(limited context)")));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Animation Fallback Hint: %s"),
+        bAnimationHookMatchesTarget ? *AnimationHookState.FallbackHint : TEXT("(not driven yet)")));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Movement-Limited Animation Hook: %s"),
+        GetAnimationHookRequestDisplayLabel(bAnimationHookMatchesTarget && AnimationHookState.bMovementLimitedFallbackHint)));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Outward Guard Hook: %s"),
+        GetAnimationHookRequestDisplayLabel(bAnimationHookMatchesTarget && AnimationHookState.bOutwardGuardHintRequested)));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Physical Reaction Hook: %s"),
+        GetAnimationHookRequestDisplayLabel(bAnimationHookMatchesTarget && AnimationHookState.bPhysicalReactionStateAvailable)));
+    Response.OutputLines.Add(FString::Printf(
         TEXT("Animation Hook Notes: %s"),
         bAnimationHookMatchesTarget
             ? (AnimationHookState.Detail.IsEmpty() ? TEXT("No animation hook notes available.") : *AnimationHookState.Detail)
@@ -1480,9 +1528,39 @@ bool GetBehaviorResultsSnapshotForActorPair(const AActor* ObserverActor, const A
     OutSnapshot.bAnimationFacingHookRequested = bAnimationHookMatchesTarget && AnimationHookState.bFacingHookRequested;
     OutSnapshot.bAnimationTurnToTargetRequested = bAnimationHookMatchesTarget && AnimationHookState.bTurnToTargetRequested;
     OutSnapshot.bAnimationLocomotionHintSafe = bAnimationHookMatchesTarget && AnimationHookState.bLocomotionSafeExecutionHint;
+    OutSnapshot.bAnimationMovementLimitedFallbackHint = bAnimationHookMatchesTarget && AnimationHookState.bMovementLimitedFallbackHint;
+    OutSnapshot.bAnimationOutwardGuardHintRequested = bAnimationHookMatchesTarget && AnimationHookState.bOutwardGuardHintRequested;
+    OutSnapshot.bAnimationPhysicalReactionStateAvailable = bAnimationHookMatchesTarget && AnimationHookState.bPhysicalReactionStateAvailable;
     OutSnapshot.AnimationHookApplicationStatus = bAnimationHookMatchesTarget
         ? AnimationHookState.ApplicationStatus
         : EWAYAnimationHookApplicationStatus::Limited;
+    OutSnapshot.AnimationRelationshipState = bAnimationHookMatchesTarget
+        ? AnimationHookState.RelationshipState
+        : OutSnapshot.RelationshipState;
+    OutSnapshot.AnimationPhysicalState = AnimationHookState.PhysicalState;
+    OutSnapshot.AnimationPhysicalStabilityScore = AnimationHookState.PhysicalStabilityScore;
+    OutSnapshot.AnimationPhysicalRecoveryProgress = AnimationHookState.PhysicalRecoveryProgress;
+    OutSnapshot.AnimationPhysicalInstabilityAlpha = AnimationHookState.PhysicalInstabilityAlpha;
+    OutSnapshot.AnimationPhysicalImpactDirection = AnimationHookState.PhysicalImpactDirection;
+    OutSnapshot.AnimationPhysicalImpactStrength = AnimationHookState.PhysicalImpactStrength;
+    OutSnapshot.AnimationBehaviorIntent = bAnimationHookMatchesTarget
+        ? AnimationHookState.BehaviorIntent
+        : FString();
+    OutSnapshot.AnimationVisibleBehaviorLabel = bAnimationHookMatchesTarget
+        ? AnimationHookState.VisibleBehaviorLabel
+        : FString();
+    OutSnapshot.AnimationIdentityRoleHint = bAnimationHookMatchesTarget
+        ? AnimationHookState.IdentityRoleHint
+        : FString();
+    OutSnapshot.AnimationPostureHint = bAnimationHookMatchesTarget
+        ? AnimationHookState.PostureHint
+        : FString();
+    OutSnapshot.AnimationPostureCategory = bAnimationHookMatchesTarget
+        ? AnimationHookState.PostureCategory
+        : FString();
+    OutSnapshot.AnimationFallbackHint = bAnimationHookMatchesTarget
+        ? AnimationHookState.FallbackHint
+        : FString();
     OutSnapshot.AnimationHookDetail = bAnimationHookMatchesTarget
         ? AnimationHookState.Detail
         : TEXT("Animation hook application is ready, but the current target has not driven it yet.");
@@ -2763,8 +2841,16 @@ FWanaCommandResponse ExecuteApplyStarterAndTestTargetCommand(const FString& Pres
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Result Notes:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Recommended Next Step:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Animation Hook Application:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Animation Behavior Intent:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Animation Posture Hint:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Animation Posture Category:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Animation Identity Role Hint:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Animation Fallback Hint:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Facing Hook:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Turn-To-Target Hook:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Movement-Limited Animation Hook:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Outward Guard Hook:"));
+    AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Physical Reaction Hook:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Animation Hook Notes:"));
     AppendLinesWithPrefix(Response, EnhancementResponse, TEXT("Compatibility Notes:"));
     AppendLinesWithPrefix(Response, EvaluationResponse, TEXT("Readiness Notes:"));

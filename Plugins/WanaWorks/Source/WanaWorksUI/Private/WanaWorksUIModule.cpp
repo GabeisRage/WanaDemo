@@ -3653,6 +3653,40 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                 BehaviorSnapshot);
 
             const bool bHasWITPair = EnvironmentSnapshot.bHasObserverActor && EnvironmentSnapshot.bHasTargetActor;
+            const bool bAnimationHookDriven =
+                BehaviorSnapshot.AnimationHookApplicationStatus == EWAYAnimationHookApplicationStatus::Active
+                || !BehaviorSnapshot.AnimationPostureHint.IsEmpty()
+                || BehaviorSnapshot.bAnimationFacingHookRequested
+                || BehaviorSnapshot.bAnimationMovementLimitedFallbackHint;
+            const FString AnimationPostureHint = !BehaviorSnapshot.AnimationPostureHint.IsEmpty()
+                ? BehaviorSnapshot.AnimationPostureHint
+                : (Snapshot.AnimationPostureHint.IsEmpty() ? FString(TEXT("neutral / observant")) : Snapshot.AnimationPostureHint);
+            const FString AnimationPostureCategory = !BehaviorSnapshot.AnimationPostureCategory.IsEmpty()
+                ? BehaviorSnapshot.AnimationPostureCategory
+                : (Snapshot.AnimationPostureCategory.IsEmpty() ? FString(TEXT("Observe")) : Snapshot.AnimationPostureCategory);
+            const FString AnimationBehaviorIntent = !BehaviorSnapshot.AnimationBehaviorIntent.IsEmpty()
+                ? BehaviorSnapshot.AnimationBehaviorIntent
+                : (Snapshot.AnimationBehaviorIntent.IsEmpty() ? FString(TEXT("stable observation readiness")) : Snapshot.AnimationBehaviorIntent);
+            const FString AnimationFallbackHint = !BehaviorSnapshot.AnimationFallbackHint.IsEmpty()
+                ? BehaviorSnapshot.AnimationFallbackHint
+                : (Snapshot.AnimationFallbackHint.IsEmpty() ? FString(TEXT("stable observe stance")) : Snapshot.AnimationFallbackHint);
+            const FString AnimationLocomotionHint = BehaviorSnapshot.bAnimationLocomotionHintSafe
+                ? FString(TEXT("locomotion-safe execution"))
+                : (BehaviorSnapshot.bAnimationMovementLimitedFallbackHint ? FString(TEXT("movement-limited fallback")) : FString(TEXT("facing/hold preferred")));
+            const FString AnimationHookRequestDetail = FString::Printf(
+                TEXT("Facing %s; turn %s; outward guard %s; %s; fallback %s."),
+                *UIFmt::GetAnimationHookRequestSummaryLabel(BehaviorSnapshot.bAnimationFacingHookRequested),
+                *UIFmt::GetAnimationHookRequestSummaryLabel(BehaviorSnapshot.bAnimationTurnToTargetRequested),
+                *UIFmt::GetAnimationHookRequestSummaryLabel(BehaviorSnapshot.bAnimationOutwardGuardHintRequested),
+                *AnimationLocomotionHint,
+                *AnimationFallbackHint);
+            const FString AnimationPhysicalReactionDetail = BehaviorSnapshot.bAnimationPhysicalReactionStateAvailable
+                ? FString::Printf(
+                    TEXT("Physical reaction state is readable by the hook: instability %.2f, recovery %d%%, impact %.2f."),
+                    BehaviorSnapshot.AnimationPhysicalInstabilityAlpha,
+                    FMath::RoundToInt(BehaviorSnapshot.AnimationPhysicalRecoveryProgress * 100.0f),
+                    BehaviorSnapshot.AnimationPhysicalImpactStrength)
+                : FString(TEXT("Physical reaction state is limited or missing; posture hint remains safe and neutral."));
 
             AddAnalysisItem(PrimaryItems, Result, TEXT("AI Test Subject"), TEXT("Ready"), Snapshot.SelectedActorLabel);
             AddAnalysisItem(PrimaryItems, Result, TEXT("Working / Enhanced Subject"), bWorkingSubjectReady ? TEXT("Ready") : TEXT("Limited"), bWorkingSubjectReady ? FString::Printf(TEXT("%s is available as the WanaWorks working subject."), *LastEnhancementResultsActorLabel) : TEXT("Enhancement has not prepared a working subject in this session; testing selected subject readiness instead."));
@@ -3688,25 +3722,32 @@ void FWanaWorksUIModule::TestActiveWorkspace()
 
             AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), Snapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"), Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : Snapshot.LinkedAnimationBlueprintLabel);
             AddAnalysisItem(AnimationItems, Result, TEXT("WanaAnimation"), bAnimationReady ? TEXT("Ready") : TEXT("Limited"), Snapshot.AnimationAutomaticIntegrationDetail.IsEmpty() ? TEXT("Animation integration is not fully prepared yet.") : Snapshot.AnimationAutomaticIntegrationDetail);
+            AddAnalysisItem(AnimationItems, Result, TEXT("Posture Hint"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), FString::Printf(TEXT("%s posture in the %s category from %s."), *AnimationPostureHint, *AnimationPostureCategory, *AnimationBehaviorIntent));
+            AddAnalysisItem(AnimationItems, Result, TEXT("Hook Requests"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), AnimationHookRequestDetail);
+            AddAnalysisItem(AnimationItems, Result, TEXT("Body-Language Source"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.AnimationHookDetail.IsEmpty() ? TEXT("WanaAnimation hook state has not reported details yet.") : BehaviorSnapshot.AnimationHookDetail);
 
             AddAnalysisItem(PhysicalItems, Result, TEXT("Movement / Facing"), bMovementReady ? TEXT("Ready") : TEXT("Limited"), bMovementReady ? TEXT("Movement or facing readiness is available without forcing locomotion.") : TEXT("Movement-safe execution is limited; fallback facing/attention behavior should be used."));
             AddAnalysisItem(PhysicalItems, Result, TEXT("Physical State"), bPhysicalReady ? TEXT("Ready") : TEXT("Limited"), bPhysicalReady ? TEXT("Readable body-state layer is available for physical response testing.") : TEXT("Physical state layer is missing; visible disruption testing is limited."));
             AddAnalysisItem(PhysicalItems, Result, TEXT("Behavior Commitment"), bPhysicalReady && Snapshot.bPhysicalCanCommitToMovement && Snapshot.bPhysicalCanCommitToAttack ? TEXT("Ready") : TEXT("Limited"), BuildAIPhysicalBehaviorCommitmentDetail(Snapshot));
+            AddAnalysisItem(PhysicalItems, Result, TEXT("Animation Reaction Feed"), BehaviorSnapshot.bAnimationPhysicalReactionStateAvailable ? TEXT("Ready") : TEXT("Limited"), AnimationPhysicalReactionDetail);
             AddAnalysisItem(PhysicalItems, Result, TEXT("WanaCombat-lite"), bPhysicalReady && Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), TEXT("Combat-lite validation stays additive and does not replace Behavior Trees, controllers, or locomotion."));
 
             AddAnalysisItem(WITItems, Result, TEXT("WIT Awareness"), bHasWITPair ? TEXT("Ready") : TEXT("Limited"), bHasWITPair ? UIFmt::GetEnvironmentShapingSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("No active WIT observer-target context is assigned yet."));
             AddAnalysisItem(WITItems, Result, TEXT("Navigation Context"), bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext ? TEXT("Ready") : TEXT("Limited"), bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Navigation remains unknown until WIT context is available."));
 
             AddAnalysisItem(SuggestedItems, Result, TEXT("Ready for Build"), bReadyForBuild ? TEXT("Ready") : TEXT("Limited"), bReadyForBuild ? TEXT("AI subject has the core readable systems expected for this V1 workflow.") : TEXT("Run Enhance or resolve limited systems before treating the subject as build-ready."));
+            AddAnalysisItem(SuggestedItems, Result, TEXT("Animation Body Language"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), bAnimationHookDriven ? FString::Printf(TEXT("Test requested %s posture with %s."), *AnimationPostureHint, *AnimationLocomotionHint) : TEXT("Run Enhance/Test with a valid observer-target pair to drive WanaAnimation posture hints."));
 
             RecommendedAction = bReadyForBuild
                 ? TEXT("Use Build after visual review, or Test again after changing behavior/environment context.")
                 : TEXT("Run Enhance to prepare missing WanaWorks layers, then Test again before Build.");
             ResultLabel = bBehaviorExecutionSucceeded
                 ? FString::Printf(
-                    TEXT("%s via %s"),
+                    TEXT("%s via %s; WanaAnimation hint: %s posture, %s"),
                     *UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior),
-                    *UIFmt::GetBehaviorExecutionModeSummaryLabel(BehaviorSnapshot.ExecutionMode))
+                    *UIFmt::GetBehaviorExecutionModeSummaryLabel(BehaviorSnapshot.ExecutionMode),
+                    *AnimationPostureHint,
+                    *AnimationLocomotionHint)
                 : (bReadyForBuild ? TEXT("AI subject is enhanced and ready for build review") : TEXT("AI behavior readiness is limited but safe fallback data is available"));
             Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Intelligence Test Result"), PrimaryItems, RecommendedAction);
             Result.AnimationSummary = BuildAnalysisCardText(TEXT("Animation Integration Test"), AnimationItems, RecommendedAction);

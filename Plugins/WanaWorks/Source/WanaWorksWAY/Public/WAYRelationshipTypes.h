@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "WanaWorksTypes.h"
 #include "WAYRelationshipTypes.generated.h"
 
 class AActor;
@@ -148,6 +149,15 @@ struct WANAWORKSWAY_API FWAYAnimationHookState
     bool bLocomotionSafeExecutionHint = false;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    bool bMovementLimitedFallbackHint = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    bool bOutwardGuardHintRequested = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    bool bPhysicalReactionStateAvailable = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
     AActor* TargetActor = nullptr;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
@@ -160,6 +170,9 @@ struct WANAWORKSWAY_API FWAYAnimationHookState
     EWAYReactionState ReactionState = EWAYReactionState::Observational;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    EWAYRelationshipState RelationshipState = EWAYRelationshipState::Neutral;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
     EWAYBehaviorPreset RecommendedBehavior = EWAYBehaviorPreset::None;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
@@ -167,6 +180,42 @@ struct WANAWORKSWAY_API FWAYAnimationHookState
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
     EWAYAnimationHookApplicationStatus ApplicationStatus = EWAYAnimationHookApplicationStatus::NotAvailable;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    EWanaPhysicalState PhysicalState = EWanaPhysicalState::Stable;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    float PhysicalStabilityScore = 1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    float PhysicalRecoveryProgress = 1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    float PhysicalInstabilityAlpha = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    FVector PhysicalImpactDirection = FVector::ZeroVector;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    float PhysicalImpactStrength = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    FString BehaviorIntent = TEXT("No behavior intent");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    FString VisibleBehaviorLabel = TEXT("None");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    FString IdentityRoleHint = TEXT("Neutral");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    FString PostureHint = TEXT("Neutral observe posture");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    FString PostureCategory = TEXT("Observe");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
+    FString FallbackHint = TEXT("Stable observe stance");
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|WAY|Animation")
     FString Detail = TEXT("Animation hook state is not initialized.");

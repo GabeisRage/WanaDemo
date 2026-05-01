@@ -406,6 +406,178 @@ FString BuildPhysicalMovementHoldReason(const AActor* Actor)
         PhysicalStateComponent->bNeedsRecovery ? TEXT("needed") : TEXT("not needed"));
 }
 
+FString ResolveIdentityRoleHint(const AActor* ObserverActor, const AActor* TargetActor)
+{
+    const FString IdentityText = FString::Printf(
+        TEXT("%s %s"),
+        *BuildIdentitySignalText(ObserverActor),
+        *BuildIdentitySignalText(TargetActor));
+
+    if (ContainsAnyIdentitySignal(IdentityText, { TEXT("guard"), TEXT("protector"), TEXT("sentinel"), TEXT("security") }))
+    {
+        return TEXT("Guard / Protector");
+    }
+
+    if (ContainsAnyIdentitySignal(IdentityText, { TEXT("hostile"), TEXT("enemy"), TEXT("aggressive"), TEXT("raider"), TEXT("soldier"), TEXT("combat") }))
+    {
+        return TEXT("Hostile / Combatant");
+    }
+
+    if (ContainsAnyIdentitySignal(IdentityText, { TEXT("ally"), TEXT("friend"), TEXT("companion"), TEXT("escort"), TEXT("support"), TEXT("follower") }))
+    {
+        return TEXT("Companion / Ally");
+    }
+
+    if (ContainsAnyIdentitySignal(IdentityText, { TEXT("scout"), TEXT("observer"), TEXT("civilian"), TEXT("cautious"), TEXT("neutral") }))
+    {
+        return TEXT("Cautious Observer");
+    }
+
+    return IdentityText.TrimStartAndEnd().IsEmpty() ? TEXT("Neutral") : TEXT("Contextual");
+}
+
+FString BuildBehaviorIntentLabel(EWAYBehaviorPreset BehaviorPreset, EWAYReactionState ReactionState)
+{
+    switch (BehaviorPreset)
+    {
+    case EWAYBehaviorPreset::FollowTarget:
+        return TEXT("Cooperative follow and target tracking");
+
+    case EWAYBehaviorPreset::GuardTarget:
+        return TEXT("Protective guard and area watch");
+
+    case EWAYBehaviorPreset::ObserveTarget:
+        return TEXT("Stable target observation");
+
+    case EWAYBehaviorPreset::ApproachHostile:
+        return TEXT("Tense hostile pressure");
+
+    case EWAYBehaviorPreset::None:
+    default:
+        return FString::Printf(TEXT("%s reaction readiness"), *GetReactionStateLogLabel(ReactionState));
+    }
+}
+
+FString BuildPostureCategoryLabel(EWAYBehaviorPreset BehaviorPreset, const UWanaPhysicalStateComponent* PhysicalStateComponent)
+{
+    if (PhysicalStateComponent)
+    {
+        if (PhysicalStateComponent->bBracing || PhysicalStateComponent->PhysicalState == EWanaPhysicalState::Bracing)
+        {
+            return TEXT("Braced");
+        }
+
+        if (PhysicalStateComponent->bNeedsRecovery || PhysicalStateComponent->PhysicalState == EWanaPhysicalState::Recovering)
+        {
+            return TEXT("Recovering");
+        }
+
+        if (PhysicalStateComponent->PhysicalState == EWanaPhysicalState::Staggered
+            || PhysicalStateComponent->PhysicalState == EWanaPhysicalState::OffBalance
+            || PhysicalStateComponent->PhysicalState == EWanaPhysicalState::Panicked
+            || PhysicalStateComponent->InstabilityAlpha >= 0.55f)
+        {
+            return TEXT("Disrupted");
+        }
+    }
+
+    switch (BehaviorPreset)
+    {
+    case EWAYBehaviorPreset::FollowTarget:
+        return TEXT("Follow");
+
+    case EWAYBehaviorPreset::GuardTarget:
+        return TEXT("Guard");
+
+    case EWAYBehaviorPreset::ApproachHostile:
+        return TEXT("Hostile");
+
+    case EWAYBehaviorPreset::ObserveTarget:
+    case EWAYBehaviorPreset::None:
+    default:
+        return TEXT("Observe");
+    }
+}
+
+FString BuildPostureHintLabel(
+    EWAYBehaviorPreset BehaviorPreset,
+    EWAYRelationshipState RelationshipState,
+    const FString& IdentityRoleHint,
+    const UWanaPhysicalStateComponent* PhysicalStateComponent)
+{
+    if (PhysicalStateComponent)
+    {
+        if (PhysicalStateComponent->bBracing || PhysicalStateComponent->PhysicalState == EWanaPhysicalState::Bracing)
+        {
+            return TEXT("braced / defensive hold");
+        }
+
+        if (PhysicalStateComponent->bNeedsRecovery || PhysicalStateComponent->PhysicalState == EWanaPhysicalState::Recovering)
+        {
+            return TEXT("recovering / controlled reset");
+        }
+
+        if (PhysicalStateComponent->PhysicalState == EWanaPhysicalState::Staggered
+            || PhysicalStateComponent->PhysicalState == EWanaPhysicalState::OffBalance
+            || PhysicalStateComponent->PhysicalState == EWanaPhysicalState::Panicked
+            || PhysicalStateComponent->InstabilityAlpha >= 0.55f)
+        {
+            return TEXT("disrupted / unstable reaction");
+        }
+    }
+
+    if (BehaviorPreset == EWAYBehaviorPreset::GuardTarget
+        || RelationshipState == EWAYRelationshipState::Partner
+        || IdentityRoleHint.Contains(TEXT("Guard"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("protective / alert");
+    }
+
+    if (BehaviorPreset == EWAYBehaviorPreset::ApproachHostile
+        || RelationshipState == EWAYRelationshipState::Enemy
+        || IdentityRoleHint.Contains(TEXT("Hostile"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("tense / aggressive");
+    }
+
+    if (BehaviorPreset == EWAYBehaviorPreset::FollowTarget
+        || RelationshipState == EWAYRelationshipState::Friend
+        || IdentityRoleHint.Contains(TEXT("Companion"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("cooperative / attentive");
+    }
+
+    return RelationshipState == EWAYRelationshipState::Acquaintance
+        ? TEXT("observant / cautious")
+        : TEXT("neutral / observant");
+}
+
+FString BuildFallbackHintLabel(EWAYBehaviorPreset BehaviorPreset, EWAYBehaviorExecutionMode ExecutionMode)
+{
+    switch (BehaviorPreset)
+    {
+    case EWAYBehaviorPreset::FollowTarget:
+        return ExecutionMode == EWAYBehaviorExecutionMode::MovementAllowed
+            ? TEXT("controlled follow movement")
+            : TEXT("follow-ready hold");
+
+    case EWAYBehaviorPreset::GuardTarget:
+        return ExecutionMode == EWAYBehaviorExecutionMode::MovementAllowed
+            ? TEXT("protective range movement")
+            : TEXT("protective hold");
+
+    case EWAYBehaviorPreset::ApproachHostile:
+        return ExecutionMode == EWAYBehaviorExecutionMode::MovementAllowed
+            ? TEXT("cautious hostile pressure")
+            : TEXT("hostile attention hold");
+
+    case EWAYBehaviorPreset::ObserveTarget:
+    case EWAYBehaviorPreset::None:
+    default:
+        return TEXT("stable observe stance");
+    }
+}
+
 EWAYBehaviorPreset ResolveContextualRecommendedBehavior(
     const AActor* ObserverActor,
     const AActor* TargetActor,
@@ -1359,25 +1531,74 @@ void UWAYPlayerProfileComponent::UpdateAnimationHookState(
     bool bTurnToTargetRequested,
     const FString& Detail)
 {
+    AActor* ObserverActor = GetOwner();
+    const bool bHasValidObserver = IsValid(ObserverActor);
+    AActor* HookTargetActor = IsValid(TargetActor) ? TargetActor : nullptr;
+    const bool bHasDifferentWorlds =
+        bHasValidObserver
+        && HookTargetActor
+        && ObserverActor->GetWorld()
+        && HookTargetActor->GetWorld()
+        && ObserverActor->GetWorld() != HookTargetActor->GetWorld();
+
     bool bHasSkeletalMeshComponent = false;
     bool bHasAnimBlueprint = false;
-    InspectAnimationHookAvailability(GetOwner(), bHasSkeletalMeshComponent, bHasAnimBlueprint);
+    InspectAnimationHookAvailability(bHasValidObserver ? ObserverActor : nullptr, bHasSkeletalMeshComponent, bHasAnimBlueprint);
 
-    const FWanaMovementReadiness MovementReadiness = TargetActor
-        ? FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(GetOwner(), TargetActor)
+    const FWanaMovementReadiness MovementReadiness = bHasValidObserver && HookTargetActor && !bHasDifferentWorlds
+        ? FWanaWorksEnvironmentReadiness::EvaluateMovementReadiness(ObserverActor, HookTargetActor)
         : FWanaMovementReadiness();
+    FWAYRelationshipProfile RelationshipProfile;
+    const bool bHasRelationshipProfile = HookTargetActor && !bHasDifferentWorlds && GetRelationshipProfileForTarget(HookTargetActor, RelationshipProfile);
+    const EWAYRelationshipState RelationshipState = bHasRelationshipProfile
+        ? RelationshipProfile.RelationshipState
+        : EWAYRelationshipState::Neutral;
+    const UWanaPhysicalStateComponent* PhysicalStateComponent = GetPhysicalStateComponent(ObserverActor);
+    const FString IdentityRoleHint = ResolveIdentityRoleHint(ObserverActor, HookTargetActor);
+    const FString VisibleBehaviorLabel = GetVisibleBehaviorLabel(RecommendedBehavior, ReactionState);
 
     CurrentAnimationHookState = FWAYAnimationHookState();
-    CurrentAnimationHookState.bHookStateValid = TargetActor != nullptr;
-    CurrentAnimationHookState.TargetActor = TargetActor;
-    CurrentAnimationHookState.TargetWorldLocation = TargetActor ? TargetActor->GetActorLocation() : FVector::ZeroVector;
-    CurrentAnimationHookState.TargetDistance = TargetActor ? MovementReadiness.DistanceToTarget : 0.0f;
-    CurrentAnimationHookState.bFacingHookRequested = TargetActor != nullptr && bFacingHookRequested;
-    CurrentAnimationHookState.bTurnToTargetRequested = TargetActor != nullptr && bTurnToTargetRequested && bHasAnimBlueprint;
-    CurrentAnimationHookState.bLocomotionSafeExecutionHint = ExecutionMode == EWAYBehaviorExecutionMode::MovementAllowed;
+    CurrentAnimationHookState.bHookStateValid = HookTargetActor != nullptr && !bHasDifferentWorlds;
+    CurrentAnimationHookState.TargetActor = HookTargetActor;
+    CurrentAnimationHookState.TargetWorldLocation = HookTargetActor ? HookTargetActor->GetActorLocation() : FVector::ZeroVector;
+    CurrentAnimationHookState.TargetDistance = HookTargetActor ? MovementReadiness.DistanceToTarget : 0.0f;
+    CurrentAnimationHookState.bFacingHookRequested = HookTargetActor != nullptr && !bHasDifferentWorlds && bFacingHookRequested;
+    CurrentAnimationHookState.bTurnToTargetRequested = HookTargetActor != nullptr && !bHasDifferentWorlds && bTurnToTargetRequested && bHasAnimBlueprint;
+    CurrentAnimationHookState.bLocomotionSafeExecutionHint =
+        HookTargetActor != nullptr
+        && !bHasDifferentWorlds
+        && ExecutionMode == EWAYBehaviorExecutionMode::MovementAllowed;
+    CurrentAnimationHookState.bMovementLimitedFallbackHint = HookTargetActor != nullptr
+        && (ExecutionMode != EWAYBehaviorExecutionMode::MovementAllowed
+            || MovementReadiness.ReadinessLevel != EWanaMovementReadinessLevel::Allowed
+            || !MovementReadiness.bCanAttemptMovement
+            || bHasDifferentWorlds);
+    CurrentAnimationHookState.bOutwardGuardHintRequested =
+        HookTargetActor != nullptr
+        && !bHasDifferentWorlds
+        && RecommendedBehavior == EWAYBehaviorPreset::GuardTarget
+        && MovementReadiness.DistanceToTarget <= BasicReactionProtectiveRange;
+    CurrentAnimationHookState.bPhysicalReactionStateAvailable = PhysicalStateComponent != nullptr;
     CurrentAnimationHookState.ReactionState = ReactionState;
+    CurrentAnimationHookState.RelationshipState = RelationshipState;
     CurrentAnimationHookState.RecommendedBehavior = RecommendedBehavior;
     CurrentAnimationHookState.ExecutionMode = ExecutionMode;
+    CurrentAnimationHookState.BehaviorIntent = BuildBehaviorIntentLabel(RecommendedBehavior, ReactionState);
+    CurrentAnimationHookState.VisibleBehaviorLabel = VisibleBehaviorLabel;
+    CurrentAnimationHookState.IdentityRoleHint = IdentityRoleHint;
+    CurrentAnimationHookState.PostureCategory = BuildPostureCategoryLabel(RecommendedBehavior, PhysicalStateComponent);
+    CurrentAnimationHookState.PostureHint = BuildPostureHintLabel(RecommendedBehavior, RelationshipState, IdentityRoleHint, PhysicalStateComponent);
+    CurrentAnimationHookState.FallbackHint = BuildFallbackHintLabel(RecommendedBehavior, ExecutionMode);
+
+    if (PhysicalStateComponent)
+    {
+        CurrentAnimationHookState.PhysicalState = PhysicalStateComponent->PhysicalState;
+        CurrentAnimationHookState.PhysicalStabilityScore = PhysicalStateComponent->StabilityScore;
+        CurrentAnimationHookState.PhysicalRecoveryProgress = PhysicalStateComponent->RecoveryProgress;
+        CurrentAnimationHookState.PhysicalInstabilityAlpha = PhysicalStateComponent->InstabilityAlpha;
+        CurrentAnimationHookState.PhysicalImpactDirection = PhysicalStateComponent->LastImpactDirection;
+        CurrentAnimationHookState.PhysicalImpactStrength = PhysicalStateComponent->LastImpactStrength;
+    }
 
     if (!bHasSkeletalMeshComponent)
     {
@@ -1389,7 +1610,12 @@ void UWAYPlayerProfileComponent::UpdateAnimationHookState(
         CurrentAnimationHookState.ApplicationStatus = EWAYAnimationHookApplicationStatus::Limited;
         CurrentAnimationHookState.Detail = TEXT("Animation hook application is limited because a skeletal mesh exists but no Animation Blueprint is currently assigned.");
     }
-    else if (!TargetActor)
+    else if (bHasDifferentWorlds)
+    {
+        CurrentAnimationHookState.ApplicationStatus = EWAYAnimationHookApplicationStatus::Limited;
+        CurrentAnimationHookState.Detail = TEXT("Animation hook application is limited because the observer and target are in different world contexts.");
+    }
+    else if (!HookTargetActor)
     {
         CurrentAnimationHookState.ApplicationStatus = EWAYAnimationHookApplicationStatus::Limited;
         CurrentAnimationHookState.Detail = TEXT("Animation hook application is ready, but no current target is driving it yet.");
@@ -1412,6 +1638,34 @@ void UWAYPlayerProfileComponent::UpdateAnimationHookState(
         }
     }
 
+    CurrentAnimationHookState.Detail += FString::Printf(
+        TEXT(" WanaAnimation hint: %s posture (%s), behavior intent %s, visible behavior %s, identity role %s, relationship %s, fallback %s, facing hook %s, turn hook %s, locomotion %s."),
+        *CurrentAnimationHookState.PostureHint,
+        *CurrentAnimationHookState.PostureCategory,
+        *CurrentAnimationHookState.BehaviorIntent,
+        *CurrentAnimationHookState.VisibleBehaviorLabel,
+        *CurrentAnimationHookState.IdentityRoleHint,
+        *GetRelationshipStateLogLabel(CurrentAnimationHookState.RelationshipState),
+        *CurrentAnimationHookState.FallbackHint,
+        CurrentAnimationHookState.bFacingHookRequested ? TEXT("requested") : TEXT("idle"),
+        CurrentAnimationHookState.bTurnToTargetRequested ? TEXT("requested") : (CurrentAnimationHookState.bOutwardGuardHintRequested ? TEXT("outward guard hint") : TEXT("idle")),
+        CurrentAnimationHookState.bLocomotionSafeExecutionHint ? TEXT("safe") : TEXT("limited"));
+
+    if (PhysicalStateComponent)
+    {
+        CurrentAnimationHookState.Detail += FString::Printf(
+            TEXT(" Physical reaction: %s, stability %.2f, recovery %d%%, instability %.2f, impact %.2f."),
+            *GetPhysicalStateLogLabel(CurrentAnimationHookState.PhysicalState),
+            CurrentAnimationHookState.PhysicalStabilityScore,
+            FMath::RoundToInt(CurrentAnimationHookState.PhysicalRecoveryProgress * 100.0f),
+            CurrentAnimationHookState.PhysicalInstabilityAlpha,
+            CurrentAnimationHookState.PhysicalImpactStrength);
+    }
+    else
+    {
+        CurrentAnimationHookState.Detail += TEXT(" Physical reaction: limited; no physical-state component is available.");
+    }
+
     const FString TrimmedDetail = Detail.TrimStartAndEnd();
 
     if (!TrimmedDetail.IsEmpty())
@@ -1420,14 +1674,14 @@ void UWAYPlayerProfileComponent::UpdateAnimationHookState(
         CurrentAnimationHookState.Detail += TrimmedDetail;
     }
 
-    if (AActor* ObserverActor = GetOwner())
+    if (AActor* LogObserverActor = GetOwner())
     {
         UE_LOG(
             LogWanaWorksWAY,
             Verbose,
             TEXT("Updated WanaAI animation hook state. Observer=%s Target=%s Status=%s Reaction=%s Behavior=%s Detail=%s"),
-            *ObserverActor->GetActorNameOrLabel(),
-            TargetActor ? *TargetActor->GetActorNameOrLabel() : TEXT("(none)"),
+            *LogObserverActor->GetActorNameOrLabel(),
+            HookTargetActor ? *HookTargetActor->GetActorNameOrLabel() : TEXT("(none)"),
             *GetAnimationHookApplicationStatusLogLabel(CurrentAnimationHookState.ApplicationStatus),
             *GetReactionStateLogLabel(CurrentAnimationHookState.ReactionState),
             *GetBehaviorPresetLogLabel(CurrentAnimationHookState.RecommendedBehavior),
