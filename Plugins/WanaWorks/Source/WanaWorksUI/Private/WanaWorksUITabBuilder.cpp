@@ -1,5 +1,6 @@
 #include "WanaWorksUITabBuilder.h"
 
+#include "Async/Async.h"
 #include "Animation/AnimInstance.h"
 #include "AssetThumbnail.h"
 #include "Components/DirectionalLightComponent.h"
@@ -1523,12 +1524,41 @@ TSharedRef<SWidget> MakeStringPickerControl(
                                 .ShadowOffset(FVector2D(0.0f, 1.0f))
                                 .Text(Item.IsValid() ? FText::FromString(*Item) : FText::GetEmpty());
                         })
-                        .OnSelectionChanged_Lambda([OnSelectionChanged](TSharedPtr<FString> SelectedItem, ESelectInfo::Type)
+                        .OnSelectionChanged_Lambda([OnSelectionChanged](TSharedPtr<FString> SelectedItem, ESelectInfo::Type SelectInfo)
                         {
-                            if (OnSelectionChanged)
+                            if (!OnSelectionChanged)
                             {
-                                OnSelectionChanged(SelectedItem);
+                                return;
                             }
+
+                            // Slate may emit Direct changes while rebuilding combo content; ignore those so
+                            // WanaWorks does not rebuild the workspace body during combo initialization.
+                            if (SelectInfo == ESelectInfo::Direct)
+                            {
+                                return;
+                            }
+
+                            TSharedPtr<FString> SafeSelectedItem;
+
+                            if (SelectedItem.IsValid())
+                            {
+                                const FString SelectedValue = SelectedItem->TrimStartAndEnd();
+
+                                if (!SelectedValue.IsEmpty())
+                                {
+                                    SafeSelectedItem = MakeShared<FString>(SelectedValue);
+                                }
+                            }
+
+                            // Copy and defer the value so handlers can refresh cards/status without destroying
+                            // the combo option array while SComboBox is still processing OnSelectionChanged.
+                            AsyncTask(ENamedThreads::GameThread, [OnSelectionChanged, SafeSelectedItem]()
+                            {
+                                if (OnSelectionChanged)
+                                {
+                                    OnSelectionChanged(SafeSelectedItem);
+                                }
+                            });
                         })
                         [
                             SNew(STextBlock)

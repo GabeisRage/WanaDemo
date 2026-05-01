@@ -147,6 +147,24 @@ TSharedPtr<FString> FindStringOptionByLabel(const TArray<TSharedPtr<FString>>& O
     return nullptr;
 }
 
+bool TryGetStringPickerValue(const TSharedPtr<FString>& SelectedOption, FString& OutValue)
+{
+    OutValue.Reset();
+
+    if (!SelectedOption.IsValid())
+    {
+        return false;
+    }
+
+    OutValue = SelectedOption->TrimStartAndEnd();
+    return !OutValue.IsEmpty();
+}
+
+FString GetSafeActorLabel(const AActor* Actor)
+{
+    return IsValid(Actor) ? Actor->GetActorNameOrLabel() : FString(TEXT("(none)"));
+}
+
 EWAYRelationshipState MapCharacterIntelligenceIdentityRoleToSeedState(const FString& RoleLabel)
 {
     if (RoleLabel.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase))
@@ -1337,12 +1355,15 @@ void FWanaWorksUIModule::HandleRelationshipStateOptionSelected(TSharedPtr<FStrin
 
 void FWanaWorksUIModule::HandleCharacterIntelligenceIdentityRoleOptionSelected(TSharedPtr<FString> SelectedOption)
 {
-    if (!SelectedOption.IsValid())
+    FString SelectedValue;
+
+    if (!TryGetStringPickerValue(SelectedOption, SelectedValue))
     {
+        StatusMessage = TEXT("Status: Identity selection ignored.");
         return;
     }
 
-    SelectedCharacterIntelligenceIdentityRoleLabel = *SelectedOption;
+    SelectedCharacterIntelligenceIdentityRoleLabel = SelectedValue;
     SelectedIdentitySeedState = MapCharacterIntelligenceIdentityRoleToSeedState(SelectedCharacterIntelligenceIdentityRoleLabel);
     IdentityFactionTagText = GetCharacterIntelligenceRoleFactionTag(SelectedCharacterIntelligenceIdentityRoleLabel);
     bWorkspaceAnalysisInitialized = false;
@@ -1358,19 +1379,22 @@ void FWanaWorksUIModule::HandleCharacterIntelligenceIdentityRoleOptionSelected(T
     TArray<FString> ControlNotes;
     ApplyCharacterIntelligenceControlState(ObserverActor, TargetActor, &ControlNotes);
 
+    const bool bHasObserverActor = IsValid(ObserverActor);
+    const bool bHasTargetActor = IsValid(TargetActor);
     const FString RecommendedBehavior = GetCharacterIntelligenceRecommendationLabel(
         SelectedCharacterIntelligenceIdentityRoleLabel,
         SelectedCharacterIntelligenceRelationshipLabel,
-        TargetActor != nullptr);
+        bHasTargetActor);
 
     FWanaCommandResponse Response;
-    Response.bSucceeded = ObserverActor != nullptr;
-    Response.StatusMessage = ObserverActor
+    Response.bSucceeded = bHasObserverActor;
+    Response.StatusMessage = bHasObserverActor
         ? FString::Printf(TEXT("Status: AI identity set to %s."), *SelectedCharacterIntelligenceIdentityRoleLabel)
         : FString::Printf(TEXT("Status: AI identity set to %s. No compatible AI subject selected."), *SelectedCharacterIntelligenceIdentityRoleLabel);
-    Response.OutputLines.Add(FString::Printf(TEXT("AI Subject: %s"), ObserverActor ? *ObserverActor->GetActorNameOrLabel() : TEXT("(none)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("AI Subject: %s"), *GetSafeActorLabel(ObserverActor)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Relationship Target: %s"), *GetSafeActorLabel(TargetActor)));
     Response.OutputLines.Add(FString::Printf(TEXT("AI Identity: %s"), *SelectedCharacterIntelligenceIdentityRoleLabel));
-    Response.OutputLines.Add(FString::Printf(TEXT("Default Seed: %s"), *UIFmt::GetRelationshipStateLabel(SelectedIdentitySeedState)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Default Seed: %s"), UIFmt::GetRelationshipStateLabel(SelectedIdentitySeedState)));
     Response.OutputLines.Add(FString::Printf(TEXT("Recommended Behavior: %s"), *RecommendedBehavior));
 
     for (const FString& ControlNote : ControlNotes)
@@ -1384,12 +1408,15 @@ void FWanaWorksUIModule::HandleCharacterIntelligenceIdentityRoleOptionSelected(T
 
 void FWanaWorksUIModule::HandleCharacterIntelligenceRelationshipOptionSelected(TSharedPtr<FString> SelectedOption)
 {
-    if (!SelectedOption.IsValid())
+    FString SelectedValue;
+
+    if (!TryGetStringPickerValue(SelectedOption, SelectedValue))
     {
+        StatusMessage = TEXT("Status: Relationship selection ignored.");
         return;
     }
 
-    SelectedCharacterIntelligenceRelationshipLabel = *SelectedOption;
+    SelectedCharacterIntelligenceRelationshipLabel = SelectedValue;
     SelectedRelationshipState = MapCharacterIntelligenceRelationshipLabelToWAYState(SelectedCharacterIntelligenceRelationshipLabel);
     bWorkspaceAnalysisInitialized = false;
 
@@ -1404,19 +1431,21 @@ void FWanaWorksUIModule::HandleCharacterIntelligenceRelationshipOptionSelected(T
     TArray<FString> ControlNotes;
     ApplyCharacterIntelligenceControlState(ObserverActor, TargetActor, &ControlNotes);
 
+    const bool bHasObserverActor = IsValid(ObserverActor);
+    const bool bHasTargetActor = IsValid(TargetActor);
     const FString RecommendedBehavior = GetCharacterIntelligenceRecommendationLabel(
         SelectedCharacterIntelligenceIdentityRoleLabel,
         SelectedCharacterIntelligenceRelationshipLabel,
-        TargetActor != nullptr);
+        bHasTargetActor);
 
     FWanaCommandResponse Response;
-    Response.bSucceeded = ObserverActor != nullptr && TargetActor != nullptr;
+    Response.bSucceeded = bHasObserverActor && bHasTargetActor;
 
-    if (!ObserverActor)
+    if (!bHasObserverActor)
     {
         Response.StatusMessage = FString::Printf(TEXT("Status: Relationship set to %s. No compatible AI subject selected."), *SelectedCharacterIntelligenceRelationshipLabel);
     }
-    else if (!TargetActor)
+    else if (!bHasTargetActor)
     {
         Response.StatusMessage = FString::Printf(TEXT("Status: Relationship set to %s. No relationship target selected."), *SelectedCharacterIntelligenceRelationshipLabel);
     }
@@ -1425,10 +1454,10 @@ void FWanaWorksUIModule::HandleCharacterIntelligenceRelationshipOptionSelected(T
         Response.StatusMessage = FString::Printf(TEXT("Status: Relationship set to %s. Recommended behavior: %s."), *SelectedCharacterIntelligenceRelationshipLabel, *RecommendedBehavior);
     }
 
-    Response.OutputLines.Add(FString::Printf(TEXT("AI Subject: %s"), ObserverActor ? *ObserverActor->GetActorNameOrLabel() : TEXT("(none)")));
-    Response.OutputLines.Add(FString::Printf(TEXT("Relationship Target: %s"), TargetActor ? *TargetActor->GetActorNameOrLabel() : TEXT("(none)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("AI Subject: %s"), *GetSafeActorLabel(ObserverActor)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Relationship Target: %s"), *GetSafeActorLabel(TargetActor)));
     Response.OutputLines.Add(FString::Printf(TEXT("WAY Relationship: %s"), *SelectedCharacterIntelligenceRelationshipLabel));
-    Response.OutputLines.Add(FString::Printf(TEXT("WAY Runtime State: %s"), *UIFmt::GetRelationshipStateLabel(SelectedRelationshipState)));
+    Response.OutputLines.Add(FString::Printf(TEXT("WAY Runtime State: %s"), UIFmt::GetRelationshipStateLabel(SelectedRelationshipState)));
     Response.OutputLines.Add(FString::Printf(TEXT("Recommended Behavior: %s"), *RecommendedBehavior));
 
     for (const FString& ControlNote : ControlNotes)
@@ -1442,12 +1471,15 @@ void FWanaWorksUIModule::HandleCharacterIntelligenceRelationshipOptionSelected(T
 
 void FWanaWorksUIModule::HandleCharacterIntelligenceTargetOptionSelected(TSharedPtr<FString> SelectedOption)
 {
-    if (!SelectedOption.IsValid())
+    FString SelectedValue;
+
+    if (!TryGetStringPickerValue(SelectedOption, SelectedValue))
     {
+        StatusMessage = TEXT("Status: Relationship target selection ignored.");
         return;
     }
 
-    SelectedCharacterIntelligenceTargetLabel = *SelectedOption;
+    SelectedCharacterIntelligenceTargetLabel = SelectedValue;
     bWorkspaceAnalysisInitialized = false;
 
     AActor* ObserverActor = nullptr;
@@ -1473,7 +1505,7 @@ void FWanaWorksUIModule::HandleCharacterIntelligenceTargetOptionSelected(TShared
         TargetSourceLabel = TEXT("Player Character");
     }
 
-    if (TargetActor)
+    if (IsValid(TargetActor))
     {
         SandboxTargetActor = TargetActor;
     }
@@ -1482,36 +1514,45 @@ void FWanaWorksUIModule::HandleCharacterIntelligenceTargetOptionSelected(TShared
         SandboxTargetActor.Reset();
     }
 
+    AActor* ResolvedTargetActor = SandboxTargetActor.IsValid() ? SandboxTargetActor.Get() : nullptr;
+    const bool bHasObserverActor = IsValid(ObserverActor);
+    const bool bHasResolvedTargetActor = IsValid(ResolvedTargetActor);
+
     TArray<FString> ControlNotes;
-    ApplyCharacterIntelligenceControlState(ObserverActor, SandboxTargetActor.Get(), &ControlNotes);
+    ApplyCharacterIntelligenceControlState(ObserverActor, ResolvedTargetActor, &ControlNotes);
 
     const FString RecommendedBehavior = GetCharacterIntelligenceRecommendationLabel(
         SelectedCharacterIntelligenceIdentityRoleLabel,
         SelectedCharacterIntelligenceRelationshipLabel,
-        SandboxTargetActor.IsValid());
+        bHasResolvedTargetActor);
 
     FWanaCommandResponse Response;
     Response.bSucceeded = SelectedCharacterIntelligenceTargetLabel.Equals(TEXT("No Target"), ESearchCase::IgnoreCase)
-        || SandboxTargetActor.IsValid();
+        || bHasResolvedTargetActor;
 
     if (SelectedCharacterIntelligenceTargetLabel.Equals(TEXT("No Target"), ESearchCase::IgnoreCase))
     {
         Response.StatusMessage = TEXT("Status: Relationship target cleared.");
     }
-    else if (!SandboxTargetActor.IsValid())
+    else if (!bHasResolvedTargetActor)
     {
         Response.StatusMessage = FString::Printf(TEXT("Status: No valid %s target found."), *SelectedCharacterIntelligenceTargetLabel);
     }
     else
     {
-        Response.StatusMessage = FString::Printf(TEXT("Status: Target set to %s."), *SandboxTargetActor->GetActorNameOrLabel());
+        Response.StatusMessage = FString::Printf(TEXT("Status: Target set to %s."), *GetSafeActorLabel(ResolvedTargetActor));
     }
 
-    Response.OutputLines.Add(FString::Printf(TEXT("AI Subject: %s"), ObserverActor ? *ObserverActor->GetActorNameOrLabel() : TEXT("(none)")));
-    Response.OutputLines.Add(FString::Printf(TEXT("Relationship Target: %s"), SandboxTargetActor.IsValid() ? *SandboxTargetActor->GetActorNameOrLabel() : TEXT("(none)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("AI Subject: %s"), *GetSafeActorLabel(ObserverActor)));
+    Response.OutputLines.Add(FString::Printf(TEXT("Relationship Target: %s"), *GetSafeActorLabel(ResolvedTargetActor)));
     Response.OutputLines.Add(FString::Printf(TEXT("Target Source: %s"), TargetSourceLabel.IsEmpty() ? *SelectedCharacterIntelligenceTargetLabel : *TargetSourceLabel));
     Response.OutputLines.Add(FString::Printf(TEXT("WAY Relationship: %s"), *SelectedCharacterIntelligenceRelationshipLabel));
     Response.OutputLines.Add(FString::Printf(TEXT("Recommended Behavior: %s"), *RecommendedBehavior));
+
+    if (!bHasObserverActor)
+    {
+        Response.OutputLines.Add(TEXT("Readiness Notes: No compatible AI subject selected."));
+    }
 
     for (const FString& ControlNote : ControlNotes)
     {
@@ -2197,6 +2238,12 @@ void FWanaWorksUIModule::ApplyCharacterIntelligenceControlState(AActor* Observer
         return;
     }
 
+    if (!ObserverActor->GetWorld())
+    {
+        AddControlNote(TEXT("AI subject has no valid world context. Identity and relationship controls were kept as UI state only."));
+        return;
+    }
+
     if (UWanaIdentityComponent* IdentityComponent = ObserverActor->FindComponentByClass<UWanaIdentityComponent>())
     {
         const FString RoleFactionTag = GetCharacterIntelligenceRoleFactionTag(SelectedCharacterIntelligenceIdentityRoleLabel);
@@ -2207,7 +2254,7 @@ void FWanaWorksUIModule::ApplyCharacterIntelligenceControlState(AActor* Observer
         IdentityComponent->FactionTag = FName(*RoleFactionTag);
         IdentityComponent->DefaultRelationshipSeed.RelationshipState = SelectedIdentitySeedState;
         ObserverActor->MarkPackageDirty();
-        AddControlNote(FString::Printf(TEXT("WAI/WAMI identity control applied as %s with %s default seed."), *SelectedCharacterIntelligenceIdentityRoleLabel, *UIFmt::GetRelationshipStateLabel(SelectedIdentitySeedState)));
+        AddControlNote(FString::Printf(TEXT("WAI/WAMI identity control applied as %s with %s default seed."), *SelectedCharacterIntelligenceIdentityRoleLabel, UIFmt::GetRelationshipStateLabel(SelectedIdentitySeedState)));
     }
     else
     {
@@ -2217,6 +2264,12 @@ void FWanaWorksUIModule::ApplyCharacterIntelligenceControlState(AActor* Observer
     if (!IsValid(TargetActor))
     {
         AddControlNote(TEXT("No relationship target selected. WAY-lite behavior will use a safe observe-style recommendation until a target is assigned."));
+        return;
+    }
+
+    if (!TargetActor->GetWorld())
+    {
+        AddControlNote(TEXT("Selected target has no valid world context. WAY-lite relationship data was not applied."));
         return;
     }
 
@@ -2235,7 +2288,7 @@ void FWanaWorksUIModule::ApplyCharacterIntelligenceControlState(AActor* Observer
         ProfileComponent->EnsureRelationshipProfileForTarget(TargetActor);
         ProfileComponent->SetRelationshipStateForTarget(TargetActor, SelectedRelationshipState);
         ObserverActor->MarkPackageDirty();
-        AddControlNote(FString::Printf(TEXT("WAY-lite relationship set to %s for %s."), *SelectedCharacterIntelligenceRelationshipLabel, *TargetActor->GetActorNameOrLabel()));
+        AddControlNote(FString::Printf(TEXT("WAY-lite relationship set to %s for %s."), *SelectedCharacterIntelligenceRelationshipLabel, *GetSafeActorLabel(TargetActor)));
     }
     else
     {
@@ -3610,7 +3663,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             AddAnalysisItem(BehaviorItems, Result, TEXT("AI Identity Role"), ObserverActor && ObserverActor->FindComponentByClass<UWanaIdentityComponent>() ? TEXT("Ready") : TEXT("Limited"), FString::Printf(TEXT("%s biases behavior toward %s."), SelectedCharacterIntelligenceIdentityRoleLabel.IsEmpty() ? TEXT("Neutral") : *SelectedCharacterIntelligenceIdentityRoleLabel, *ControlRecommendedBehavior));
             AddAnalysisItem(BehaviorItems, Result, TEXT("WAY-lite Relationship"), Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), Snapshot.bHasWAYComponent ? TEXT("Relationship/adaptation layer is readable.") : TEXT("Relationship behavior is limited until WAY-lite is attached."));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Relationship Target"), TargetActor ? TEXT("Ready") : TEXT("Limited"), TargetActor ? TargetActor->GetActorNameOrLabel() : TEXT("No relationship target selected."));
-            AddAnalysisItem(BehaviorItems, Result, TEXT("Selected Relationship"), TargetActor && ObserverActor && ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>() ? TEXT("Ready") : TEXT("Limited"), FString::Printf(TEXT("%s maps to runtime state %s."), SelectedCharacterIntelligenceRelationshipLabel.IsEmpty() ? TEXT("Unknown") : *SelectedCharacterIntelligenceRelationshipLabel, *UIFmt::GetRelationshipStateLabel(SelectedRelationshipState)));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Selected Relationship"), TargetActor && ObserverActor && ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>() ? TEXT("Ready") : TEXT("Limited"), FString::Printf(TEXT("%s maps to runtime state %s."), SelectedCharacterIntelligenceRelationshipLabel.IsEmpty() ? TEXT("Unknown") : *SelectedCharacterIntelligenceRelationshipLabel, UIFmt::GetRelationshipStateLabel(SelectedRelationshipState)));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Behavior Results"), BehaviorSnapshot.bHasWAYComponent && BehaviorSnapshot.bHasRelationshipProfile ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.bHasWAYComponent ? TEXT("Behavior result data is readable.") : TEXT("Behavior result is limited until WAY-lite has usable relationship data."));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Requested Behavior"), BehaviorSnapshot.RecommendedBehavior != EWAYBehaviorPreset::None ? TEXT("Ready") : TEXT("Limited"), UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Visible Behavior"), !BehaviorSnapshot.VisibleBehaviorLabel.IsEmpty() ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.VisibleBehaviorLabel.IsEmpty() ? TEXT("No visible starter behavior was applied.") : BehaviorSnapshot.VisibleBehaviorLabel);
