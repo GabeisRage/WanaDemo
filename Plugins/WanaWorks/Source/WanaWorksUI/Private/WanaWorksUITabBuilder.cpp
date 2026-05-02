@@ -4933,6 +4933,18 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                     ]
                     + SVerticalBox::Slot()
                     .AutoHeight()
+                    .Padding(0.0f, 0.0f, 0.0f, 16.0f)
+                    [
+                        MakeStringPickerControl(
+                            LOCTEXT("WanaWorksStudioCharacterProfilePickerLabel", "Character Profile"),
+                            Args.CharacterBuildingProfileOptions,
+                            Args.GetSelectedCharacterBuildingProfileOption,
+                            Args.OnCharacterBuildingProfileOptionSelected,
+                            LOCTEXT("WanaWorksStudioCharacterProfilePickerDefault", "Custom / Unassigned"),
+                            260.0f)
+                    ]
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
                     .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                     [
                         MakeStudioStatusCard(
@@ -4973,7 +4985,7 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                         MakeStudioStatusCard(
                             LOCTEXT("WanaWorksStudioCharacterIdentityFocusTitle", "Character Profile"),
                             LOCTEXT("WanaWorksStudioCharacterIdentityFocusEyebrow", "IDENTITY / AUTHORING"),
-                            Args.GetIdentitySummaryText,
+                            Args.GetCharacterBuildingProfileSummaryText,
                             StudioAccentGoldColor,
                             6,
                             188.0f)
@@ -5008,7 +5020,7 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                     MakeStudioStatusCard(
                         LOCTEXT("WanaWorksStudioCharacterMovementRightTitle", "Movement / Playability"),
                         LOCTEXT("WanaWorksStudioCharacterMovementRightEyebrow", "CONTROL READINESS"),
-                        Args.GetPhysicalStateText,
+                        Args.GetCharacterBuildingControlSummaryText,
                         StudioAccentBlueColor,
                         7,
                         210.0f)
@@ -5032,10 +5044,7 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                     MakeStudioStatusCard(
                         LOCTEXT("WanaWorksStudioCharacterCameraControlTitle", "Camera / Control Setup"),
                         LOCTEXT("WanaWorksStudioCharacterCameraControlEyebrow", "PLAYABILITY CONTEXT"),
-                        []()
-                        {
-                            return LOCTEXT("WanaWorksStudioCharacterCameraControlSummary", "Camera Setup: Preserved from existing Blueprint\nControl Setup: Existing input/controller path preserved\nPlayability Note: WanaWorks reports readiness without replacing project input, camera, or controller architecture.");
-                        },
+                        Args.GetCharacterBuildingControlSummaryText,
                         FLinearColor(0.36f, 0.50f, 0.86f, 1.0f),
                         4,
                         210.0f)

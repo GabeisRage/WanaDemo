@@ -35,6 +35,7 @@ private:
     void HandleCharacterIntelligenceIdentityRoleOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleCharacterIntelligenceRelationshipOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleCharacterIntelligenceTargetOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleCharacterBuildingProfileOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleCharacterPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleAIPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
     void RegisterEditorLauncherMenus();
@@ -91,6 +92,7 @@ private:
     TSharedPtr<FString> GetSelectedCharacterIntelligenceIdentityRoleOption() const;
     TSharedPtr<FString> GetSelectedCharacterIntelligenceRelationshipOption() const;
     TSharedPtr<FString> GetSelectedCharacterIntelligenceTargetOption() const;
+    TSharedPtr<FString> GetSelectedCharacterBuildingProfileOption() const;
     void RefreshProjectAssetPickerOptions();
     bool ResolvePreferredSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const;
     bool ResolvePickedSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const;
@@ -137,6 +139,10 @@ private:
     FText GetIdentitySummaryText();
     FText GetIdentityFactionTagText();
     FText GetCharacterIntelligenceControlSummaryText() const;
+    FText GetCharacterBuildingProfileSummaryText() const;
+    FText GetCharacterBuildingControlSummaryText() const;
+    FString GetSharedCharacterStackSummaryText() const;
+    FString GetSharedCharacterStackStatusLabel() const;
     bool ResolvePreferredWITReadinessPair(AActor*& OutObserverActor, AActor*& OutTargetActor, FString& OutPairSourceLabel, bool& bOutTargetFallsBackToObserver) const;
 
     TSharedRef<SDockTab> SpawnWanaWorksTab(const FSpawnTabArgs& SpawnTabArgs);
@@ -155,6 +161,7 @@ private:
     FString SelectedCharacterIntelligenceIdentityRoleLabel;
     FString SelectedCharacterIntelligenceRelationshipLabel;
     FString SelectedCharacterIntelligenceTargetLabel;
+    FString SelectedCharacterBuildingProfileLabel;
     EWAYRelationshipState SelectedIdentitySeedState = EWAYRelationshipState::Neutral;
     EWAYRelationshipState SelectedRelationshipState = EWAYRelationshipState::Neutral;
     TArray<TSharedPtr<FString>> WorkflowPresetOptions;
@@ -166,6 +173,7 @@ private:
     TArray<TSharedPtr<FString>> CharacterIntelligenceIdentityRoleOptions;
     TArray<TSharedPtr<FString>> CharacterIntelligenceRelationshipOptions;
     TArray<TSharedPtr<FString>> CharacterIntelligenceTargetOptions;
+    TArray<TSharedPtr<FString>> CharacterBuildingProfileOptions;
     TMap<FString, FString> CharacterPawnAssetPathByLabel;
     TMap<FString, FString> AIPawnAssetPathByLabel;
     TWeakObjectPtr<AActor> CachedIdentityActor;

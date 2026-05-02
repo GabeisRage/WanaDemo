@@ -80,6 +80,162 @@ FString GetImpactEffectSummaryText(const FWanaSelectedCharacterEnhancementSnapsh
         ? FString::Printf(TEXT("%s %s with active recovery"), *StrengthLabel, *StateLabel)
         : FString::Printf(TEXT("%s %s"), *StrengthLabel, *StateLabel);
 }
+
+FString GetAnimationHookConsumptionReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Not Supported");
+    }
+
+    if (!Snapshot.bHasWAYComponent || !Snapshot.bAnimationHookStateReadable)
+    {
+        return TEXT("Needs Enhance");
+    }
+
+    if (!Snapshot.bHasAnimBlueprint || !Snapshot.bHasAnimationInstance)
+    {
+        return TEXT("Limited");
+    }
+
+    if (Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Applied
+        || Snapshot.AnimationHookApplicationStatus == EWAYAnimationHookApplicationStatus::Active)
+    {
+        return TEXT("Applied");
+    }
+
+    if (Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Ready)
+    {
+        return TEXT("Ready");
+    }
+
+    return TEXT("Limited");
+}
+
+FString GetAnimationHookConsumptionDetailText(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    return FString::Printf(
+        TEXT("Skeletal mesh %s. Anim BP %s. Animation instance %s. Hook provider %s. Hook state %s. Physical provider %s. Auto-wire %s."),
+        Snapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Not Supported"),
+        Snapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"),
+        Snapshot.bHasAnimationInstance ? TEXT("Ready") : TEXT("Limited"),
+        Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Needs Enhance"),
+        Snapshot.bAnimationHookStateReadable ? TEXT("Ready") : TEXT("Needs Enhance"),
+        Snapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited"),
+        *WanaWorksUIFormattingUtils::GetAutomaticAnimationWireSummaryLabel(Snapshot));
+}
+
+FString GetAnimationPreviewBodyLanguageLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    TArray<FString> StateLabels;
+
+    if (!Snapshot.AnimationPostureCategory.IsEmpty())
+    {
+        if (Snapshot.AnimationPostureCategory.Equals(TEXT("Guard"), ESearchCase::IgnoreCase))
+        {
+            StateLabels.Add(TEXT("Protective"));
+        }
+        else if (Snapshot.AnimationPostureCategory.Equals(TEXT("Follow"), ESearchCase::IgnoreCase))
+        {
+            StateLabels.Add(TEXT("Cooperative"));
+        }
+        else if (Snapshot.AnimationPostureCategory.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase))
+        {
+            StateLabels.Add(TEXT("Tense"));
+        }
+        else if (Snapshot.AnimationPostureCategory.Equals(TEXT("Observe"), ESearchCase::IgnoreCase))
+        {
+            StateLabels.Add(TEXT("Observant"));
+        }
+        else
+        {
+            StateLabels.Add(Snapshot.AnimationPostureCategory);
+        }
+    }
+    else if (!Snapshot.AnimationPostureHint.IsEmpty())
+    {
+        StateLabels.Add(Snapshot.AnimationPostureHint);
+    }
+    else
+    {
+        StateLabels.Add(TEXT("Observant"));
+    }
+
+    if (Snapshot.bPhysicalBracing || Snapshot.AnimationPhysicalState == EWanaPhysicalState::Bracing)
+    {
+        StateLabels.AddUnique(TEXT("Braced"));
+    }
+
+    if (Snapshot.bPhysicalNeedsRecovery || Snapshot.PhysicalState == EWanaPhysicalState::Recovering || Snapshot.AnimationPhysicalState == EWanaPhysicalState::Recovering)
+    {
+        StateLabels.AddUnique(TEXT("Recovering"));
+    }
+
+    if (Snapshot.PhysicalState == EWanaPhysicalState::Staggered
+        || Snapshot.PhysicalState == EWanaPhysicalState::OffBalance
+        || Snapshot.PhysicalState == EWanaPhysicalState::Panicked
+        || Snapshot.AnimationPhysicalState == EWanaPhysicalState::Staggered
+        || Snapshot.AnimationPhysicalState == EWanaPhysicalState::OffBalance
+        || Snapshot.AnimationPhysicalState == EWanaPhysicalState::Panicked)
+    {
+        StateLabels.AddUnique(TEXT("Disrupted"));
+    }
+
+    if (Snapshot.bAnimationMovementLimitedFallbackHint)
+    {
+        StateLabels.AddUnique(TEXT("Movement Limited"));
+    }
+
+    if (!Snapshot.bAnimationLocomotionHintSafe && Snapshot.bAnimationFacingHookRequested)
+    {
+        StateLabels.AddUnique(TEXT("Facing Fallback"));
+    }
+
+    return FString::Join(StateLabels, TEXT(", "));
+}
+
+FString GetAnimationPreviewImpactLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bAnimationPhysicalReactionStateAvailable || Snapshot.AnimationPhysicalImpactStrength <= KINDA_SMALL_NUMBER)
+    {
+        return TEXT("No active animation impact direction");
+    }
+
+    return FString::Printf(
+        TEXT("%s strength %.2f"),
+        *Snapshot.AnimationPhysicalImpactDirection.GetSafeNormal().ToCompactString(),
+        Snapshot.AnimationPhysicalImpactStrength);
+}
+
+FString BuildAnimationPreviewConsumptionText(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    const FString ReactionLabel = WanaWorksUIFormattingUtils::GetReactionStateSummaryLabel(Snapshot.AnimationReactionState);
+    const FString BehaviorLabel = Snapshot.AnimationBehaviorIntent.IsEmpty()
+        ? WanaWorksUIFormattingUtils::GetBehaviorPresetSummaryLabel(Snapshot.AnimationRecommendedBehavior)
+        : Snapshot.AnimationBehaviorIntent;
+    const FString PostureLabel = Snapshot.AnimationPostureHint.IsEmpty()
+        ? TEXT("neutral / observant")
+        : Snapshot.AnimationPostureHint;
+    const FString MovementLabel = Snapshot.bAnimationLocomotionHintSafe
+        ? TEXT("locomotion-safe")
+        : (Snapshot.bAnimationMovementLimitedFallbackHint ? TEXT("movement limited") : TEXT("facing/hold preferred"));
+
+    return FString::Printf(
+        TEXT("Body Language: %s\nPosture Hint: %s\nBehavior Intent: %s\nReaction State: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s\nLocomotion Hint: %s\nMovement Fallback: %s\nInstability: %.2f\nRecovery: %d%%\nImpact Direction: %s\nHook Consumption: %s - %s"),
+        *GetAnimationPreviewBodyLanguageLabel(Snapshot),
+        *PostureLabel,
+        *BehaviorLabel,
+        *ReactionLabel,
+        *WanaWorksUIFormattingUtils::GetAnimationHookRequestSummaryLabel(Snapshot.bAnimationFacingHookRequested),
+        *WanaWorksUIFormattingUtils::GetAnimationHookRequestSummaryLabel(Snapshot.bAnimationTurnToTargetRequested),
+        *MovementLabel,
+        Snapshot.bAnimationMovementLimitedFallbackHint ? (Snapshot.AnimationFallbackHint.IsEmpty() ? TEXT("safe hold") : *Snapshot.AnimationFallbackHint) : TEXT("Idle"),
+        Snapshot.AnimationPhysicalInstabilityAlpha,
+        FMath::RoundToInt(Snapshot.AnimationPhysicalRecoveryProgress * 100.0f),
+        *GetAnimationPreviewImpactLabel(Snapshot),
+        *GetAnimationHookConsumptionReadinessLabel(Snapshot),
+        *GetAnimationHookConsumptionDetailText(Snapshot));
+}
 }
 
 FString BuildSubjectSetupSummaryText(
@@ -106,20 +262,26 @@ FString BuildSubjectStackSummaryText(const FWanaSelectedCharacterEnhancementSnap
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("AI Controller: Missing\nLinked AI Controller: (not linked)\nAnimation Blueprint: Unknown\nLinked Animation Blueprint: (not linked)\nIdentity: Missing\nWAI: Missing\nWAY: Missing\nAI-Ready: No\nCompatibility Notes: Pick a project asset to inspect the stack before you create a working copy.");
+        return TEXT("Character Blueprint: Unknown\nSkeletal Mesh: Unknown\nSkeleton: Unknown\nAnimation Blueprint: Unknown\nPlayer Controller: Unknown\nAI Controller: Unknown\nControl Mode: Unknown\nIdentity: Missing\nCompatibility Notes: Pick a Character Blueprint, Pawn, or AI-ready character asset to inspect the shared body/control stack.");
     }
 
     return FString::Printf(
-        TEXT("AI Controller: %s\nLinked AI Controller: %s\nAnimation Blueprint: %s\nLinked Animation Blueprint: %s\nIdentity: %s\nWAI: %s\nWAY: %s\nAI-Ready: %s\nCompatibility Notes: %s"),
-        *WanaWorksUIFormattingUtils::GetAIControllerPresenceLabel(*Snapshot),
-        Snapshot->LinkedAIControllerLabel.IsEmpty() ? TEXT("(not linked)") : *Snapshot->LinkedAIControllerLabel,
+        TEXT("Character Blueprint: %s\nSkeletal Mesh: %s\nSkeleton: %s\nAnimation Blueprint: %s\nLinked Animation Blueprint: %s\nPlayer Controller: %s\nAuto Possess Player: %s\nAI Controller: %s\nLinked AI Controller: %s\nControl Mode: %s\nIdentity: %s\nWAI: %s\nWAY: %s\nAI-Ready: %s\nCompatibility Notes: %s"),
+        *Snapshot->SelectedActorLabel,
+        Snapshot->SkeletalMeshLabel.IsEmpty() ? (Snapshot->bHasSkeletalMeshComponent ? TEXT("(mesh component detected)") : TEXT("Missing")) : *Snapshot->SkeletalMeshLabel,
+        Snapshot->SkeletonLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot->SkeletonLabel,
         *WanaWorksUIFormattingUtils::GetAnimationBlueprintStatusLabel(*Snapshot),
         Snapshot->LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("(not linked)") : *Snapshot->LinkedAnimationBlueprintLabel,
+        Snapshot->LinkedPlayerControllerLabel.IsEmpty() ? TEXT("(not detected)") : *Snapshot->LinkedPlayerControllerLabel,
+        Snapshot->AutoPossessPlayerLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot->AutoPossessPlayerLabel,
+        *WanaWorksUIFormattingUtils::GetAIControllerPresenceLabel(*Snapshot),
+        Snapshot->LinkedAIControllerLabel.IsEmpty() ? TEXT("(not linked)") : *Snapshot->LinkedAIControllerLabel,
+        Snapshot->CharacterControlModeLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot->CharacterControlModeLabel,
         Snapshot->bHasIdentityComponent ? TEXT("Present") : TEXT("Missing"),
         Snapshot->bHasWAIComponent ? TEXT("Present") : TEXT("Missing"),
         Snapshot->bHasWAYComponent ? TEXT("Present") : TEXT("Missing"),
         WanaWorksUIFormattingUtils::IsAIReadyForLightweightTesting(*Snapshot) ? TEXT("Yes") : TEXT("No"),
-        *Snapshot->AIReadinessSummary);
+        Snapshot->CompatibleSkeletonSummary.IsEmpty() ? *Snapshot->AIReadinessSummary : *Snapshot->CompatibleSkeletonSummary);
 }
 
 FString BuildSandboxPreviewSummaryText(
@@ -130,7 +292,7 @@ FString BuildSandboxPreviewSummaryText(
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("Stage Status: Waiting for subject\nStage Mode: Picker-ready workspace\nAnimation: (not available)\nNext Step: Choose an AI Pawn or Character Pawn to wake the studio stage.");
+        return TEXT("Stage Status: Waiting for subject\nStage Mode: Picker-ready workspace\nAnimation: (not available)\nWanaAnimation: Not Supported - no selected subject\nNext Step: Choose an AI Pawn or Character Pawn to wake the studio stage.");
     }
 
     const FString StageSubjectLabel = FString::Printf(
@@ -142,12 +304,13 @@ FString BuildSandboxPreviewSummaryText(
         : TEXT("Showing the picked asset until a live working subject becomes active through enhancement or testing.");
 
     return FString::Printf(
-        TEXT("Stage Subject: %s\nStage Mode: %s\nAnimation: %s\nNext Step: %s"),
+        TEXT("Stage Subject: %s\nStage Mode: %s\nAnimation: %s\n%s\nNext Step: %s"),
         *StageSubjectLabel,
         PreviewModeLabel.IsEmpty() ? TEXT("Subject preview") : *PreviewModeLabel,
         Snapshot->LinkedAnimationBlueprintLabel.IsEmpty()
             ? (PreviewAssetLabel.IsEmpty() ? TEXT("(not linked)") : *PreviewAssetLabel)
             : *Snapshot->LinkedAnimationBlueprintLabel,
+        *BuildAnimationPreviewConsumptionText(*Snapshot),
         *NextStep);
 }
 
@@ -155,17 +318,25 @@ FString BuildAnimationIntegrationSummaryText(const FWanaSelectedCharacterEnhance
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("Animation Blueprint: Unknown\nIntegration Status: Unknown\nExisting Anim BP Preserved: Yes\nAutomatic Integration: Not Supported\nAuto-Attach: Not Supported\nAuto-Wire: Not Supported\nIntegration Target: (not prepared)\nHook Application: Not Available\nHook Readiness: Missing\nFacing Hook: Missing\nTurn-To-Target Hook: Missing\nLocomotion Hook: Missing\nReaction Animation Hook: Missing\nPosture Hint: Missing\nBody Language Category: Missing\nMovement-Limited Hook: Missing\nPhysical Reaction Hook: Missing\nNotes: Choose a subject in WanaWorks to inspect safe animation integration.");
+        return TEXT("Animation Blueprint: Unknown\nIntegration Status: Unknown\nExisting Anim BP Preserved: Yes\nAutomatic Integration: Not Supported\nAuto-Attach: Not Supported\nAuto-Wire: Not Supported\nIntegration Target: (not prepared)\nHook Provider: Needs Enhance\nHook State Readable: Needs Enhance\nSkeletal Mesh: Not Supported\nSkeleton: Unknown\nCompatible Skeleton: Unknown\nAnimation Instance: Limited\nHook Consumption Readiness: Not Supported\nPhysical Provider: Limited\nHook Application: Not Available\nHook Readiness: Missing\nFacing Hook: Missing\nTurn-To-Target Hook: Missing\nLocomotion Hook: Missing\nReaction Animation Hook: Missing\nPosture Hint: Missing\nBody Language Category: Missing\nMovement-Limited Hook: Missing\nPhysical Reaction Hook: Missing\nNotes: Choose a subject in WanaWorks to inspect safe animation integration.");
     }
 
     return FString::Printf(
-        TEXT("Animation Blueprint: %s\nIntegration Status: %s\nExisting Anim BP Preserved: Yes\nAutomatic Integration: %s\nAuto-Attach: %s\nAuto-Wire: %s\nIntegration Target: %s\nHook Application: %s\nHook Readiness: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s\nLocomotion Hook: %s\nReaction Animation Hook: %s\nPosture Hint: %s\nBody Language Category: %s\nMovement-Limited Hook: %s\nPhysical Reaction Hook: %s\nNotes: %s"),
+        TEXT("Animation Blueprint: %s\nIntegration Status: %s\nExisting Anim BP Preserved: Yes\nAutomatic Integration: %s\nAuto-Attach: %s\nAuto-Wire: %s\nIntegration Target: %s\nHook Provider: %s\nHook State Readable: %s\nSkeletal Mesh: %s\nSkeleton: %s\nCompatible Skeleton: %s\nAnimation Instance: %s\nHook Consumption Readiness: %s\nPhysical Provider: %s\nHook Application: %s\nHook Readiness: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s\nLocomotion Hook: %s\nReaction Animation Hook: %s\nPosture Hint: %s\nBody Language Category: %s\nMovement-Limited Hook: %s\nPhysical Reaction Hook: %s\nNotes: %s"),
         *WanaWorksUIFormattingUtils::GetAnimationBlueprintStatusLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetAnimationIntegrationStatusLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetAutomaticAnimationIntegrationStatusLabel(Snapshot->AnimationAutomaticIntegrationStatus),
         *WanaWorksUIFormattingUtils::GetAutomaticAnimationAttachSummaryLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetAutomaticAnimationWireSummaryLabel(*Snapshot),
         Snapshot->AnimationIntegrationTargetLabel.IsEmpty() ? TEXT("(not prepared)") : *Snapshot->AnimationIntegrationTargetLabel,
+        Snapshot->bHasWAYComponent ? TEXT("Ready") : TEXT("Needs Enhance"),
+        Snapshot->bAnimationHookStateReadable ? TEXT("Ready") : TEXT("Needs Enhance"),
+        Snapshot->SkeletalMeshLabel.IsEmpty() ? (Snapshot->bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Not Supported")) : *Snapshot->SkeletalMeshLabel,
+        Snapshot->SkeletonLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot->SkeletonLabel,
+        Snapshot->CompatibleSkeletonSummary.IsEmpty() ? TEXT("Unknown") : *Snapshot->CompatibleSkeletonSummary,
+        Snapshot->bHasAnimationInstance ? TEXT("Ready") : TEXT("Limited"),
+        *GetAnimationHookConsumptionReadinessLabel(*Snapshot),
+        Snapshot->bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited"),
         *WanaWorksUIFormattingUtils::GetAnimationHookApplicationStatusLabel(Snapshot->AnimationHookApplicationStatus),
         *WanaWorksUIFormattingUtils::GetAnimationHookReadinessLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetFacingHookReadinessLabel(*Snapshot),
@@ -183,7 +354,7 @@ FString BuildAnimationHookUsageText(const FWanaSelectedCharacterEnhancementSnaps
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: Not Available\nAutomatic Pass: WanaWorks can auto-attach a supported working-subject animation bridge when a subject is prepared through the workspace or finalized workflow.\nCore Fields: bFacingHookRequested, bTurnToTargetRequested, ReactionState, RecommendedBehavior, bLocomotionSafeExecutionHint, bMovementLimitedFallbackHint, BehaviorIntent, VisibleBehaviorLabel, IdentityRoleHint, RelationshipState, PostureHint, PostureCategory, FallbackHint, PhysicalInstabilityAlpha, PhysicalRecoveryProgress, PhysicalImpactDirection\nTypical Use: Use facing and turn flags for turn-to-target logic. Use posture/category/fallback strings for readable body-language state. Use ReactionState and RecommendedBehavior for higher-level animation intent. Use the locomotion-safe and movement-limited hints to avoid forcing movement-driven animation logic.\nPhysical State Bridge: Read UWanaPhysicalStateComponent for PhysicalState, StabilityScore, RecoveryProgress, LastImpactDirection, LastImpactStrength, bBracing, bNeedsRecovery, bCanCommitToMovement, bCanCommitToAttack, and InstabilityAlpha.\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nPhysical Example: Get Owning Actor -> Get Component By Class (UWanaPhysicalStateComponent) -> Read LastImpactDirection and InstabilityAlpha for directional stagger or recovery pose blending.\nNotes: Pick a Character Pawn or AI Pawn in WanaWorks to see subject-specific hook guidance.");
+        return TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: Not Available\nAutomatic Pass: WanaWorks can auto-attach a supported working-subject animation bridge when a subject is prepared through the workspace or finalized workflow.\nCore Fields: bFacingHookRequested, bTurnToTargetRequested, ReactionState, RecommendedBehavior, bLocomotionSafeExecutionHint, bMovementLimitedFallbackHint, BehaviorIntent, VisibleBehaviorLabel, IdentityRoleHint, RelationshipState, PostureHint, PostureCategory, FallbackHint, PhysicalInstabilityAlpha, PhysicalRecoveryProgress, PhysicalImpactDirection\nBlueprint Accessors: Get Current Animation Hook State, Get Animation Posture Hint, Get Animation Reaction State, Get Animation Recommended Behavior, Get Animation Visible Behavior Label, Is Animation Locomotion Safe Execution Hint Active, Is Animation Movement Limited Fallback Hint Active, Get Animation Physical Instability Alpha, Get Animation Physical Recovery Progress, Get Animation Physical Impact Direction\nTypical Use: Use facing and turn flags for turn-to-target logic. Use posture/category/fallback strings for readable body-language state. Use ReactionState and RecommendedBehavior for higher-level animation intent. Use the locomotion-safe and movement-limited hints to avoid forcing movement-driven animation logic.\nPhysical State Bridge: Read UWanaPhysicalStateComponent for PhysicalState, StabilityScore, RecoveryProgress, LastImpactDirection, LastImpactStrength, bBracing, bNeedsRecovery, bCanCommitToMovement, bCanCommitToAttack, and InstabilityAlpha.\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nPhysical Example: Get Owning Actor -> Get Component By Class (UWanaPhysicalStateComponent) -> Read LastImpactDirection and InstabilityAlpha for directional stagger or recovery pose blending.\nNotes: Pick a Character Pawn or AI Pawn in WanaWorks to see subject-specific hook guidance.");
     }
 
     const FString HookApplicationLabel = WanaWorksUIFormattingUtils::GetAnimationHookApplicationStatusLabel(Snapshot->AnimationHookApplicationStatus);
@@ -240,9 +411,10 @@ FString BuildAnimationHookUsageText(const FWanaSelectedCharacterEnhancementSnaps
             : Snapshot->AnimationHookDetail);
 
     return FString::Printf(
-        TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: %s\nAutomatic Pass: %s\nCurrent Subject: %s\nDetected Animation Blueprint: %s\nCore Fields:\n- bFacingHookRequested: %s\n- bTurnToTargetRequested: %s\n- ReactionState: %s\n- RecommendedBehavior: %s\n- VisibleBehaviorLabel: %s\n- bLocomotionSafeExecutionHint: %s\n- bMovementLimitedFallbackHint: %s\n- Body Language: %s\n- Identity / Relationship Influence: %s\n- Physical Reaction: %s\nTypical Use: Use facing and turn flags for turn-to-target logic. Use posture/category/fallback strings for readable body-language state. Use ReactionState and RecommendedBehavior for higher-level animation intent. Use the locomotion-safe and movement-limited hints to avoid forcing movement-driven animation logic.\nPhysical State Bridge: %s\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nPhysical Example: Get Owning Actor -> Get Component By Class (UWanaPhysicalStateComponent) -> Read PhysicalState, InstabilityAlpha, LastImpactDirection, and LastImpactStrength\nNotes: %s"),
+        TEXT("Hook Source: WAYPlayerProfileComponent -> Get Current Animation Hook State\nCurrent Hook Application: %s\nAutomatic Pass: %s\nHook Consumption Readiness: %s\nCurrent Subject: %s\nDetected Animation Blueprint: %s\nCore Fields:\n- bFacingHookRequested: %s\n- bTurnToTargetRequested: %s\n- ReactionState: %s\n- RecommendedBehavior: %s\n- VisibleBehaviorLabel: %s\n- bLocomotionSafeExecutionHint: %s\n- bMovementLimitedFallbackHint: %s\n- Body Language: %s\n- Identity / Relationship Influence: %s\n- Physical Reaction: %s\nBlueprint Accessors: Get Animation Posture Hint, Get Animation Reaction State, Get Animation Recommended Behavior, Get Animation Visible Behavior Label, Is Animation Locomotion Safe Execution Hint Active, Is Animation Movement Limited Fallback Hint Active, Get Animation Physical Instability Alpha, Get Animation Physical Recovery Progress, Get Animation Physical Impact Direction\nTypical Use: Use facing and turn flags for turn-to-target logic. Use posture/category/fallback strings for readable body-language state. Use ReactionState and RecommendedBehavior for higher-level animation intent. Use the locomotion-safe and movement-limited hints to avoid forcing movement-driven animation logic.\nPhysical State Bridge: %s\nAnim BP Example: Get Owning Actor -> Get Component By Class (WAYPlayerProfileComponent) -> Get Current Animation Hook State\nPhysical Example: Get Owning Actor -> Get Component By Class (UWanaPhysicalStateComponent) -> Read PhysicalState, InstabilityAlpha, LastImpactDirection, and LastImpactStrength\nNotes: %s"),
         *HookApplicationLabel,
         *WanaWorksUIFormattingUtils::GetAutomaticAnimationIntegrationStatusLabel(Snapshot->AnimationAutomaticIntegrationStatus),
+        *GetAnimationHookConsumptionReadinessLabel(*Snapshot),
         *Snapshot->SelectedActorLabel,
         Snapshot->LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("(not linked)") : *Snapshot->LinkedAnimationBlueprintLabel,
         *FacingFieldSummary,
@@ -386,14 +558,16 @@ FString BuildCharacterEnhancementSummaryText(const FWanaSelectedCharacterEnhance
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("Current Subject: (none)\nSubject Source: WanaWorks picker or editor selection fallback\nActor Type: (none)\nIdentity: Missing\nWAY: Missing\nWAI: Missing\nAnimation: Missing\nAI Ready: Warning\nCompatibility: Warning");
+        return TEXT("Current Subject: (none)\nSubject Source: WanaWorks picker or editor selection fallback\nActor Type: (none)\nControl Mode: Unknown\nPlayer Control: Unknown\nIdentity: Missing\nWAY: Missing\nWAI: Missing\nAnimation: Missing\nAI Ready: Warning\nCompatibility: Warning");
     }
 
     return FString::Printf(
-        TEXT("Current Subject: %s\nSubject Source: %s\nActor Type: %s\nIdentity: %s\nWAY: %s\nWAI: %s\nAnimation: %s\nAI Ready: %s\nCompatibility: %s"),
+        TEXT("Current Subject: %s\nSubject Source: %s\nActor Type: %s\nControl Mode: %s\nPlayer Control: %s\nIdentity: %s\nWAY: %s\nWAI: %s\nAnimation: %s\nAI Ready: %s\nCompatibility: %s"),
         *Snapshot->SelectedActorLabel,
         Snapshot->SubjectSourceLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot->SubjectSourceLabel,
         *Snapshot->ActorTypeLabel,
+        Snapshot->CharacterControlModeLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot->CharacterControlModeLabel,
+        Snapshot->PlayableControlSummary.IsEmpty() ? TEXT("Unknown") : *Snapshot->PlayableControlSummary,
         Snapshot->bHasIdentityComponent ? TEXT("Present") : TEXT("Missing"),
         Snapshot->bHasWAYComponent ? TEXT("Present") : TEXT("Missing"),
         Snapshot->bHasWAIComponent ? TEXT("Present") : TEXT("Missing"),
@@ -507,17 +681,27 @@ FString BuildBehaviorResultsText(const FWanaBehaviorResultsSnapshot& Snapshot)
     const FString AnimationPostureHintLabel = Snapshot.AnimationPostureHint.IsEmpty()
         ? TEXT("(not driven yet)")
         : Snapshot.AnimationPostureHint;
+    const FString AnimationBodyLanguageLabel = Snapshot.AnimationPostureCategory.IsEmpty()
+        ? TEXT("Observant")
+        : Snapshot.AnimationPostureCategory;
+    const FString AnimationReactionStateLabel = WanaWorksUIFormattingUtils::GetReactionStateSummaryLabel(Snapshot.AnimationReactionState);
     const FString AnimationFallbackHintLabel = Snapshot.AnimationFallbackHint.IsEmpty()
         ? TEXT("(not driven yet)")
         : Snapshot.AnimationFallbackHint;
+    const FString LocomotionHookLabel = Snapshot.bAnimationLocomotionHintSafe
+        ? TEXT("Locomotion Safe")
+        : (Snapshot.bAnimationMovementLimitedFallbackHint ? TEXT("Movement Limited") : TEXT("Facing / Hold Preferred"));
     const FString MovementLimitedHookLabel = WanaWorksUIFormattingUtils::GetAnimationHookRequestSummaryLabel(Snapshot.bAnimationMovementLimitedFallbackHint);
     const FString OutwardGuardHookLabel = WanaWorksUIFormattingUtils::GetAnimationHookRequestSummaryLabel(Snapshot.bAnimationOutwardGuardHintRequested);
     const FString PhysicalReactionHookLabel = Snapshot.bAnimationPhysicalReactionStateAvailable
         ? FString::Printf(TEXT("Readable (instability %.2f, recovery %d%%)"), Snapshot.AnimationPhysicalInstabilityAlpha, FMath::RoundToInt(Snapshot.AnimationPhysicalRecoveryProgress * 100.0f))
         : TEXT("Limited");
+    const FString AnimationImpactDirectionLabel = Snapshot.bAnimationPhysicalReactionStateAvailable && Snapshot.AnimationPhysicalImpactStrength > KINDA_SMALL_NUMBER
+        ? Snapshot.AnimationPhysicalImpactDirection.GetSafeNormal().ToCompactString()
+        : TEXT("No active impact direction");
 
     return FString::Printf(
-        TEXT("Observer: %s\nTarget: %s%s\nRelationship State: %s\nReaction State: %s\nRecommended Behavior: %s\nStarter Hook Available: %s\nVisible Behavior: %s\nLast Applied Hook: %s\nExecution Mode: %s\nMovement Confidence: %s\nEnvironment Shaping: %s\nResult Notes: %s\nAnimation Hook Application: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s\nAnimation Behavior Intent: %s\nAnimation Posture Hint: %s\nAnimation Fallback Hint: %s\nMovement-Limited Hook: %s\nOutward Guard Hook: %s\nPhysical Reaction Hook: %s"),
+        TEXT("Observer: %s\nTarget: %s%s\nRelationship State: %s\nReaction State: %s\nRecommended Behavior: %s\nStarter Hook Available: %s\nVisible Behavior: %s\nLast Applied Hook: %s\nExecution Mode: %s\nMovement Confidence: %s\nEnvironment Shaping: %s\nResult Notes: %s\nAnimation Hook Application: %s\nAnimation Reaction State: %s\nBody Language State: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s\nLocomotion Hook: %s\nAnimation Behavior Intent: %s\nAnimation Posture Hint: %s\nAnimation Fallback Hint: %s\nMovement-Limited Hook: %s\nOutward Guard Hook: %s\nPhysical Reaction Hook: %s\nImpact Direction: %s"),
         Snapshot.bHasObserverActor ? *Snapshot.ObserverActorLabel : TEXT("(not assigned)"),
         Snapshot.bHasTargetActor ? *Snapshot.TargetActorLabel : TEXT("(not assigned)"),
         Snapshot.bTargetFallsBackToObserver ? TEXT(" (observer fallback)") : TEXT(""),
@@ -532,14 +716,18 @@ FString BuildBehaviorResultsText(const FWanaBehaviorResultsSnapshot& Snapshot)
         *EnvironmentShapingLabel,
         *ResultNotesLabel,
         *AnimationHookApplicationLabel,
+        *AnimationReactionStateLabel,
+        *AnimationBodyLanguageLabel,
         *FacingHookLabel,
         *TurnToTargetHookLabel,
+        *LocomotionHookLabel,
         *AnimationBehaviorIntentLabel,
         *AnimationPostureHintLabel,
         *AnimationFallbackHintLabel,
         *MovementLimitedHookLabel,
         *OutwardGuardHookLabel,
-        *PhysicalReactionHookLabel);
+        *PhysicalReactionHookLabel,
+        *AnimationImpactDirectionLabel);
 }
 
 FString BuildWITEnvironmentReadinessText(const FWanaEnvironmentReadinessSnapshot& Snapshot)

@@ -3,16 +3,21 @@
 #include "Editor.h"
 #include "Animation/AnimBlueprint.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/Skeleton.h"
 #include "Components/ActorComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
 #include "Engine/Selection.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
 #include "Engine/Blueprint.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PawnMovementComponent.h"
+#include "GameFramework/PlayerController.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/PackageName.h"
 #include "ObjectTools.h"
@@ -555,6 +560,229 @@ FString GetAIControllerLabelFromActor(const AActor* Actor)
     return Pawn->AIControllerClass->GetName();
 }
 
+FString GetAutoPossessPlayerLabelFromPawn(const APawn* Pawn)
+{
+    if (!Pawn)
+    {
+        return TEXT("(not a Pawn)");
+    }
+
+    if (Pawn->AutoPossessPlayer == EAutoReceiveInput::Disabled)
+    {
+        return TEXT("Disabled");
+    }
+
+    if (Pawn->AutoPossessPlayer == EAutoReceiveInput::Player0)
+    {
+        return TEXT("Player 0");
+    }
+
+    if (Pawn->AutoPossessPlayer == EAutoReceiveInput::Player1)
+    {
+        return TEXT("Player 1");
+    }
+
+    if (Pawn->AutoPossessPlayer == EAutoReceiveInput::Player2)
+    {
+        return TEXT("Player 2");
+    }
+
+    if (Pawn->AutoPossessPlayer == EAutoReceiveInput::Player3)
+    {
+        return TEXT("Player 3");
+    }
+
+    if (Pawn->AutoPossessPlayer == EAutoReceiveInput::Player4)
+    {
+        return TEXT("Player 4");
+    }
+
+    if (Pawn->AutoPossessPlayer == EAutoReceiveInput::Player5)
+    {
+        return TEXT("Player 5");
+    }
+
+    if (Pawn->AutoPossessPlayer == EAutoReceiveInput::Player6)
+    {
+        return TEXT("Player 6");
+    }
+
+    if (Pawn->AutoPossessPlayer == EAutoReceiveInput::Player7)
+    {
+        return TEXT("Player 7");
+    }
+
+    return TEXT("Enabled");
+}
+
+bool ActorHasComponentClassNameToken(const AActor* Actor, const FString& Token)
+{
+    if (!Actor || Token.IsEmpty())
+    {
+        return false;
+    }
+
+    TArray<UActorComponent*> Components;
+    Actor->GetComponents(Components);
+
+    for (const UActorComponent* Component : Components)
+    {
+        const UClass* ComponentClass = Component ? Component->GetClass() : nullptr;
+        const FString ComponentClassName = ComponentClass ? ComponentClass->GetName() : FString();
+
+        if (ComponentClassName.Contains(Token, ESearchCase::IgnoreCase))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool GetSkeletalMeshAndSkeletonLabelsFromActor(const AActor* Actor, FString& OutMeshLabel, FString& OutSkeletonLabel)
+{
+    OutMeshLabel.Reset();
+    OutSkeletonLabel.Reset();
+
+    const USkeletalMeshComponent* SkeletalMeshComponent = Actor ? Actor->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
+
+    if (!SkeletalMeshComponent)
+    {
+        return false;
+    }
+
+    const USkeletalMesh* SkeletalMesh = SkeletalMeshComponent->GetSkeletalMeshAsset();
+
+    if (!SkeletalMesh)
+    {
+        OutMeshLabel = TEXT("(mesh component, no mesh asset)");
+        OutSkeletonLabel = TEXT("(no skeleton asset)");
+        return true;
+    }
+
+    OutMeshLabel = SkeletalMesh->GetName();
+    const USkeleton* Skeleton = SkeletalMesh->GetSkeleton();
+    OutSkeletonLabel = Skeleton ? Skeleton->GetName() : TEXT("(no skeleton asset)");
+    return true;
+}
+
+FString GetPlayerControllerLabelFromActor(const AActor* Actor)
+{
+    const APawn* Pawn = Cast<APawn>(Actor);
+
+    if (!Pawn)
+    {
+        return TEXT("(not a Pawn)");
+    }
+
+    const AController* Controller = Pawn->GetController();
+
+    if (const APlayerController* PlayerController = Cast<APlayerController>(Controller))
+    {
+        return PlayerController->GetClass() ? PlayerController->GetClass()->GetName() : TEXT("PlayerController");
+    }
+
+    if (Controller)
+    {
+        return FString::Printf(
+            TEXT("Runtime controller is %s, not a PlayerController"),
+            Controller->GetClass() ? *Controller->GetClass()->GetName() : TEXT("Controller"));
+    }
+
+    if (Pawn->AutoPossessPlayer != EAutoReceiveInput::Disabled)
+    {
+        return FString::Printf(
+            TEXT("Auto Possess Player %s; PlayerController class is resolved by GameMode/runtime"),
+            *GetAutoPossessPlayerLabelFromPawn(Pawn));
+    }
+
+    return TEXT("(not detected)");
+}
+
+FString MakeCompatibleSkeletonSummary(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Not Supported: no skeletal mesh component was detected.");
+    }
+
+    if (Snapshot.SkeletonLabel.IsEmpty() || Snapshot.SkeletonLabel.Equals(TEXT("(no skeleton asset)")))
+    {
+        return TEXT("Limited: skeletal mesh exists, but no skeleton asset could be confirmed.");
+    }
+
+    if (Snapshot.bHasAnimBlueprint)
+    {
+        return FString::Printf(
+            TEXT("Ready: %s is using skeleton %s with the assigned Anim BP %s."),
+            Snapshot.SkeletalMeshLabel.IsEmpty() ? TEXT("Selected skeletal mesh") : *Snapshot.SkeletalMeshLabel,
+            *Snapshot.SkeletonLabel,
+            Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("(linked Animation Blueprint)") : *Snapshot.LinkedAnimationBlueprintLabel);
+    }
+
+    return FString::Printf(
+        TEXT("Limited: skeleton %s is detected, but no assigned Anim BP was found on the selected mesh stack."),
+        *Snapshot.SkeletonLabel);
+}
+
+FString MakeCharacterControlModeLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    const bool bAISignal = Snapshot.bHasAIControllerClass || Snapshot.bAutoPossessAIEnabled;
+
+    if (!Snapshot.bIsPawnActor)
+    {
+        return Snapshot.bHasSkeletalMeshComponent ? TEXT("Limited") : TEXT("Unknown");
+    }
+
+    if (Snapshot.bHasPlayerControllerSignal && bAISignal)
+    {
+        return TEXT("Shared Character BP");
+    }
+
+    if (Snapshot.bHasPlayerControllerSignal && Snapshot.bHasPawnMovementComponent)
+    {
+        return TEXT("Player Ready");
+    }
+
+    if (bAISignal)
+    {
+        return TEXT("AI Ready");
+    }
+
+    if (Snapshot.bHasPawnMovementComponent || Snapshot.bHasCameraComponent || Snapshot.bHasSpringArmComponent)
+    {
+        return TEXT("Limited");
+    }
+
+    return TEXT("Unknown");
+}
+
+FString MakePlayableControlSummary(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bIsPawnActor)
+    {
+        return TEXT("Playable control readiness is unknown because the subject is not a Pawn or Character.");
+    }
+
+    const FString CameraLabel = Snapshot.bHasCameraComponent
+        ? (Snapshot.bHasSpringArmComponent ? TEXT("Camera and spring arm detected") : TEXT("Camera detected"))
+        : (Snapshot.bHasSpringArmComponent ? TEXT("Spring arm detected without a camera component") : TEXT("No camera/spring arm detected"));
+    const FString PlayerControllerLabel = Snapshot.LinkedPlayerControllerLabel.IsEmpty()
+        ? TEXT("(not detected)")
+        : Snapshot.LinkedPlayerControllerLabel;
+    const FString MovementLabel = Snapshot.bHasPawnMovementComponent
+        ? TEXT("movement component present")
+        : TEXT("movement component not detected");
+
+    return FString::Printf(
+        TEXT("%s. Auto Possess Player: %s. Player Controller: %s. %s. Control Mode: %s."),
+        *MovementLabel,
+        Snapshot.AutoPossessPlayerLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.AutoPossessPlayerLabel,
+        *PlayerControllerLabel,
+        *CameraLabel,
+        Snapshot.CharacterControlModeLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.CharacterControlModeLabel);
+}
+
 bool IsSandboxOrFinalizedWanaWorksActor(const AActor* Actor)
 {
     if (!Actor)
@@ -668,20 +896,44 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
         OutSnapshot.bIsPawnActor = true;
         OutSnapshot.bHasAIControllerClass = Pawn->AIControllerClass != nullptr;
         OutSnapshot.bAutoPossessAIEnabled = Pawn->AutoPossessAI != EAutoPossessAI::Disabled;
+        OutSnapshot.bAutoPossessPlayerEnabled = Pawn->AutoPossessPlayer != EAutoReceiveInput::Disabled;
+        OutSnapshot.bHasPawnMovementComponent = Pawn->GetMovementComponent() != nullptr;
+        OutSnapshot.AutoPossessPlayerLabel = GetAutoPossessPlayerLabelFromPawn(Pawn);
+        OutSnapshot.LinkedPlayerControllerLabel = GetPlayerControllerLabelFromActor(Actor);
+
+        if (const AController* Controller = Pawn->GetController())
+        {
+            OutSnapshot.bHasLivePlayerController = Controller->IsA<APlayerController>();
+        }
+
+        OutSnapshot.bHasPlayerControllerSignal = OutSnapshot.bHasLivePlayerController || OutSnapshot.bAutoPossessPlayerEnabled;
     }
+
+    OutSnapshot.bHasCameraComponent = ActorHasComponentClassNameToken(Actor, TEXT("Camera"));
+    OutSnapshot.bHasSpringArmComponent = ActorHasComponentClassNameToken(Actor, TEXT("SpringArm"));
 
     TArray<USkeletalMeshComponent*> SkeletalMeshComponents;
     Actor->GetComponents<USkeletalMeshComponent>(SkeletalMeshComponents);
     OutSnapshot.bHasSkeletalMeshComponent = SkeletalMeshComponents.Num() > 0;
+    GetSkeletalMeshAndSkeletonLabelsFromActor(Actor, OutSnapshot.SkeletalMeshLabel, OutSnapshot.SkeletonLabel);
 
     for (const USkeletalMeshComponent* SkeletalMeshComponent : SkeletalMeshComponents)
     {
+        if (!SkeletalMeshComponent)
+        {
+            continue;
+        }
+
+        if (SkeletalMeshComponent->GetAnimInstance() != nullptr)
+        {
+            OutSnapshot.bHasAnimationInstance = true;
+        }
+
         if (SkeletalMeshComponent
             && (SkeletalMeshComponent->GetAnimationMode() == EAnimationMode::AnimationBlueprint
                 || SkeletalMeshComponent->GetAnimInstance() != nullptr))
         {
             OutSnapshot.bHasAnimBlueprint = true;
-            break;
         }
     }
 
@@ -707,6 +959,9 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
         OutSnapshot.bHasSkeletalMeshComponent);
     OutSnapshot.LinkedAnimationBlueprintLabel = GetAnimBlueprintLabelFromActor(Actor);
     OutSnapshot.LinkedAIControllerLabel = GetAIControllerLabelFromActor(Actor);
+    OutSnapshot.CharacterControlModeLabel = MakeCharacterControlModeLabel(OutSnapshot);
+    OutSnapshot.CompatibleSkeletonSummary = MakeCompatibleSkeletonSummary(OutSnapshot);
+    OutSnapshot.PlayableControlSummary = MakePlayableControlSummary(OutSnapshot);
     OutSnapshot.AnimationCompatibilitySummary = MakeAnimationCompatibilitySummary(OutSnapshot.bHasSkeletalMeshComponent, OutSnapshot.bHasAnimBlueprint);
     OutSnapshot.AIReadinessSummary = MakeAIReadinessSummary(OutSnapshot.bIsPawnActor, OutSnapshot.bAutoPossessAIEnabled, OutSnapshot.bHasAIControllerClass);
 
@@ -750,6 +1005,7 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
     if (const UWAYPlayerProfileComponent* WAYComponent = Actor->FindComponentByClass<UWAYPlayerProfileComponent>())
     {
         const FWAYAnimationHookState AnimationHookState = WAYComponent->GetCurrentAnimationHookState();
+        OutSnapshot.bAnimationHookStateReadable = true;
         OutSnapshot.bAnimationFacingHookRequested = AnimationHookState.bFacingHookRequested;
         OutSnapshot.bAnimationTurnToTargetRequested = AnimationHookState.bTurnToTargetRequested;
         OutSnapshot.bAnimationLocomotionHintSafe = AnimationHookState.bLocomotionSafeExecutionHint;
@@ -757,6 +1013,9 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
         OutSnapshot.bAnimationOutwardGuardHintRequested = AnimationHookState.bOutwardGuardHintRequested;
         OutSnapshot.bAnimationPhysicalReactionStateAvailable = AnimationHookState.bPhysicalReactionStateAvailable;
         OutSnapshot.AnimationHookApplicationStatus = AnimationHookState.ApplicationStatus;
+        OutSnapshot.AnimationReactionState = AnimationHookState.ReactionState;
+        OutSnapshot.AnimationRecommendedBehavior = AnimationHookState.RecommendedBehavior;
+        OutSnapshot.AnimationExecutionMode = AnimationHookState.ExecutionMode;
         OutSnapshot.AnimationRelationshipState = AnimationHookState.RelationshipState;
         OutSnapshot.AnimationPhysicalState = AnimationHookState.PhysicalState;
         OutSnapshot.AnimationPhysicalStabilityScore = AnimationHookState.PhysicalStabilityScore;
@@ -1534,6 +1793,15 @@ bool GetBehaviorResultsSnapshotForActorPair(const AActor* ObserverActor, const A
     OutSnapshot.AnimationHookApplicationStatus = bAnimationHookMatchesTarget
         ? AnimationHookState.ApplicationStatus
         : EWAYAnimationHookApplicationStatus::Limited;
+    OutSnapshot.AnimationReactionState = bAnimationHookMatchesTarget
+        ? AnimationHookState.ReactionState
+        : OutSnapshot.ReactionState;
+    OutSnapshot.AnimationRecommendedBehavior = bAnimationHookMatchesTarget
+        ? AnimationHookState.RecommendedBehavior
+        : OutSnapshot.RecommendedBehavior;
+    OutSnapshot.AnimationExecutionMode = bAnimationHookMatchesTarget
+        ? AnimationHookState.ExecutionMode
+        : OutSnapshot.ExecutionMode;
     OutSnapshot.AnimationRelationshipState = bAnimationHookMatchesTarget
         ? AnimationHookState.RelationshipState
         : OutSnapshot.RelationshipState;

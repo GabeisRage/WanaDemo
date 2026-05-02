@@ -75,6 +75,7 @@ const TCHAR* SavedWorkflowPresetFactionTagKey = TEXT("SavedWorkflowPresetFaction
 const TCHAR* SavedCustomWorkflowPresetLabel = TEXT("Saved Custom Preset");
 const TCHAR* CharacterPawnPickerDefaultLabel = TEXT("(Choose Character Blueprint)");
 const TCHAR* AIPawnPickerDefaultLabel = TEXT("(Choose AI Pawn)");
+const TCHAR* CharacterBuildingDefaultProfileLabel = TEXT("Custom / Unassigned");
 
 struct FProjectAssetPickerEntry
 {
@@ -158,6 +159,183 @@ bool TryGetStringPickerValue(const TSharedPtr<FString>& SelectedOption, FString&
 
     OutValue = SelectedOption->TrimStartAndEnd();
     return !OutValue.IsEmpty();
+}
+
+bool IsKnownStackValue(const FString& Value)
+{
+    const FString TrimmedValue = Value.TrimStartAndEnd();
+
+    if (TrimmedValue.IsEmpty())
+    {
+        return false;
+    }
+
+    const FString LowerValue = TrimmedValue.ToLower();
+    return LowerValue != TEXT("unknown")
+        && LowerValue != TEXT("missing")
+        && LowerValue != TEXT("none")
+        && !LowerValue.Contains(TEXT("(not"))
+        && !LowerValue.Contains(TEXT("(no "))
+        && !LowerValue.Contains(TEXT("not detected"));
+}
+
+FString GetSharedFieldStatusFromLabels(const FString& LeftLabel, const FString& RightLabel)
+{
+    if (!IsKnownStackValue(LeftLabel) || !IsKnownStackValue(RightLabel))
+    {
+        return TEXT("Unknown");
+    }
+
+    return LeftLabel.Equals(RightLabel, ESearchCase::IgnoreCase) ? TEXT("Yes") : TEXT("No");
+}
+
+FString GetSharedFieldStatusFromPaths(const FString& LeftPath, const FString& RightPath)
+{
+    if (!IsKnownStackValue(LeftPath) || !IsKnownStackValue(RightPath))
+    {
+        return TEXT("Unknown");
+    }
+
+    return LeftPath.Equals(RightPath, ESearchCase::IgnoreCase) ? TEXT("Yes") : TEXT("No");
+}
+
+FString GetPlayableModeStatusLabel(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot)
+{
+    if (!Snapshot || !Snapshot->bHasSelectedActor)
+    {
+        return TEXT("Unknown");
+    }
+
+    if (!Snapshot->bIsPawnActor)
+    {
+        return Snapshot->bHasSkeletalMeshComponent ? TEXT("Limited") : TEXT("Unknown");
+    }
+
+    if (Snapshot->bHasPlayerControllerSignal && Snapshot->bHasPawnMovementComponent)
+    {
+        return TEXT("Player Ready");
+    }
+
+    if (Snapshot->bHasPawnMovementComponent || Snapshot->bHasCameraComponent || Snapshot->bHasSpringArmComponent)
+    {
+        return TEXT("Limited");
+    }
+
+    return TEXT("Needs Setup");
+}
+
+FString GetAIModeStatusLabel(const FWanaSelectedCharacterEnhancementSnapshot* Snapshot)
+{
+    if (!Snapshot || !Snapshot->bHasSelectedActor)
+    {
+        return TEXT("Unknown");
+    }
+
+    if (Snapshot->bHasAIControllerClass || Snapshot->bAutoPossessAIEnabled)
+    {
+        return TEXT("AI Ready");
+    }
+
+    if (Snapshot->bIsPawnActor)
+    {
+        return TEXT("Limited");
+    }
+
+    return TEXT("Unknown");
+}
+
+FString GetCharacterBuildingProfileGuidance(const FString& ProfileLabel)
+{
+    if (ProfileLabel.Equals(TEXT("Playable Hero"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Player-first profile. Prioritize camera, input, movement, rig, and clean build readiness.");
+    }
+
+    if (ProfileLabel.Equals(TEXT("Companion"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Companion character profile. Keep the body playable-ready while allowing future AI/NPC reuse.");
+    }
+
+    if (ProfileLabel.Equals(TEXT("Civilian"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Civilian character profile. Favor neutral body/readiness reporting over AI-brain language.");
+    }
+
+    if (ProfileLabel.Equals(TEXT("Enemy Character Base"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Enemy character-base profile. The body can be shared with AI mode, but Character Building stays focused on mesh, rig, animation, and playable control.");
+    }
+
+    if (ProfileLabel.Equals(TEXT("Neutral Character"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Neutral character profile. Report shared player/AI compatibility without assuming a brain role.");
+    }
+
+    return TEXT("Custom profile is unassigned. WanaWorks will report character-body readiness with safe defaults.");
+}
+
+FString BuildSharedStackSummaryFromSnapshots(
+    const FString& CharacterAssetPath,
+    const FWanaSelectedCharacterEnhancementSnapshot* CharacterSnapshot,
+    const FString& AIAssetPath,
+    const FWanaSelectedCharacterEnhancementSnapshot* AISnapshot)
+{
+    const bool bHasCharacterSubject = CharacterSnapshot && CharacterSnapshot->bHasSelectedActor;
+    const bool bHasAISubject = AISnapshot && AISnapshot->bHasSelectedActor;
+
+    if (!bHasCharacterSubject && !bHasAISubject)
+    {
+        return TEXT("Shared Character Blueprint: Unknown\nShared Skeletal Mesh: Unknown\nShared Skeleton: Unknown\nShared Animation Blueprint: Unknown\nPlayable Mode: Unknown\nAI Mode: Unknown\nNotes: Select a Character Building subject and a Character Intelligence subject to compare shared body, skeleton, and Anim BP usage.");
+    }
+
+    const FString SharedBlueprintStatus = GetSharedFieldStatusFromPaths(CharacterAssetPath, AIAssetPath);
+    const FString SharedMeshStatus = GetSharedFieldStatusFromLabels(
+        bHasCharacterSubject ? CharacterSnapshot->SkeletalMeshLabel : FString(),
+        bHasAISubject ? AISnapshot->SkeletalMeshLabel : FString());
+    const FString SharedSkeletonStatus = GetSharedFieldStatusFromLabels(
+        bHasCharacterSubject ? CharacterSnapshot->SkeletonLabel : FString(),
+        bHasAISubject ? AISnapshot->SkeletonLabel : FString());
+    const FString SharedAnimBPStatus = GetSharedFieldStatusFromLabels(
+        bHasCharacterSubject ? CharacterSnapshot->LinkedAnimationBlueprintLabel : FString(),
+        bHasAISubject ? AISnapshot->LinkedAnimationBlueprintLabel : FString());
+    const FString PlayableModeStatus = GetPlayableModeStatusLabel(CharacterSnapshot);
+    const FString AIModeStatus = GetAIModeStatusLabel(AISnapshot);
+    const FString Notes = bHasCharacterSubject && bHasAISubject
+        ? TEXT("Same body/Anim BP reuse is supported as context. Character Building reports player/profile readiness; Character Intelligence reports AI/NPC readiness.")
+        : TEXT("Comparison is limited until both Character Building and Character Intelligence have a selected subject.");
+
+    return FString::Printf(
+        TEXT("Character Building Subject: %s\nCharacter Intelligence Subject: %s\nShared Character Blueprint: %s\nShared Skeletal Mesh: %s\nShared Skeleton: %s\nShared Animation Blueprint: %s\nPlayable Mode: %s\nAI Mode: %s\nNotes: %s"),
+        bHasCharacterSubject ? *CharacterSnapshot->SelectedActorLabel : TEXT("(none)"),
+        bHasAISubject ? *AISnapshot->SelectedActorLabel : TEXT("(none)"),
+        *SharedBlueprintStatus,
+        *SharedMeshStatus,
+        *SharedSkeletonStatus,
+        *SharedAnimBPStatus,
+        *PlayableModeStatus,
+        *AIModeStatus,
+        *Notes);
+}
+
+FString GetSharedStackStatusFromSummary(const FString& SharedSummary)
+{
+    if (SharedSummary.Contains(TEXT("Shared Character Blueprint: Yes"), ESearchCase::IgnoreCase)
+        || SharedSummary.Contains(TEXT("Shared Skeletal Mesh: Yes"), ESearchCase::IgnoreCase)
+        || SharedSummary.Contains(TEXT("Shared Skeleton: Yes"), ESearchCase::IgnoreCase)
+        || SharedSummary.Contains(TEXT("Shared Animation Blueprint: Yes"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Shared Character BP");
+    }
+
+    if (SharedSummary.Contains(TEXT("Shared Character Blueprint: Unknown"), ESearchCase::IgnoreCase)
+        && SharedSummary.Contains(TEXT("Shared Skeletal Mesh: Unknown"), ESearchCase::IgnoreCase)
+        && SharedSummary.Contains(TEXT("Shared Skeleton: Unknown"), ESearchCase::IgnoreCase)
+        && SharedSummary.Contains(TEXT("Shared Animation Blueprint: Unknown"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Unknown");
+    }
+
+    return TEXT("Ready");
 }
 
 FString GetSafeActorLabel(const AActor* Actor)
@@ -526,6 +704,10 @@ void TrackAnalysisStatus(FWanaAnalysisResult& Result, const FString& Status)
     if (Status.Equals(TEXT("Ready"), ESearchCase::IgnoreCase)
         || Status.Equals(TEXT("Present"), ESearchCase::IgnoreCase)
         || Status.Equals(TEXT("Detected"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("Applied"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("Player Ready"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("AI Ready"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("Shared Character BP"), ESearchCase::IgnoreCase)
         || Status.Equals(TEXT("Built"), ESearchCase::IgnoreCase))
     {
         ++Result.ReadyCount;
@@ -842,6 +1024,98 @@ FString BuildAIPhysicalBehaviorCommitmentDetail(const FWanaSelectedCharacterEnha
         Snapshot.PhysicalInstabilityAlpha);
 }
 
+FString GetAIAnimationStageCategoryLabel(const FString& PostureCategory, const FString& PostureHint)
+{
+    if (PostureCategory.Equals(TEXT("Guard"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Protective");
+    }
+
+    if (PostureCategory.Equals(TEXT("Follow"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Cooperative");
+    }
+
+    if (PostureCategory.Equals(TEXT("Hostile"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Tense");
+    }
+
+    if (PostureCategory.Equals(TEXT("Observe"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Observant");
+    }
+
+    if (!PostureCategory.IsEmpty())
+    {
+        return PostureCategory;
+    }
+
+    return PostureHint.IsEmpty() ? FString(TEXT("Observant")) : PostureHint;
+}
+
+FString BuildAIWanaAnimationStageSummary(
+    const FWanaBehaviorResultsSnapshot& BehaviorSnapshot,
+    const FString& AnimationPostureHint,
+    const FString& AnimationPostureCategory,
+    const FString& AnimationBehaviorIntent,
+    const FString& AnimationLocomotionHint,
+    const FString& AnimationFallbackHint)
+{
+    TArray<FString> StateLabels;
+    StateLabels.Add(GetAIAnimationStageCategoryLabel(AnimationPostureCategory, AnimationPostureHint));
+
+    if (BehaviorSnapshot.AnimationPhysicalState == EWanaPhysicalState::Bracing)
+    {
+        StateLabels.AddUnique(TEXT("Braced"));
+    }
+
+    if (BehaviorSnapshot.AnimationPhysicalState == EWanaPhysicalState::Recovering)
+    {
+        StateLabels.AddUnique(TEXT("Recovering"));
+    }
+
+    if (BehaviorSnapshot.AnimationPhysicalState == EWanaPhysicalState::Staggered
+        || BehaviorSnapshot.AnimationPhysicalState == EWanaPhysicalState::OffBalance
+        || BehaviorSnapshot.AnimationPhysicalState == EWanaPhysicalState::Panicked)
+    {
+        StateLabels.AddUnique(TEXT("Disrupted"));
+    }
+
+    if (BehaviorSnapshot.bAnimationMovementLimitedFallbackHint)
+    {
+        StateLabels.AddUnique(TEXT("Movement Limited"));
+    }
+
+    if (!BehaviorSnapshot.bAnimationLocomotionHintSafe && BehaviorSnapshot.bAnimationFacingHookRequested)
+    {
+        StateLabels.AddUnique(TEXT("Facing Fallback"));
+    }
+
+    const FString VisibleBehaviorLabel = !BehaviorSnapshot.AnimationVisibleBehaviorLabel.IsEmpty()
+        ? BehaviorSnapshot.AnimationVisibleBehaviorLabel
+        : (!BehaviorSnapshot.VisibleBehaviorLabel.IsEmpty()
+            ? BehaviorSnapshot.VisibleBehaviorLabel
+            : UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior));
+    const FString ImpactDirectionLabel = BehaviorSnapshot.bAnimationPhysicalReactionStateAvailable && BehaviorSnapshot.AnimationPhysicalImpactStrength > KINDA_SMALL_NUMBER
+        ? BehaviorSnapshot.AnimationPhysicalImpactDirection.GetSafeNormal().ToCompactString()
+        : FString(TEXT("no active impact direction"));
+
+    return FString::Printf(
+        TEXT("%s active. WanaAnimation: %s body state, %s posture, reaction %s, facing hook %s, turn-to-target %s, %s. Fallback: %s. Instability %.2f, recovery %d%%, impact %s."),
+        VisibleBehaviorLabel.IsEmpty() ? TEXT("Behavior attention") : *VisibleBehaviorLabel,
+        *FString::Join(StateLabels, TEXT(", ")),
+        AnimationPostureHint.IsEmpty() ? TEXT("neutral / observant") : *AnimationPostureHint,
+        *UIFmt::GetReactionStateSummaryLabel(BehaviorSnapshot.AnimationReactionState),
+        *UIFmt::GetAnimationHookRequestSummaryLabel(BehaviorSnapshot.bAnimationFacingHookRequested),
+        *UIFmt::GetAnimationHookRequestSummaryLabel(BehaviorSnapshot.bAnimationTurnToTargetRequested),
+        AnimationLocomotionHint.IsEmpty() ? TEXT("facing/hold preferred") : *AnimationLocomotionHint,
+        AnimationFallbackHint.IsEmpty() ? TEXT("safe hold") : *AnimationFallbackHint,
+        BehaviorSnapshot.AnimationPhysicalInstabilityAlpha,
+        FMath::RoundToInt(BehaviorSnapshot.AnimationPhysicalRecoveryProgress * 100.0f),
+        *ImpactDirectionLabel);
+}
+
 FString ExtractResponseOutputValue(const FWanaCommandResponse& Response, const FString& Prefix)
 {
     const FString MatchPrefix = Prefix.EndsWith(TEXT(":")) ? Prefix : FString::Printf(TEXT("%s:"), *Prefix);
@@ -1040,6 +1314,7 @@ void FWanaWorksUIModule::StartupModule()
     SelectedCharacterIntelligenceIdentityRoleLabel = TEXT("Neutral");
     SelectedCharacterIntelligenceRelationshipLabel = TEXT("Unknown");
     SelectedCharacterIntelligenceTargetLabel = TEXT("No Target");
+    SelectedCharacterBuildingProfileLabel = CharacterBuildingDefaultProfileLabel;
     bWorkspaceAnalysisInitialized = false;
     LastAnalysisWorkspaceLabel.Reset();
     LastAnalysisStatusSummary = TEXT("Analyze has not run yet.");
@@ -1145,6 +1420,15 @@ void FWanaWorksUIModule::StartupModule()
         MakeShared<FString>(TEXT("No Target")),
         MakeShared<FString>(TEXT("Current Editor Selection")),
         MakeShared<FString>(TEXT("Player Character"))
+    };
+    CharacterBuildingProfileOptions =
+    {
+        MakeShared<FString>(TEXT("Playable Hero")),
+        MakeShared<FString>(TEXT("Companion")),
+        MakeShared<FString>(TEXT("Civilian")),
+        MakeShared<FString>(TEXT("Enemy Character Base")),
+        MakeShared<FString>(TEXT("Neutral Character")),
+        MakeShared<FString>(CharacterBuildingDefaultProfileLabel)
     };
     RefreshProjectAssetPickerOptions();
 
@@ -1563,6 +1847,38 @@ void FWanaWorksUIModule::HandleCharacterIntelligenceTargetOptionSelected(TShared
     RefreshReactiveUI(true);
 }
 
+void FWanaWorksUIModule::HandleCharacterBuildingProfileOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    FString SelectedValue;
+
+    if (!TryGetStringPickerValue(SelectedOption, SelectedValue))
+    {
+        SelectedValue = CharacterBuildingDefaultProfileLabel;
+    }
+
+    SelectedCharacterBuildingProfileLabel = SelectedValue;
+    SelectedWorkspaceLabel = TEXT("Character Building");
+    bWorkspaceAnalysisInitialized = false;
+
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+    const bool bHasSubject = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
+
+    FWanaCommandResponse Response;
+    Response.bSucceeded = bHasSubject;
+    Response.StatusMessage = bHasSubject
+        ? FString::Printf(TEXT("Status: Character profile set to %s."), *SelectedCharacterBuildingProfileLabel)
+        : FString::Printf(TEXT("Status: Character profile set to %s. Select a character subject to inspect readiness."), *SelectedCharacterBuildingProfileLabel);
+    Response.OutputLines.Add(FString::Printf(TEXT("Character Profile: %s"), *SelectedCharacterBuildingProfileLabel));
+    Response.OutputLines.Add(FString::Printf(TEXT("Character Subject: %s"), bHasSubject ? *Snapshot.SelectedActorLabel : TEXT("(none)")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Playable Mode: %s"), bHasSubject ? *GetPlayableModeStatusLabel(&Snapshot) : TEXT("Unknown")));
+    Response.OutputLines.Add(FString::Printf(TEXT("AI Mode: %s"), bHasSubject ? *GetAIModeStatusLabel(&Snapshot) : TEXT("Unknown")));
+    Response.OutputLines.Add(FString::Printf(TEXT("Profile Notes: %s"), *GetCharacterBuildingProfileGuidance(SelectedCharacterBuildingProfileLabel)));
+    Response.OutputLines.Add(TEXT("Readiness Notes: Character Building profile controls are separate from WAI/WAMI AI identity controls."));
+
+    ApplyResponse(Response);
+    RefreshReactiveUI(true);
+}
+
 void FWanaWorksUIModule::UpdateEnhancementResultsState(
     const FWanaSelectedCharacterEnhancementSnapshot* BeforeSnapshot,
     const FWanaSelectedCharacterEnhancementSnapshot* AfterSnapshot,
@@ -1760,7 +2076,6 @@ void FWanaWorksUIModule::HandleCharacterPawnAssetOptionSelected(TSharedPtr<FStri
 
     if (!SelectedCharacterPawnAssetLabel.IsEmpty())
     {
-        SelectedAIPawnAssetLabel.Reset();
         SelectedWorkspaceLabel = TEXT("Character Building");
     }
 
@@ -1779,7 +2094,6 @@ void FWanaWorksUIModule::HandleAIPawnAssetOptionSelected(TSharedPtr<FString> Sel
 
     if (!SelectedAIPawnAssetLabel.IsEmpty())
     {
-        SelectedCharacterPawnAssetLabel.Reset();
         SelectedWorkspaceLabel = TEXT("AI");
     }
 
@@ -3548,7 +3862,14 @@ void FWanaWorksUIModule::TestActiveWorkspace()
         {
             const bool bRigReady = !SkeletonLabel.IsEmpty() && !SkeletonLabel.Equals(TEXT("(no skeleton asset)"));
             const bool bAnimationReady = Snapshot.bHasAnimBlueprint;
+            const FString ProfileLabel = SelectedCharacterBuildingProfileLabel.IsEmpty()
+                ? CharacterBuildingDefaultProfileLabel
+                : SelectedCharacterBuildingProfileLabel;
+            const FString SharedStackSummary = GetSharedCharacterStackSummaryText();
+            const FString SharedStackStatus = GetSharedCharacterStackStatusLabel();
+            const FString PlayableModeStatus = GetPlayableModeStatusLabel(&Snapshot);
             const bool bBuildReady = Snapshot.bHasSkeletalMeshComponent && Snapshot.bHasAnimBlueprint;
+            const bool bProfileAssigned = !ProfileLabel.Equals(CharacterBuildingDefaultProfileLabel, ESearchCase::IgnoreCase);
 
             AddAnalysisItem(PrimaryItems, Result, TEXT("Character Subject"), TEXT("Ready"), Snapshot.SelectedActorLabel);
             AddAnalysisItem(
@@ -3561,29 +3882,47 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                 PrimaryItems,
                 Result,
                 TEXT("Character Profile"),
-                Snapshot.bHasIdentityComponent ? TEXT("Ready") : TEXT("Limited"),
-                Snapshot.bHasIdentityComponent ? TEXT("Character profile/readiness layer is available.") : TEXT("Character profile is not attached yet; Enhance can prepare it on a working copy."));
+                bProfileAssigned ? TEXT("Ready") : TEXT("Limited"),
+                FString::Printf(TEXT("%s. %s"), *ProfileLabel, *GetCharacterBuildingProfileGuidance(ProfileLabel)));
+            AddAnalysisItem(
+                PrimaryItems,
+                Result,
+                TEXT("Shared AI / Player Stack"),
+                SharedStackStatus,
+                SharedStackSummary);
 
-            AddAnalysisItem(AnimationItems, Result, TEXT("Skeletal Mesh"), Snapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Missing"), bHasSkeletalMeshAsset ? SkeletalMeshLabel : TEXT("No skeletal mesh asset detected."));
-            AddAnalysisItem(AnimationItems, Result, TEXT("Skeleton / Rig"), bRigReady ? TEXT("Ready") : TEXT("Limited"), bRigReady ? SkeletonLabel : TEXT("Skeleton or rig could not be confirmed."));
+            AddAnalysisItem(AnimationItems, Result, TEXT("Skeletal Mesh"), Snapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Missing"), Snapshot.SkeletalMeshLabel.IsEmpty() ? (bHasSkeletalMeshAsset ? SkeletalMeshLabel : TEXT("No skeletal mesh asset detected.")) : Snapshot.SkeletalMeshLabel);
+            AddAnalysisItem(AnimationItems, Result, TEXT("Skeleton / Rig"), bRigReady ? TEXT("Ready") : TEXT("Limited"), Snapshot.SkeletonLabel.IsEmpty() ? (bRigReady ? SkeletonLabel : TEXT("Skeleton or rig could not be confirmed.")) : Snapshot.SkeletonLabel);
             AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), bAnimationReady ? TEXT("Ready") : TEXT("Limited"), Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : Snapshot.LinkedAnimationBlueprintLabel);
+            AddAnalysisItem(AnimationItems, Result, TEXT("Compatible Skeleton"), Snapshot.bHasSkeletalMeshComponent && IsKnownStackValue(Snapshot.SkeletonLabel) ? (Snapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited")) : TEXT("Unknown"), Snapshot.CompatibleSkeletonSummary.IsEmpty() ? TEXT("Skeleton compatibility could not be summarized.") : Snapshot.CompatibleSkeletonSummary);
+            AddAnalysisItem(AnimationItems, Result, TEXT("Shared Skeleton / Anim BP"), SharedStackStatus, SharedStackSummary);
 
-            AddAnalysisItem(PhysicalItems, Result, TEXT("Movement Component"), bHasMovementComponent ? TEXT("Ready") : TEXT("Limited"), bHasMovementComponent ? TEXT("Movement component is present for playability validation.") : TEXT("No movement component detected; playability is limited."));
-            AddAnalysisItem(PhysicalItems, Result, TEXT("Camera / Control Setup"), bHasCameraOrControlComponent ? TEXT("Ready") : TEXT("Limited"), bHasCameraOrControlComponent ? TEXT("Camera, spring arm, control, or input-style component detected.") : TEXT("Camera/control setup is unknown and preserved."));
-            AddAnalysisItem(PhysicalItems, Result, TEXT("Playability"), Snapshot.bIsPawnActor && Snapshot.bHasSkeletalMeshComponent && bHasMovementComponent ? TEXT("Ready") : TEXT("Limited"), TEXT("Test validates playable-character signals without replacing movement or input."));
+            AddAnalysisItem(PhysicalItems, Result, TEXT("Movement Component"), Snapshot.bHasPawnMovementComponent || bHasMovementComponent ? TEXT("Ready") : TEXT("Limited"), Snapshot.bHasPawnMovementComponent || bHasMovementComponent ? TEXT("Movement component is present for playability validation.") : TEXT("No movement component detected; playability is limited."));
+            AddAnalysisItem(PhysicalItems, Result, TEXT("Player Controller"), Snapshot.bHasPlayerControllerSignal ? TEXT("Ready") : TEXT("Limited"), Snapshot.LinkedPlayerControllerLabel.IsEmpty() ? TEXT("Player Controller class is not detectable from this Pawn asset; GameMode/runtime may still provide it.") : Snapshot.LinkedPlayerControllerLabel);
+            AddAnalysisItem(PhysicalItems, Result, TEXT("Auto Possess Player"), Snapshot.bAutoPossessPlayerEnabled ? TEXT("Ready") : TEXT("Limited"), Snapshot.AutoPossessPlayerLabel.IsEmpty() ? TEXT("Unknown") : Snapshot.AutoPossessPlayerLabel);
+            AddAnalysisItem(PhysicalItems, Result, TEXT("Camera / Control Setup"), Snapshot.bHasCameraComponent || Snapshot.bHasSpringArmComponent || bHasCameraOrControlComponent ? TEXT("Ready") : TEXT("Limited"), Snapshot.bHasCameraComponent || Snapshot.bHasSpringArmComponent || bHasCameraOrControlComponent ? TEXT("Camera, spring arm, control, or input-style component detected.") : TEXT("Camera/control setup is unknown and preserved."));
+            AddAnalysisItem(PhysicalItems, Result, TEXT("Playability"), PlayableModeStatus, Snapshot.PlayableControlSummary.IsEmpty() ? TEXT("Test validates playable-character signals without replacing movement or input.") : Snapshot.PlayableControlSummary);
+
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Character Profile"), bProfileAssigned ? TEXT("Ready") : TEXT("Limited"), FString::Printf(TEXT("%s profile is active for Character Building."), *ProfileLabel));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Playable Mode"), PlayableModeStatus, Snapshot.PlayableControlSummary.IsEmpty() ? TEXT("Playable control readiness is limited.") : Snapshot.PlayableControlSummary);
+            AddAnalysisItem(BehaviorItems, Result, TEXT("AI Mode Compatibility"), GetAIModeStatusLabel(&Snapshot), Snapshot.AIReadinessSummary.IsEmpty() ? TEXT("AI mode compatibility is unknown.") : Snapshot.AIReadinessSummary);
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Shared AI / Player Stack"), SharedStackStatus, SharedStackSummary);
 
             AddAnalysisItem(SuggestedItems, Result, TEXT("Build Readiness"), bBuildReady ? TEXT("Ready") : TEXT("Limited"), bBuildReady ? TEXT("Mesh and animation are detected; character is ready for build preparation.") : TEXT("Build readiness is limited until mesh and animation are both detected."));
             AddAnalysisItem(SuggestedItems, Result, TEXT("Output Status"), bWorkingSubjectReady ? TEXT("Ready") : TEXT("Limited"), bWorkingSubjectReady ? TEXT("A WanaWorks working subject is available for safe output flow.") : TEXT("Enhancement has not prepared a working subject in this session yet."));
+            AddAnalysisItem(SuggestedItems, Result, TEXT("Playable Control Next Step"), PlayableModeStatus, Snapshot.bHasPlayerControllerSignal ? TEXT("Player-control context is visible. Confirm the expected input/camera path in PIE if needed.") : TEXT("If this is meant to be directly playable, confirm Auto Possess Player or GameMode PlayerController setup."));
 
             RecommendedAction = bBuildReady
                 ? TEXT("Build can proceed after any desired character-facing enhancement or visual review.")
                 : TEXT("Run Enhance to prepare profile/readiness state, then fix missing mesh or animation setup before Build.");
-            ResultLabel = bBuildReady ? TEXT("character preview, rig, and animation are ready") : TEXT("character test is limited by missing build-readiness signals");
+            ResultLabel = bBuildReady
+                ? FString::Printf(TEXT("%s character profile tested; %s, %s"), *ProfileLabel, *PlayableModeStatus, *SharedStackStatus)
+                : TEXT("character test is limited by missing build-readiness signals");
             Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Test Result"), PrimaryItems, RecommendedAction);
             Result.AnimationSummary = BuildAnalysisCardText(TEXT("Rig & Animation Test"), AnimationItems, RecommendedAction);
             Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Movement / Playability Test"), PhysicalItems, RecommendedAction);
-            Result.BehaviorSummary = Result.PrimarySummary;
-            Result.WITSummary = Result.PrimarySummary;
+            Result.BehaviorSummary = BuildAnalysisCardText(TEXT("Character Profile / Shared Stack Test"), BehaviorItems, RecommendedAction);
+            Result.WITSummary = Result.BehaviorSummary;
             Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Build Readiness Test"), SuggestedItems, RecommendedAction);
         }
         else
@@ -3687,10 +4026,42 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                     FMath::RoundToInt(BehaviorSnapshot.AnimationPhysicalRecoveryProgress * 100.0f),
                     BehaviorSnapshot.AnimationPhysicalImpactStrength)
                 : FString(TEXT("Physical reaction state is limited or missing; posture hint remains safe and neutral."));
+            const FString AnimationStageSummary = BuildAIWanaAnimationStageSummary(
+                BehaviorSnapshot,
+                AnimationPostureHint,
+                AnimationPostureCategory,
+                AnimationBehaviorIntent,
+                AnimationLocomotionHint,
+                AnimationFallbackHint);
+            const bool bAnimationHookReadableForTest =
+                Snapshot.bAnimationHookStateReadable
+                || BehaviorSnapshot.AnimationHookApplicationStatus != EWAYAnimationHookApplicationStatus::NotAvailable;
+            const FString SharedStackSummary = GetSharedCharacterStackSummaryText();
+            const FString SharedStackStatus = GetSharedCharacterStackStatusLabel();
+            const FString AnimationConsumptionStatus = !Snapshot.bHasSkeletalMeshComponent
+                ? FString(TEXT("Not Supported"))
+                : ((!Snapshot.bHasWAYComponent || !bAnimationHookReadableForTest)
+                    ? FString(TEXT("Needs Enhance"))
+                    : ((!Snapshot.bHasAnimBlueprint || !Snapshot.bHasAnimationInstance)
+                        ? FString(TEXT("Limited"))
+                        : ((Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Applied || bAnimationHookDriven)
+                            ? FString(TEXT("Applied"))
+                            : FString(TEXT("Ready")))));
+            const FString AnimationConsumptionDetail = FString::Printf(
+                TEXT("Skeletal mesh %s. Anim BP %s. Animation instance %s. Hook provider %s. Hook state %s. Physical provider %s. Auto-wire %s."),
+                Snapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Not Supported"),
+                Snapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"),
+                Snapshot.bHasAnimationInstance ? TEXT("Ready") : TEXT("Limited"),
+                Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Needs Enhance"),
+                bAnimationHookReadableForTest ? TEXT("Ready") : TEXT("Needs Enhance"),
+                Snapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited"),
+                *UIFmt::GetAutomaticAnimationWireSummaryLabel(Snapshot));
 
             AddAnalysisItem(PrimaryItems, Result, TEXT("AI Test Subject"), TEXT("Ready"), Snapshot.SelectedActorLabel);
             AddAnalysisItem(PrimaryItems, Result, TEXT("Working / Enhanced Subject"), bWorkingSubjectReady ? TEXT("Ready") : TEXT("Limited"), bWorkingSubjectReady ? FString::Printf(TEXT("%s is available as the WanaWorks working subject."), *LastEnhancementResultsActorLabel) : TEXT("Enhancement has not prepared a working subject in this session; testing selected subject readiness instead."));
-            AddAnalysisItem(PrimaryItems, Result, TEXT("Preview Stage"), bPreviewReady ? TEXT("Ready") : TEXT("Limited"), bPreviewReady ? FString::Printf(TEXT("Stage can show %s."), *PreviewModeLabel) : TEXT("Preview subject is not available yet."));
+            AddAnalysisItem(PrimaryItems, Result, TEXT("Preview Stage"), bPreviewReady ? TEXT("Ready") : TEXT("Limited"), bPreviewReady ? FString::Printf(TEXT("Stage can show %s. %s"), *PreviewModeLabel, *AnimationStageSummary) : FString::Printf(TEXT("Preview subject is not available yet. %s"), *AnimationStageSummary));
+            AddAnalysisItem(PrimaryItems, Result, TEXT("WanaAnimation Stage"), bAnimationHookDriven ? TEXT("Applied") : TEXT("Limited"), AnimationStageSummary);
+            AddAnalysisItem(PrimaryItems, Result, TEXT("Shared Character BP"), SharedStackStatus, SharedStackSummary);
 
             AddAnalysisItem(BehaviorItems, Result, TEXT("AI Controller"), bAIControllerReady ? TEXT("Ready") : TEXT("Missing"), Snapshot.LinkedAIControllerLabel.IsEmpty() ? TEXT("No linked AI Controller detected.") : Snapshot.LinkedAIControllerLabel);
             AddAnalysisItem(BehaviorItems, Result, TEXT("WAI / WAMI"), Snapshot.bHasWAIComponent ? TEXT("Ready") : TEXT("Limited"), Snapshot.bHasWAIComponent ? TEXT("Identity, memory, emotion, and role layer is readable.") : TEXT("AI can be tested, but WAI/WAMI is not attached yet."));
@@ -3721,7 +4092,10 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             }
 
             AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), Snapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"), Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : Snapshot.LinkedAnimationBlueprintLabel);
+            AddAnalysisItem(AnimationItems, Result, TEXT("Animation Instance"), Snapshot.bHasAnimationInstance ? TEXT("Ready") : TEXT("Limited"), Snapshot.bHasAnimationInstance ? TEXT("Runtime animation instance is readable for hook consumption.") : TEXT("Animation instance is not live yet; hook data remains readable but animation graph consumption is limited."));
             AddAnalysisItem(AnimationItems, Result, TEXT("WanaAnimation"), bAnimationReady ? TEXT("Ready") : TEXT("Limited"), Snapshot.AnimationAutomaticIntegrationDetail.IsEmpty() ? TEXT("Animation integration is not fully prepared yet.") : Snapshot.AnimationAutomaticIntegrationDetail);
+            AddAnalysisItem(AnimationItems, Result, TEXT("Hook State Readable"), bAnimationHookReadableForTest ? TEXT("Ready") : TEXT("Needs Enhance"), bAnimationHookReadableForTest ? TEXT("WAY/WanaAnimation hook state is readable by WanaWorks and Blueprints.") : TEXT("Enhance can attach the WAY hook provider before animation consumption."));
+            AddAnalysisItem(AnimationItems, Result, TEXT("Hook Consumption Readiness"), AnimationConsumptionStatus, AnimationConsumptionDetail);
             AddAnalysisItem(AnimationItems, Result, TEXT("Posture Hint"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), FString::Printf(TEXT("%s posture in the %s category from %s."), *AnimationPostureHint, *AnimationPostureCategory, *AnimationBehaviorIntent));
             AddAnalysisItem(AnimationItems, Result, TEXT("Hook Requests"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), AnimationHookRequestDetail);
             AddAnalysisItem(AnimationItems, Result, TEXT("Body-Language Source"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.AnimationHookDetail.IsEmpty() ? TEXT("WanaAnimation hook state has not reported details yet.") : BehaviorSnapshot.AnimationHookDetail);
@@ -3743,13 +4117,14 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                 : TEXT("Run Enhance to prepare missing WanaWorks layers, then Test again before Build.");
             ResultLabel = bBehaviorExecutionSucceeded
                 ? FString::Printf(
-                    TEXT("%s via %s; WanaAnimation hint: %s posture, %s"),
-                    *UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior),
+                    TEXT("%s active via %s. WanaAnimation: %s posture, facing hook %s, %s"),
+                    BehaviorSnapshot.AnimationVisibleBehaviorLabel.IsEmpty() ? *UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior) : *BehaviorSnapshot.AnimationVisibleBehaviorLabel,
                     *UIFmt::GetBehaviorExecutionModeSummaryLabel(BehaviorSnapshot.ExecutionMode),
                     *AnimationPostureHint,
+                    *UIFmt::GetAnimationHookRequestSummaryLabel(BehaviorSnapshot.bAnimationFacingHookRequested),
                     *AnimationLocomotionHint)
                 : (bReadyForBuild ? TEXT("AI subject is enhanced and ready for build review") : TEXT("AI behavior readiness is limited but safe fallback data is available"));
-            Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Intelligence Test Result"), PrimaryItems, RecommendedAction);
+            Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Intelligence Stage Reaction"), PrimaryItems, RecommendedAction);
             Result.AnimationSummary = BuildAnalysisCardText(TEXT("Animation Integration Test"), AnimationItems, RecommendedAction);
             Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Physical / Movement Test"), PhysicalItems, RecommendedAction);
             Result.BehaviorSummary = BuildAnalysisCardText(TEXT("Behavior Readiness Test"), BehaviorItems, RecommendedAction);
@@ -4228,6 +4603,13 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
 
         if (WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase))
         {
+            const FString ProfileLabel = SelectedCharacterBuildingProfileLabel.IsEmpty()
+                ? CharacterBuildingDefaultProfileLabel
+                : SelectedCharacterBuildingProfileLabel;
+            const FString SharedStackSummary = GetSharedCharacterStackSummaryText();
+            const FString SharedStackStatus = GetSharedCharacterStackStatusLabel();
+            const bool bProfileAssigned = !ProfileLabel.Equals(CharacterBuildingDefaultProfileLabel, ESearchCase::IgnoreCase);
+
             AddAnalysisItem(
                 PrimaryItems,
                 Result,
@@ -4238,56 +4620,88 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
                 PrimaryItems,
                 Result,
                 TEXT("Character Profile"),
-                Snapshot.bHasIdentityComponent ? TEXT("Ready") : TEXT("Missing"),
-                Snapshot.bHasIdentityComponent ? TEXT("WanaWorks identity/profile layer is present.") : TEXT("Character profile is not attached yet."));
+                bProfileAssigned ? TEXT("Ready") : TEXT("Limited"),
+                FString::Printf(TEXT("%s. %s"), *ProfileLabel, *GetCharacterBuildingProfileGuidance(ProfileLabel)));
             AddAnalysisItem(
                 PrimaryItems,
                 Result,
                 TEXT("Character Systems"),
                 (Snapshot.bHasIdentityComponent && Snapshot.bHasWAYComponent) ? TEXT("Ready") : TEXT("Limited"),
                 FString::Printf(
-                    TEXT("Identity=%s, Relationship Context=%s, Physical State=%s"),
+                    TEXT("Profile=%s, Identity=%s, Relationship Context=%s, Physical State=%s, Control Mode=%s"),
+                    *ProfileLabel,
                     Snapshot.bHasIdentityComponent ? TEXT("Present") : TEXT("Missing"),
                     Snapshot.bHasWAYComponent ? TEXT("Present") : TEXT("Missing"),
-                    Snapshot.bHasPhysicalStateComponent ? TEXT("Present") : TEXT("Missing")));
+                    Snapshot.bHasPhysicalStateComponent ? TEXT("Present") : TEXT("Missing"),
+                    Snapshot.CharacterControlModeLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.CharacterControlModeLabel));
+            AddAnalysisItem(
+                PrimaryItems,
+                Result,
+                TEXT("Shared AI / Player Stack"),
+                SharedStackStatus,
+                SharedStackSummary);
 
             AddAnalysisItem(
                 AnimationItems,
                 Result,
                 TEXT("Skeletal Mesh"),
                 Snapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Missing"),
-                bHasSkeletalMeshAsset ? SkeletalMeshLabel : TEXT("No skeletal mesh asset detected."));
+                Snapshot.SkeletalMeshLabel.IsEmpty() ? (bHasSkeletalMeshAsset ? SkeletalMeshLabel : TEXT("No skeletal mesh asset detected.")) : Snapshot.SkeletalMeshLabel);
             AddAnalysisItem(
                 AnimationItems,
                 Result,
                 TEXT("Skeleton / Rig"),
                 !SkeletonLabel.IsEmpty() && !SkeletonLabel.Equals(TEXT("(no skeleton asset)")) ? TEXT("Ready") : TEXT("Limited"),
-                SkeletonLabel.IsEmpty() ? TEXT("Skeleton or rig not detected from the selected character stack.") : SkeletonLabel);
+                Snapshot.SkeletonLabel.IsEmpty() ? (SkeletonLabel.IsEmpty() ? TEXT("Skeleton or rig not detected from the selected character stack.") : SkeletonLabel) : Snapshot.SkeletonLabel);
             AddAnalysisItem(
                 AnimationItems,
                 Result,
                 TEXT("Animation Blueprint"),
                 Snapshot.bHasAnimBlueprint ? TEXT("Ready") : (Snapshot.bHasSkeletalMeshComponent ? TEXT("Limited") : TEXT("Missing")),
                 Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : Snapshot.LinkedAnimationBlueprintLabel);
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("Compatible Skeleton"),
+                Snapshot.bHasSkeletalMeshComponent && IsKnownStackValue(Snapshot.SkeletonLabel) ? (Snapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited")) : TEXT("Unknown"),
+                Snapshot.CompatibleSkeletonSummary.IsEmpty() ? TEXT("Skeleton compatibility could not be summarized.") : Snapshot.CompatibleSkeletonSummary);
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("Shared Skeleton / Anim BP"),
+                SharedStackStatus,
+                SharedStackSummary);
 
             AddAnalysisItem(
                 PhysicalItems,
                 Result,
                 TEXT("Movement Component"),
-                bHasMovementComponent ? TEXT("Ready") : TEXT("Limited"),
-                bHasMovementComponent ? TEXT("Pawn movement component is present for playability checks.") : TEXT("No pawn movement component was detected."));
+                Snapshot.bHasPawnMovementComponent || bHasMovementComponent ? TEXT("Ready") : TEXT("Limited"),
+                Snapshot.bHasPawnMovementComponent || bHasMovementComponent ? TEXT("Pawn movement component is present for playability checks.") : TEXT("No pawn movement component was detected."));
+            AddAnalysisItem(
+                PhysicalItems,
+                Result,
+                TEXT("Player Controller"),
+                Snapshot.bHasPlayerControllerSignal ? TEXT("Ready") : TEXT("Limited"),
+                Snapshot.LinkedPlayerControllerLabel.IsEmpty() ? TEXT("Player Controller class is not detectable from this Pawn asset; GameMode/runtime may still provide it.") : Snapshot.LinkedPlayerControllerLabel);
+            AddAnalysisItem(
+                PhysicalItems,
+                Result,
+                TEXT("Auto Possess Player"),
+                Snapshot.bAutoPossessPlayerEnabled ? TEXT("Ready") : TEXT("Limited"),
+                Snapshot.AutoPossessPlayerLabel.IsEmpty() ? TEXT("Unknown") : Snapshot.AutoPossessPlayerLabel);
             AddAnalysisItem(
                 PhysicalItems,
                 Result,
                 TEXT("Camera / Control Setup"),
-                bHasCameraOrControlComponent ? TEXT("Ready") : TEXT("Limited"),
-                bHasCameraOrControlComponent ? TEXT("Camera, spring arm, control, or input-style component detected.") : TEXT("Camera/control setup is unknown; WanaWorks will preserve the existing project path."));
+                Snapshot.bHasCameraComponent || Snapshot.bHasSpringArmComponent || bHasCameraOrControlComponent ? TEXT("Ready") : TEXT("Limited"),
+                Snapshot.bHasCameraComponent || Snapshot.bHasSpringArmComponent || bHasCameraOrControlComponent ? TEXT("Camera, spring arm, control, or input-style component detected.") : TEXT("Camera/control setup is unknown; WanaWorks will preserve the existing project path."));
             AddAnalysisItem(
                 PhysicalItems,
                 Result,
                 TEXT("Playable Character Readiness"),
-                bHasSubject && Snapshot.bIsPawnActor && Snapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Limited"),
-                TEXT("Analyze checks playability signals without replacing input, camera, or movement architecture."));
+                GetPlayableModeStatusLabel(&Snapshot),
+                Snapshot.PlayableControlSummary.IsEmpty() ? TEXT("Analyze checks playability signals without replacing input, camera, or movement architecture.") : Snapshot.PlayableControlSummary);
 
             AddAnalysisItem(
                 SuggestedItems,
@@ -4307,8 +4721,16 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
                 TEXT("Safe Enhancement"),
                 (!Snapshot.bHasIdentityComponent || !Snapshot.bHasPhysicalStateComponent || !Snapshot.bHasAnimBlueprint) ? TEXT("Recommended") : TEXT("Ready"),
                 TEXT("Enhance can prepare missing profile, animation-readiness, and build-output context without replacing the original asset."));
+            AddAnalysisItem(
+                SuggestedItems,
+                Result,
+                TEXT("Shared Stack Next Step"),
+                SharedStackStatus,
+                SharedStackStatus.Equals(TEXT("Shared Character BP"), ESearchCase::IgnoreCase)
+                    ? TEXT("The same Character BP/body stack is visible in both playable and AI context. Continue using Character Building for body/profile readiness and Character Intelligence for AI behavior.")
+                    : TEXT("Select both playable and AI contexts if you want WanaWorks to compare shared mesh, skeleton, and Anim BP usage."));
 
-            RecommendedAction = TEXT("Apply Character Building enhancement to prepare the character profile, playability checks, rig/animation readiness, and final output path.");
+            RecommendedAction = TEXT("Apply Character Building enhancement to prepare the character profile, playable-control checks, rig/animation readiness, shared-stack context, and final output path.");
             Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Asset Diagnosis"), PrimaryItems, RecommendedAction);
             Result.AnimationSummary = BuildAnalysisCardText(TEXT("Rig & Animation Readiness"), AnimationItems, RecommendedAction);
             Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Movement / Playability Diagnosis"), PhysicalItems, RecommendedAction);
@@ -4318,6 +4740,8 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
         }
         else
         {
+            const FString SharedStackSummary = GetSharedCharacterStackSummaryText();
+            const FString SharedStackStatus = GetSharedCharacterStackStatusLabel();
             const UClass* AIControllerClass = GetAIControllerClassForAnalysis(AnalysisActor);
             const UObject* ControllerDefaultObject = AIControllerClass ? AIControllerClass->GetDefaultObject() : nullptr;
             FString BehaviorTreeLabel;
@@ -4357,6 +4781,12 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
                 TEXT("Pawn Type"),
                 Snapshot.bIsPawnActor ? TEXT("Ready") : TEXT("Not Supported"),
                 Snapshot.ActorTypeLabel.IsEmpty() ? TEXT("No pawn type detected.") : Snapshot.ActorTypeLabel);
+            AddAnalysisItem(
+                PrimaryItems,
+                Result,
+                TEXT("Shared Character BP"),
+                SharedStackStatus,
+                SharedStackSummary);
             AddAnalysisItem(
                 BehaviorItems,
                 Result,
@@ -4893,8 +5323,8 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         bBuildHasLimitations = bBuildHasLimitations
             || !EffectiveSnapshot.bHasSkeletalMeshComponent
             || !EffectiveSnapshot.bHasAnimBlueprint
-            || !bHasMovementComponent
-            || !bHasCameraOrControlComponent;
+            || !(EffectiveSnapshot.bHasPawnMovementComponent || bHasMovementComponent)
+            || !(EffectiveSnapshot.bHasCameraComponent || EffectiveSnapshot.bHasSpringArmComponent || bHasCameraOrControlComponent);
     }
     else
     {
@@ -4915,23 +5345,40 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
 
     if (bCharacterBuildingWorkspace)
     {
+        const FString ProfileLabel = SelectedCharacterBuildingProfileLabel.IsEmpty()
+            ? CharacterBuildingDefaultProfileLabel
+            : SelectedCharacterBuildingProfileLabel;
+        const FString SharedStackSummary = GetSharedCharacterStackSummaryText();
+        const FString SharedStackStatus = GetSharedCharacterStackStatusLabel();
+        const FString PlayableModeStatus = GetPlayableModeStatusLabel(&EffectiveSnapshot);
+
         AddAnalysisItem(PrimaryItems, Result, TEXT("Source Character"), bHasSourceSnapshot ? TEXT("Ready") : TEXT("Limited"), bHasSourceSnapshot ? SourceSnapshot.SelectedActorLabel : TEXT("Source subject was inferred from the active working subject."));
         AddAnalysisItem(PrimaryItems, Result, TEXT("Working Character Used"), TEXT("Ready"), BuildSourceActor->GetActorNameOrLabel());
+        AddAnalysisItem(PrimaryItems, Result, TEXT("Character Profile"), ProfileLabel.Equals(CharacterBuildingDefaultProfileLabel, ESearchCase::IgnoreCase) ? TEXT("Limited") : TEXT("Ready"), FString::Printf(TEXT("%s. %s"), *ProfileLabel, *GetCharacterBuildingProfileGuidance(ProfileLabel)));
+        AddAnalysisItem(PrimaryItems, Result, TEXT("Shared AI / Player Stack"), SharedStackStatus, SharedStackSummary);
         AddAnalysisItem(PrimaryItems, Result, TEXT("Original Source"), TEXT("Ready"), TEXT("Preserved. Build created a separate finalized output."));
         AddAnalysisItem(PrimaryItems, Result, TEXT("Final Output"), BuildResponse.bSucceeded ? BuildState : TEXT("Blocked"), OutputDetail);
 
-        AddAnalysisItem(AnimationItems, Result, TEXT("Skeletal Mesh"), EffectiveSnapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Limited"), bHasSkeletalMeshAsset ? SkeletalMeshLabel : TEXT("No skeletal mesh asset detected."));
-        AddAnalysisItem(AnimationItems, Result, TEXT("Skeleton / Rig"), !SkeletonLabel.IsEmpty() && !SkeletonLabel.Equals(TEXT("(no skeleton asset)")) ? TEXT("Ready") : TEXT("Limited"), SkeletonLabel.IsEmpty() ? TEXT("Skeleton or rig could not be confirmed.") : SkeletonLabel);
+        AddAnalysisItem(AnimationItems, Result, TEXT("Skeletal Mesh"), EffectiveSnapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.SkeletalMeshLabel.IsEmpty() ? (bHasSkeletalMeshAsset ? SkeletalMeshLabel : TEXT("No skeletal mesh asset detected.")) : EffectiveSnapshot.SkeletalMeshLabel);
+        AddAnalysisItem(AnimationItems, Result, TEXT("Skeleton / Rig"), IsKnownStackValue(EffectiveSnapshot.SkeletonLabel) || (!SkeletonLabel.IsEmpty() && !SkeletonLabel.Equals(TEXT("(no skeleton asset)"))) ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.SkeletonLabel.IsEmpty() ? (SkeletonLabel.IsEmpty() ? TEXT("Skeleton or rig could not be confirmed.") : SkeletonLabel) : EffectiveSnapshot.SkeletonLabel);
         AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), EffectiveSnapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : EffectiveSnapshot.LinkedAnimationBlueprintLabel);
+        AddAnalysisItem(AnimationItems, Result, TEXT("Compatible Skeleton"), EffectiveSnapshot.bHasSkeletalMeshComponent && IsKnownStackValue(EffectiveSnapshot.SkeletonLabel) ? (EffectiveSnapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited")) : TEXT("Unknown"), EffectiveSnapshot.CompatibleSkeletonSummary.IsEmpty() ? TEXT("Skeleton compatibility could not be summarized.") : EffectiveSnapshot.CompatibleSkeletonSummary);
+        AddAnalysisItem(AnimationItems, Result, TEXT("Shared Skeleton / Anim BP"), SharedStackStatus, SharedStackSummary);
 
-        AddAnalysisItem(PhysicalItems, Result, TEXT("Movement / Playability"), bHasMovementComponent ? TEXT("Ready") : TEXT("Limited"), bHasMovementComponent ? TEXT("Movement component is present.") : TEXT("Movement component was not detected."));
-        AddAnalysisItem(PhysicalItems, Result, TEXT("Camera / Control"), bHasCameraOrControlComponent ? TEXT("Ready") : TEXT("Limited"), bHasCameraOrControlComponent ? TEXT("Camera, spring arm, control, or input-style component detected.") : TEXT("Camera/control setup is unknown and was preserved."));
-        AddAnalysisItem(BehaviorItems, Result, TEXT("Character Profile"), EffectiveSnapshot.bHasIdentityComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.bHasIdentityComponent ? TEXT("Character profile/readiness layer is present.") : TEXT("Character profile was not detected."));
+        AddAnalysisItem(PhysicalItems, Result, TEXT("Movement / Playability"), EffectiveSnapshot.bHasPawnMovementComponent || bHasMovementComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.bHasPawnMovementComponent || bHasMovementComponent ? TEXT("Movement component is present.") : TEXT("Movement component was not detected."));
+        AddAnalysisItem(PhysicalItems, Result, TEXT("Player Controller"), EffectiveSnapshot.bHasPlayerControllerSignal ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.LinkedPlayerControllerLabel.IsEmpty() ? TEXT("Player Controller class is not detectable from this Pawn asset; GameMode/runtime may still provide it.") : EffectiveSnapshot.LinkedPlayerControllerLabel);
+        AddAnalysisItem(PhysicalItems, Result, TEXT("Auto Possess Player"), EffectiveSnapshot.bAutoPossessPlayerEnabled ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.AutoPossessPlayerLabel.IsEmpty() ? TEXT("Unknown") : EffectiveSnapshot.AutoPossessPlayerLabel);
+        AddAnalysisItem(PhysicalItems, Result, TEXT("Camera / Control"), EffectiveSnapshot.bHasCameraComponent || EffectiveSnapshot.bHasSpringArmComponent || bHasCameraOrControlComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.bHasCameraComponent || EffectiveSnapshot.bHasSpringArmComponent || bHasCameraOrControlComponent ? TEXT("Camera, spring arm, control, or input-style component detected.") : TEXT("Camera/control setup is unknown and was preserved."));
+        AddAnalysisItem(BehaviorItems, Result, TEXT("Character Profile"), ProfileLabel.Equals(CharacterBuildingDefaultProfileLabel, ESearchCase::IgnoreCase) ? TEXT("Limited") : TEXT("Ready"), FString::Printf(TEXT("%s profile remained character-facing during Build."), *ProfileLabel));
+        AddAnalysisItem(BehaviorItems, Result, TEXT("Playable Mode"), PlayableModeStatus, EffectiveSnapshot.PlayableControlSummary.IsEmpty() ? TEXT("Playable control readiness is limited.") : EffectiveSnapshot.PlayableControlSummary);
+        AddAnalysisItem(BehaviorItems, Result, TEXT("AI Mode Compatibility"), GetAIModeStatusLabel(&EffectiveSnapshot), EffectiveSnapshot.AIReadinessSummary.IsEmpty() ? TEXT("AI mode compatibility is unknown.") : EffectiveSnapshot.AIReadinessSummary);
+        AddAnalysisItem(BehaviorItems, Result, TEXT("Shared AI / Player Stack"), SharedStackStatus, SharedStackSummary);
         AddAnalysisItem(BehaviorItems, Result, TEXT("Character Systems"), EffectiveSnapshot.bHasIdentityComponent && EffectiveSnapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), TEXT("Character-side identity and relationship context remain additive."));
 
         AddAnalysisItem(SuggestedItems, Result, TEXT("Build Status"), BuildState, BuildResponse.bSucceeded ? TEXT("Character build output completed without touching the original.") : TEXT("Character build did not complete."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Output Path"), BuildResponse.bSucceeded ? TEXT("Built") : TEXT("Blocked"), OutputPath.IsEmpty() ? TEXT("/Game/WanaWorks/Builds") : OutputPath);
         AddAnalysisItem(SuggestedItems, Result, TEXT("Validation"), bTestWasAvailable ? TEXT("Ready") : TEXT("Limited"), bTestWasAvailable ? TEXT("Test readiness was available before Build.") : TEXT("Build used lightweight readiness because Test had not been run yet."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Playable Control"), PlayableModeStatus, EffectiveSnapshot.bHasPlayerControllerSignal ? TEXT("Player-control context was visible during Build.") : TEXT("Build preserved existing controller/input setup; direct PlayerController class may be provided by GameMode/runtime."));
 
         Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Build Output"), PrimaryItems, RecommendedAction);
         Result.AnimationSummary = BuildAnalysisCardText(TEXT("Rig & Animation Build Readiness"), AnimationItems, RecommendedAction);
@@ -4942,6 +5389,8 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
     }
     else
     {
+        const FString SharedStackSummary = GetSharedCharacterStackSummaryText();
+        const FString SharedStackStatus = GetSharedCharacterStackStatusLabel();
         AActor* ObserverActor = nullptr;
         AActor* TargetActor = nullptr;
         FString PairSourceLabel;
@@ -4970,6 +5419,7 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         AddAnalysisItem(PrimaryItems, Result, TEXT("Working AI Used"), TEXT("Ready"), BuildSourceActor->GetActorNameOrLabel());
         AddAnalysisItem(PrimaryItems, Result, TEXT("Original Source"), TEXT("Ready"), TEXT("Preserved. Build created a separate finalized output."));
         AddAnalysisItem(PrimaryItems, Result, TEXT("Final Output"), BuildResponse.bSucceeded ? BuildState : TEXT("Blocked"), OutputDetail);
+        AddAnalysisItem(PrimaryItems, Result, TEXT("Shared Character BP"), SharedStackStatus, SharedStackSummary);
 
         AddAnalysisItem(BehaviorItems, Result, TEXT("AI Controller"), EffectiveSnapshot.bHasAIControllerClass ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.LinkedAIControllerLabel.IsEmpty() ? TEXT("No linked AI Controller detected.") : EffectiveSnapshot.LinkedAIControllerLabel);
         AddAnalysisItem(BehaviorItems, Result, TEXT("WAI / WAMI"), EffectiveSnapshot.bHasWAIComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.bHasWAIComponent ? TEXT("Identity, memory, emotion, and role layer is present.") : TEXT("WAI/WAMI was not detected."));
@@ -5275,6 +5725,14 @@ TSharedPtr<FString> FWanaWorksUIModule::GetSelectedCharacterIntelligenceTargetOp
     return FindStringOptionByLabel(CharacterIntelligenceTargetOptions, SelectedLabel);
 }
 
+TSharedPtr<FString> FWanaWorksUIModule::GetSelectedCharacterBuildingProfileOption() const
+{
+    const FString SelectedLabel = SelectedCharacterBuildingProfileLabel.IsEmpty()
+        ? CharacterBuildingDefaultProfileLabel
+        : SelectedCharacterBuildingProfileLabel;
+    return FindStringOptionByLabel(CharacterBuildingProfileOptions, SelectedLabel);
+}
+
 bool FWanaWorksUIModule::HasCurrentWorkspaceAnalysis() const
 {
     return bWorkspaceAnalysisInitialized
@@ -5350,7 +5808,17 @@ FText FWanaWorksUIModule::GetSubjectStackSummaryText() const
 {
     FWanaSelectedCharacterEnhancementSnapshot Snapshot;
     const bool bHasSnapshot = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
-    return FText::FromString(UISummary::BuildSubjectStackSummaryText(bHasSnapshot ? &Snapshot : nullptr));
+    FString Summary = UISummary::BuildSubjectStackSummaryText(bHasSnapshot ? &Snapshot : nullptr);
+
+    const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
+    if (WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("AI"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Character Intelligence"), ESearchCase::IgnoreCase))
+    {
+        Summary += FString::Printf(TEXT("\n%s"), *GetSharedCharacterStackSummaryText());
+    }
+
+    return FText::FromString(Summary);
 }
 
 FText FWanaWorksUIModule::GetSandboxPreviewSummaryText() const
@@ -5416,6 +5884,37 @@ FText FWanaWorksUIModule::GetPhysicalStateText() const
     FWanaSelectedCharacterEnhancementSnapshot Snapshot;
     const bool bHasSnapshot = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
     return FText::FromString(UISummary::BuildPhysicalStateSummaryText(bHasSnapshot ? &Snapshot : nullptr));
+}
+
+FString FWanaWorksUIModule::GetSharedCharacterStackSummaryText() const
+{
+    FWanaSelectedCharacterEnhancementSnapshot CharacterSnapshot;
+    FWanaSelectedCharacterEnhancementSnapshot AISnapshot;
+    const FString CharacterAssetPath = GetSelectedSubjectAssetPathForWorkspace(TEXT("Character Building"));
+    const FString AIAssetPath = GetSelectedSubjectAssetPathForWorkspace(TEXT("AI"));
+
+    UObject* CharacterSubjectObject = LoadSelectedSubjectAssetObjectForWorkspace(TEXT("Character Building"));
+    const bool bHasCharacterSnapshot =
+        CharacterSubjectObject
+        && WanaWorksUIEditorActions::GetCharacterEnhancementSnapshotForSubjectObject(CharacterSubjectObject, CharacterSnapshot)
+        && CharacterSnapshot.bHasSelectedActor;
+
+    UObject* AISubjectObject = LoadSelectedSubjectAssetObjectForWorkspace(TEXT("AI"));
+    const bool bHasAISnapshot =
+        AISubjectObject
+        && WanaWorksUIEditorActions::GetCharacterEnhancementSnapshotForSubjectObject(AISubjectObject, AISnapshot)
+        && AISnapshot.bHasSelectedActor;
+
+    return BuildSharedStackSummaryFromSnapshots(
+        CharacterAssetPath,
+        bHasCharacterSnapshot ? &CharacterSnapshot : nullptr,
+        AIAssetPath,
+        bHasAISnapshot ? &AISnapshot : nullptr);
+}
+
+FString FWanaWorksUIModule::GetSharedCharacterStackStatusLabel() const
+{
+    return GetSharedStackStatusFromSummary(GetSharedCharacterStackSummaryText());
 }
 
 FText FWanaWorksUIModule::GetSavedSubjectProgressText() const
@@ -5628,6 +6127,62 @@ FText FWanaWorksUIModule::GetIdentityFactionTagText()
     return FText::FromString(IdentityFactionTagText);
 }
 
+FText FWanaWorksUIModule::GetCharacterBuildingProfileSummaryText() const
+{
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+    const bool bHasSnapshot = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
+    const FString ProfileLabel = SelectedCharacterBuildingProfileLabel.IsEmpty()
+        ? CharacterBuildingDefaultProfileLabel
+        : SelectedCharacterBuildingProfileLabel;
+    const FString SharedStackStatus = GetSharedCharacterStackStatusLabel();
+
+    if (!bHasSnapshot)
+    {
+        return FText::FromString(FString::Printf(
+            TEXT("Character Profile: %s\nAuthoring Context: Character Building profile, separate from WAI/WAMI\nCharacter Subject: (none)\nPlayable Mode: Unknown\nAI Mode: Unknown\nShared Stack: %s\nProfile Notes: %s\nStatus: Select a Character Blueprint or Pawn to inspect playable readiness."),
+            *ProfileLabel,
+            *SharedStackStatus,
+            *GetCharacterBuildingProfileGuidance(ProfileLabel)));
+    }
+
+    return FText::FromString(FString::Printf(
+        TEXT("Character Profile: %s\nAuthoring Context: Character body/profile readiness, not AI brain controls\nCharacter Subject: %s\nPlayable Mode: %s\nAI Mode: %s\nShared Stack: %s\nProfile Notes: %s\nStatus: %s"),
+        *ProfileLabel,
+        *Snapshot.SelectedActorLabel,
+        *GetPlayableModeStatusLabel(&Snapshot),
+        *GetAIModeStatusLabel(&Snapshot),
+        *SharedStackStatus,
+        *GetCharacterBuildingProfileGuidance(ProfileLabel),
+        Snapshot.PlayableControlSummary.IsEmpty() ? TEXT("Playable control context is limited.") : *Snapshot.PlayableControlSummary));
+}
+
+FText FWanaWorksUIModule::GetCharacterBuildingControlSummaryText() const
+{
+    if (HasCurrentWorkspaceAnalysis() && !LastAnalysisPhysicalSummary.IsEmpty())
+    {
+        return FText::FromString(LastAnalysisPhysicalSummary);
+    }
+
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+    const bool bHasSnapshot = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor;
+
+    if (!bHasSnapshot)
+    {
+        return FText::FromString(TEXT("Player Control Readiness: Unknown\nAuto Possess Player: Unknown\nPlayer Controller: Unknown\nMovement Component: Unknown\nCamera: Unknown\nSpring Arm: Unknown\nShared AI/Player Stack: Unknown\nNotes: Choose a Character Blueprint or Pawn to inspect playable control readiness without changing controller, camera, or input assets."));
+    }
+
+    return FText::FromString(FString::Printf(
+        TEXT("Player Control Readiness: %s\nAuto Possess Player: %s\nPlayer Controller: %s\nMovement Component: %s\nCamera: %s\nSpring Arm: %s\nShared AI/Player Stack: %s\nNotes: %s"),
+        *GetPlayableModeStatusLabel(&Snapshot),
+        Snapshot.AutoPossessPlayerLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.AutoPossessPlayerLabel,
+        Snapshot.LinkedPlayerControllerLabel.IsEmpty() ? TEXT("(not detected)") : *Snapshot.LinkedPlayerControllerLabel,
+        Snapshot.bHasPawnMovementComponent ? TEXT("Ready") : TEXT("Limited"),
+        Snapshot.bHasCameraComponent ? TEXT("Ready") : TEXT("Limited"),
+        Snapshot.bHasSpringArmComponent ? TEXT("Ready") : TEXT("Limited"),
+        *GetSharedCharacterStackStatusLabel(),
+        Snapshot.PlayableControlSummary.IsEmpty() ? TEXT("WanaWorks preserves the existing project input/camera/controller architecture.") : *Snapshot.PlayableControlSummary));
+}
+
 FText FWanaWorksUIModule::GetCharacterIntelligenceControlSummaryText() const
 {
     AActor* ObserverActor = nullptr;
@@ -5703,6 +6258,8 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetIdentitySummaryText = [this]() { return GetIdentitySummaryText(); };
     BuilderArgs.GetIdentityFactionTagText = [this]() { return GetIdentityFactionTagText(); };
     BuilderArgs.GetCharacterIntelligenceControlSummaryText = [this]() { return GetCharacterIntelligenceControlSummaryText(); };
+    BuilderArgs.GetCharacterBuildingProfileSummaryText = [this]() { return GetCharacterBuildingProfileSummaryText(); };
+    BuilderArgs.GetCharacterBuildingControlSummaryText = [this]() { return GetCharacterBuildingControlSummaryText(); };
     BuilderArgs.CharacterPawnAssetOptions = &CharacterPawnAssetOptions;
     BuilderArgs.AIPawnAssetOptions = &AIPawnAssetOptions;
     BuilderArgs.WorkflowPresetOptions = &WorkflowPresetOptions;
@@ -5712,6 +6269,7 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.CharacterIntelligenceIdentityRoleOptions = &CharacterIntelligenceIdentityRoleOptions;
     BuilderArgs.CharacterIntelligenceRelationshipOptions = &CharacterIntelligenceRelationshipOptions;
     BuilderArgs.CharacterIntelligenceTargetOptions = &CharacterIntelligenceTargetOptions;
+    BuilderArgs.CharacterBuildingProfileOptions = &CharacterBuildingProfileOptions;
     BuilderArgs.GetSelectedCharacterPawnAssetOption = [this]() { return GetSelectedCharacterPawnAssetOption(); };
     BuilderArgs.GetSelectedAIPawnAssetOption = [this]() { return GetSelectedAIPawnAssetOption(); };
     BuilderArgs.GetSelectedWorkflowPresetOption = [this]() { return GetSelectedWorkflowPresetOption(); };
@@ -5722,6 +6280,7 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetSelectedCharacterIntelligenceIdentityRoleOption = [this]() { return GetSelectedCharacterIntelligenceIdentityRoleOption(); };
     BuilderArgs.GetSelectedCharacterIntelligenceRelationshipOption = [this]() { return GetSelectedCharacterIntelligenceRelationshipOption(); };
     BuilderArgs.GetSelectedCharacterIntelligenceTargetOption = [this]() { return GetSelectedCharacterIntelligenceTargetOption(); };
+    BuilderArgs.GetSelectedCharacterBuildingProfileOption = [this]() { return GetSelectedCharacterBuildingProfileOption(); };
     BuilderArgs.OnCommandTextChanged = [this](const FText& NewText) { HandleCommandTextChanged(NewText); };
     BuilderArgs.OnIdentityFactionTagTextChanged = [this](const FText& NewText) { HandleIdentityFactionTagTextChanged(NewText); };
     BuilderArgs.OnWorkspaceSelected = [this](const FString& WorkspaceLabel) { HandleWorkspaceSelected(WorkspaceLabel); };
@@ -5736,6 +6295,7 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.OnCharacterIntelligenceIdentityRoleOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterIntelligenceIdentityRoleOptionSelected(SelectedOption); };
     BuilderArgs.OnCharacterIntelligenceRelationshipOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterIntelligenceRelationshipOptionSelected(SelectedOption); };
     BuilderArgs.OnCharacterIntelligenceTargetOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterIntelligenceTargetOptionSelected(SelectedOption); };
+    BuilderArgs.OnCharacterBuildingProfileOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterBuildingProfileOptionSelected(SelectedOption); };
     BuilderArgs.OnRunCommand = [this]() { RunCommand(); };
     BuilderArgs.OnClearLog = [this]() { ClearLog(); };
     BuilderArgs.OnEnsureIdentityComponent = [this]() { EnsureIdentityComponent(); };

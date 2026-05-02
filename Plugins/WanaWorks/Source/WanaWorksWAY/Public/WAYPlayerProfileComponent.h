@@ -106,6 +106,33 @@ public:
     UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Animation", meta = (DisplayName = "Has Active Animation Hook State", Keywords = "WAY animation hook active anim blueprint"))
     bool HasActiveAnimationHookState() const { return CurrentAnimationHookState.ApplicationStatus == EWAYAnimationHookApplicationStatus::Active; }
 
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Animation", meta = (DisplayName = "Get Animation Posture Hint", Keywords = "WAY animation posture anim blueprint"))
+    FString GetAnimationPostureHint() const { return CurrentAnimationHookState.PostureHint; }
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Animation", meta = (DisplayName = "Get Animation Reaction State", Keywords = "WAY animation reaction anim blueprint"))
+    EWAYReactionState GetAnimationReactionState() const { return CurrentAnimationHookState.ReactionState; }
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Animation", meta = (DisplayName = "Get Animation Recommended Behavior", Keywords = "WAY animation behavior anim blueprint"))
+    EWAYBehaviorPreset GetAnimationRecommendedBehavior() const { return CurrentAnimationHookState.RecommendedBehavior; }
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Animation", meta = (DisplayName = "Get Animation Visible Behavior Label", Keywords = "WAY animation visible behavior anim blueprint"))
+    FString GetAnimationVisibleBehaviorLabel() const { return CurrentAnimationHookState.VisibleBehaviorLabel; }
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Animation", meta = (DisplayName = "Is Animation Locomotion Safe Execution Hint Active", Keywords = "WAY animation locomotion safe anim blueprint"))
+    bool IsAnimationLocomotionSafeExecutionHintActive() const { return CurrentAnimationHookState.bLocomotionSafeExecutionHint; }
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Animation", meta = (DisplayName = "Is Animation Movement Limited Fallback Hint Active", Keywords = "WAY animation movement limited fallback anim blueprint"))
+    bool IsAnimationMovementLimitedFallbackHintActive() const { return CurrentAnimationHookState.bMovementLimitedFallbackHint; }
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Animation", meta = (DisplayName = "Get Animation Physical Instability Alpha", Keywords = "WAY animation physical instability anim blueprint"))
+    float GetAnimationPhysicalInstabilityAlpha() const { return CurrentAnimationHookState.PhysicalInstabilityAlpha; }
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Animation", meta = (DisplayName = "Get Animation Physical Recovery Progress", Keywords = "WAY animation physical recovery anim blueprint"))
+    float GetAnimationPhysicalRecoveryProgress() const { return CurrentAnimationHookState.PhysicalRecoveryProgress; }
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Wana Works|WAY|Animation", meta = (DisplayName = "Get Animation Physical Impact Direction", Keywords = "WAY animation physical impact direction anim blueprint"))
+    FVector GetAnimationPhysicalImpactDirection() const { return CurrentAnimationHookState.PhysicalImpactDirection; }
+
     UFUNCTION(BlueprintPure, Category = "Wana Works|WAY")
     const TArray<FWAYRelationshipProfile>& GetRelationshipProfiles() const { return RelationshipProfiles; }
 

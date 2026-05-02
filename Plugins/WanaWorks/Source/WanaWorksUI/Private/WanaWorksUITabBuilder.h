@@ -33,6 +33,8 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<FText(void)> GetIdentitySummaryText;
     TFunction<FText(void)> GetIdentityFactionTagText;
     TFunction<FText(void)> GetCharacterIntelligenceControlSummaryText;
+    TFunction<FText(void)> GetCharacterBuildingProfileSummaryText;
+    TFunction<FText(void)> GetCharacterBuildingControlSummaryText;
     const TArray<TSharedPtr<FString>>* CharacterPawnAssetOptions = nullptr;
     const TArray<TSharedPtr<FString>>* AIPawnAssetOptions = nullptr;
     const TArray<TSharedPtr<FString>>* WorkflowPresetOptions = nullptr;
@@ -42,6 +44,7 @@ struct FWanaWorksUITabBuilderArgs
     const TArray<TSharedPtr<FString>>* CharacterIntelligenceIdentityRoleOptions = nullptr;
     const TArray<TSharedPtr<FString>>* CharacterIntelligenceRelationshipOptions = nullptr;
     const TArray<TSharedPtr<FString>>* CharacterIntelligenceTargetOptions = nullptr;
+    const TArray<TSharedPtr<FString>>* CharacterBuildingProfileOptions = nullptr;
     TFunction<TSharedPtr<FString>(void)> GetSelectedCharacterPawnAssetOption;
     TFunction<TSharedPtr<FString>(void)> GetSelectedAIPawnAssetOption;
     TFunction<TSharedPtr<FString>(void)> GetSelectedWorkflowPresetOption;
@@ -52,6 +55,7 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<TSharedPtr<FString>(void)> GetSelectedCharacterIntelligenceIdentityRoleOption;
     TFunction<TSharedPtr<FString>(void)> GetSelectedCharacterIntelligenceRelationshipOption;
     TFunction<TSharedPtr<FString>(void)> GetSelectedCharacterIntelligenceTargetOption;
+    TFunction<TSharedPtr<FString>(void)> GetSelectedCharacterBuildingProfileOption;
     TFunction<void(const FText&)> OnCommandTextChanged;
     TFunction<void(const FText&)> OnIdentityFactionTagTextChanged;
     TFunction<void(const FString&)> OnWorkspaceSelected;
@@ -66,6 +70,7 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<void(TSharedPtr<FString>)> OnCharacterIntelligenceIdentityRoleOptionSelected;
     TFunction<void(TSharedPtr<FString>)> OnCharacterIntelligenceRelationshipOptionSelected;
     TFunction<void(TSharedPtr<FString>)> OnCharacterIntelligenceTargetOptionSelected;
+    TFunction<void(TSharedPtr<FString>)> OnCharacterBuildingProfileOptionSelected;
     TFunction<void(void)> OnRunCommand;
     TFunction<void(void)> OnClearLog;
     TFunction<void(void)> OnEnsureIdentityComponent;
