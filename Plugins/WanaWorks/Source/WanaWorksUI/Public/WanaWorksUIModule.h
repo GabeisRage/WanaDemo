@@ -144,6 +144,14 @@ private:
     FString GetSharedCharacterStackSummaryText() const;
     FString GetSharedCharacterStackStatusLabel() const;
     bool ResolvePreferredWITReadinessPair(AActor*& OutObserverActor, AActor*& OutTargetActor, FString& OutPairSourceLabel, bool& bOutTargetFallsBackToObserver) const;
+    bool IsGeneratedAnimationAdapterRecordForSnapshot(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot) const;
+    bool HasPersistentAnimationAdapterReportForSnapshot(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot) const;
+    FString ResolveAnimationAdapterReportPathForSnapshot(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot) const;
+    FString GenerateWanaAnimationAdapterRecord(
+        const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
+        const FString& SharedStackSummary,
+        const FString& WorkspaceLabel,
+        const FString& BuildOutputPath);
 
     TSharedRef<SDockTab> SpawnWanaWorksTab(const FSpawnTabArgs& SpawnTabArgs);
 
@@ -231,6 +239,14 @@ private:
     FString LastSavedWorkflowPresetRelationshipLabel;
     FString LastSavedWorkflowPresetBehaviorLabel;
     FString LastSavedWorkflowPresetFactionTag;
+    bool bGeneratedAnimationAdapterRecordInitialized = false;
+    FString LastGeneratedAnimationAdapterSubjectLabel;
+    FString LastGeneratedAnimationAdapterSubjectPath;
+    FString LastGeneratedAnimationAdapterAnimBlueprintLabel;
+    FString LastGeneratedAnimationAdapterWorkspaceLabel;
+    FString LastGeneratedAnimationAdapterStatus;
+    FString LastGeneratedAnimationAdapterOutputPath;
+    FString LastGeneratedAnimationAdapterSummary;
 
     static const FName WanaWorksTabName;
 };

@@ -27,6 +27,36 @@ public:
     UFUNCTION(BlueprintPure, Category = "Wana Works|Animation")
     bool HasAutomaticAnimationIntegrationSupport() const { return SupportedFieldCount > 0; }
 
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get Adapter Animation Hook State"))
+    FWAYAnimationHookState GetAdapterAnimationHookState() const;
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get Adapter Posture Hint"))
+    FString GetAdapterPostureHint() const;
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get Adapter Reaction State"))
+    EWAYReactionState GetAdapterReactionState() const;
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get Adapter Recommended Behavior"))
+    EWAYBehaviorPreset GetAdapterRecommendedBehavior() const;
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get Adapter Visible Behavior Label"))
+    FString GetAdapterVisibleBehaviorLabel() const;
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Is Adapter Locomotion Safe Hint Active"))
+    bool IsAdapterLocomotionSafeHintActive() const;
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Is Adapter Movement Limited Fallback Active"))
+    bool IsAdapterMovementLimitedFallbackActive() const;
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get Adapter Instability Alpha"))
+    float GetAdapterInstabilityAlpha() const;
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get Adapter Recovery Progress"))
+    float GetAdapterRecoveryProgress() const;
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get Adapter Impact Direction"))
+    FVector GetAdapterImpactDirection() const;
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation")
     EWAYAutomaticAnimationIntegrationStatus AutomaticIntegrationStatus = EWAYAutomaticAnimationIntegrationStatus::NotSupported;
 

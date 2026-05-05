@@ -15,12 +15,18 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PawnMovementComponent.h"
+#include "HAL/FileManager.h"
 #include "Misc/ConfigCacheIni.h"
+#include "Misc/DateTime.h"
+#include "Misc/PackageName.h"
+#include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "ScopedTransaction.h"
 #include "Selection.h"
 #include "Textures/SlateIcon.h"
 #include "ToolMenus.h"
+#include "UObject/Package.h"
+#include "UObject/SavePackage.h"
 #include "UObject/UnrealType.h"
 #include "UObject/SoftObjectPath.h"
 #include "Widgets/InvalidateWidgetReason.h"
@@ -32,6 +38,7 @@
 #include "WanaWorksUISummaryText.h"
 #include "WanaWorksUIStyle.h"
 #include "WanaWorksUITabBuilder.h"
+#include "WanaAnimationAdapterReportAsset.h"
 #include "WanaIdentityComponent.h"
 #include "WAYPlayerProfileComponent.h"
 #include "Widgets/Docking/SDockTab.h"
@@ -336,6 +343,611 @@ FString GetSharedStackStatusFromSummary(const FString& SharedSummary)
     }
 
     return TEXT("Ready");
+}
+
+bool SharedSummaryHasSharedAnimBP(const FString& SharedSummary)
+{
+    return SharedSummary.Contains(TEXT("Shared Animation Blueprint: Yes"), ESearchCase::IgnoreCase);
+}
+
+bool SharedSummaryHasUnknownAnimBP(const FString& SharedSummary)
+{
+    return SharedSummary.Contains(TEXT("Shared Animation Blueprint: Unknown"), ESearchCase::IgnoreCase);
+}
+
+FString GetSharedAnimBPStatusLabel(const FString& SharedSummary)
+{
+    if (SharedSummaryHasSharedAnimBP(SharedSummary))
+    {
+        return TEXT("Yes");
+    }
+
+    if (SharedSummaryHasUnknownAnimBP(SharedSummary))
+    {
+        return TEXT("Unknown");
+    }
+
+    return TEXT("No");
+}
+
+const TCHAR* WanaAnimationAdapterReportRootPath = TEXT("/Game/WanaWorks/Adapters");
+
+struct FWanaPersistentAnimationAdapterReportResult
+{
+    bool bSucceeded = false;
+    FString StatusLabel = TEXT("Adapter Not Generated");
+    FString PackagePath;
+    FString ObjectPath;
+    FString Detail;
+};
+
+FString MakeSafeWanaAnimationAdapterAssetName(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    FString RawName = Snapshot.SelectedActorLabel.IsEmpty()
+        ? FString(TEXT("Subject"))
+        : Snapshot.SelectedActorLabel;
+    RawName.RemoveFromStart(TEXT("WW_Sandbox_"));
+    RawName.RemoveFromStart(TEXT("WW_Final_"));
+
+    FString SafeName;
+    SafeName.Reserve(RawName.Len());
+
+    for (int32 Index = 0; Index < RawName.Len(); ++Index)
+    {
+        const TCHAR Character = RawName[Index];
+        SafeName.AppendChar(FChar::IsAlnum(Character) ? Character : static_cast<TCHAR>('_'));
+    }
+
+    while (SafeName.Contains(TEXT("__")))
+    {
+        SafeName = SafeName.Replace(TEXT("__"), TEXT("_"));
+    }
+
+    SafeName.RemoveFromStart(TEXT("_"));
+    SafeName.RemoveFromEnd(TEXT("_"));
+
+    if (SafeName.IsEmpty())
+    {
+        SafeName = TEXT("Subject");
+    }
+
+    return FString::Printf(TEXT("WW_AnimAdapterReport_%s"), *SafeName);
+}
+
+FString BuildWanaAnimationAdapterOutputPath(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    return FString::Printf(TEXT("%s/%s"), WanaAnimationAdapterReportRootPath, *MakeSafeWanaAnimationAdapterAssetName(Snapshot));
+}
+
+FString BuildWanaAnimationAdapterObjectPath(const FString& PackagePath)
+{
+    FString AssetName = FPackageName::GetLongPackageAssetName(PackagePath);
+    if (AssetName.IsEmpty())
+    {
+        int32 LastSlashIndex = INDEX_NONE;
+        PackagePath.FindLastChar(TEXT('/'), LastSlashIndex);
+        AssetName = LastSlashIndex == INDEX_NONE ? PackagePath : PackagePath.RightChop(LastSlashIndex + 1);
+    }
+
+    return FString::Printf(TEXT("%s.%s"), *PackagePath, *AssetName);
+}
+
+UWanaAnimationAdapterReportAsset* LoadWanaAnimationAdapterReportAsset(const FString& PackagePath)
+{
+    if (PackagePath.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    return Cast<UWanaAnimationAdapterReportAsset>(
+        StaticLoadObject(
+            UWanaAnimationAdapterReportAsset::StaticClass(),
+            nullptr,
+            *BuildWanaAnimationAdapterObjectPath(PackagePath)));
+}
+
+FString FindExistingWanaAnimationAdapterReportPath(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot);
+
+bool DoesWanaAnimationAdapterReportExist(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    return !FindExistingWanaAnimationAdapterReportPath(Snapshot).IsEmpty();
+}
+
+FString FindExistingWanaAnimationAdapterReportPath(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    const FString PrimaryPath = BuildWanaAnimationAdapterOutputPath(Snapshot);
+    if (LoadWanaAnimationAdapterReportAsset(PrimaryPath))
+    {
+        return PrimaryPath;
+    }
+
+    const FString BaseAssetName = MakeSafeWanaAnimationAdapterAssetName(Snapshot);
+    for (int32 DuplicateSuffix = 1; DuplicateSuffix < 99; ++DuplicateSuffix)
+    {
+        const FString CandidatePath = FString::Printf(
+            TEXT("%s/%s_%02d"),
+            WanaAnimationAdapterReportRootPath,
+            *BaseAssetName,
+            DuplicateSuffix);
+
+        if (LoadWanaAnimationAdapterReportAsset(CandidatePath))
+        {
+            return CandidatePath;
+        }
+    }
+
+    return FString();
+}
+
+FString ExtractSharedSummaryFieldValue(const FString& SharedSummary, const FString& FieldName, const FString& FallbackValue = TEXT("Unknown"))
+{
+    TArray<FString> Lines;
+    SharedSummary.ParseIntoArrayLines(Lines, true);
+
+    const FString Prefix = FieldName + TEXT(":");
+    for (const FString& Line : Lines)
+    {
+        if (Line.StartsWith(Prefix, ESearchCase::IgnoreCase))
+        {
+            FString Value = Line.RightChop(Prefix.Len()).TrimStartAndEnd();
+            return Value.IsEmpty() ? FallbackValue : Value;
+        }
+    }
+
+    return FallbackValue;
+}
+
+TArray<FString> BuildReadableWanaAnimationHookFieldList(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    TArray<FString> HookFields;
+
+    if (Snapshot.bAnimationHookStateReadable)
+    {
+        HookFields.Add(TEXT("Current Animation Hook State"));
+        HookFields.Add(TEXT("Recommended Behavior"));
+        HookFields.Add(TEXT("Visible Behavior Label"));
+        HookFields.Add(TEXT("Posture Hint"));
+        HookFields.Add(TEXT("Reaction State"));
+        HookFields.Add(TEXT("Locomotion Safe Execution Hint"));
+        HookFields.Add(TEXT("Movement Limited Fallback Hint"));
+        HookFields.Add(TEXT("Instability Alpha"));
+        HookFields.Add(TEXT("Recovery Progress"));
+        HookFields.Add(TEXT("Impact Direction"));
+    }
+    else if (Snapshot.bHasWAYComponent)
+    {
+        HookFields.Add(TEXT("Hook Provider Present"));
+        HookFields.Add(TEXT("Hook State Pending Readiness"));
+    }
+
+    if (Snapshot.bAnimationFacingHookRequested)
+    {
+        HookFields.Add(TEXT("Facing Hook Requested"));
+    }
+
+    if (Snapshot.bAnimationTurnToTargetRequested)
+    {
+        HookFields.Add(TEXT("Turn-To-Target Hook Requested"));
+    }
+
+    if (Snapshot.bAnimationOutwardGuardHintRequested)
+    {
+        HookFields.Add(TEXT("Outward Guard Hook Requested"));
+    }
+
+    if (Snapshot.bAnimationPhysicalReactionStateAvailable)
+    {
+        HookFields.Add(TEXT("Physical Reaction State"));
+    }
+
+    if (HookFields.IsEmpty())
+    {
+        HookFields.Add(TEXT("No readable WanaAnimation hook fields yet"));
+    }
+
+    return HookFields;
+}
+
+FString BuildWanaAnimationPostureReactionMappingSummary(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    return FString::Printf(
+        TEXT("Behavior Intent=%s; Recommended Behavior=%s; Visible Label=%s; Posture=%s; Category=%s; Reaction=%s; Facing Hook=%s; Turn-To-Target=%s; Locomotion=%s; Fallback=%s; Instability=%.2f; Recovery=%d%%; Impact Direction=%s."),
+        Snapshot.AnimationBehaviorIntent.IsEmpty() ? TEXT("(pending)") : *Snapshot.AnimationBehaviorIntent,
+        *UIFmt::GetBehaviorPresetSummaryLabel(Snapshot.AnimationRecommendedBehavior),
+        Snapshot.AnimationVisibleBehaviorLabel.IsEmpty() ? TEXT("(pending)") : *Snapshot.AnimationVisibleBehaviorLabel,
+        Snapshot.AnimationPostureHint.IsEmpty() ? TEXT("(pending)") : *Snapshot.AnimationPostureHint,
+        Snapshot.AnimationPostureCategory.IsEmpty() ? TEXT("(pending)") : *Snapshot.AnimationPostureCategory,
+        *UIFmt::GetReactionStateSummaryLabel(Snapshot.AnimationReactionState),
+        Snapshot.bAnimationFacingHookRequested ? TEXT("Requested") : TEXT("Not Requested"),
+        Snapshot.bAnimationTurnToTargetRequested ? TEXT("Requested") : TEXT("Not Requested"),
+        Snapshot.bAnimationLocomotionHintSafe ? TEXT("Safe Movement") : TEXT("Limited/Facing Preferred"),
+        Snapshot.AnimationFallbackHint.IsEmpty() ? TEXT("(none)") : *Snapshot.AnimationFallbackHint,
+        Snapshot.AnimationPhysicalInstabilityAlpha,
+        FMath::RoundToInt(Snapshot.AnimationPhysicalRecoveryProgress * 100.0f),
+        *Snapshot.AnimationPhysicalImpactDirection.ToCompactString());
+}
+
+FString BuildWanaAnimationAdapterLimitationsText(
+    const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
+    const FString& SharedSummary)
+{
+    TArray<FString> Limitations;
+    Limitations.Add(TEXT("Original Anim BP graph, variables, and assigned Anim Class were not modified."));
+
+    if (SharedSummaryHasSharedAnimBP(SharedSummary))
+    {
+        Limitations.Add(TEXT("Shared Anim BP risk detected; direct graph editing is unsafe for this subject."));
+    }
+    else if (SharedSummaryHasUnknownAnimBP(SharedSummary))
+    {
+        Limitations.Add(TEXT("Shared Anim BP status is unknown; future graph wiring needs review."));
+    }
+
+    if (!Snapshot.bHasWAYComponent || !Snapshot.bAnimationHookStateReadable)
+    {
+        Limitations.Add(TEXT("Hook provider or hook state readability is limited until Enhance/Test prepares WanaAnimation state."));
+    }
+
+    if (!Snapshot.bHasPhysicalStateComponent)
+    {
+        Limitations.Add(TEXT("Physical reaction provider is missing or limited."));
+    }
+
+    if (!Snapshot.bHasAnimationInstance)
+    {
+        Limitations.Add(TEXT("Live animation instance was not confirmed; runtime consumption may remain limited until PIE/runtime."));
+    }
+
+    return FString::Join(Limitations, TEXT(" "));
+}
+
+FString GetAnimBPDirectGraphEditSafetyLabel(
+    const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
+    const FString& SharedSummary)
+{
+    if (SharedSummaryHasSharedAnimBP(SharedSummary))
+    {
+        return TEXT("Unsafe");
+    }
+
+    if (!Snapshot.bHasSkeletalMeshComponent || !Snapshot.bHasAnimBlueprint || SharedSummaryHasUnknownAnimBP(SharedSummary))
+    {
+        return TEXT("Limited");
+    }
+
+    return TEXT("Safe");
+}
+
+FString GetAnimBPWiringReadinessLabel(
+    const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
+    const FString& SharedSummary)
+{
+    if (!Snapshot.bHasSelectedActor || !Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Not Supported");
+    }
+
+    if (!Snapshot.bHasAnimBlueprint)
+    {
+        return TEXT("Limited");
+    }
+
+    if (SharedSummaryHasSharedAnimBP(SharedSummary))
+    {
+        return TEXT("Unsafe Shared Stack");
+    }
+
+    if (!Snapshot.bHasWAYComponent || !Snapshot.bAnimationHookStateReadable)
+    {
+        return TEXT("Needs Enhance");
+    }
+
+    if (!Snapshot.bHasAnimationInstance || !Snapshot.bHasPhysicalStateComponent)
+    {
+        return TEXT("Partially Ready");
+    }
+
+    return TEXT("Ready");
+}
+
+FString GetWanaAnimationAdapterStatusLabel(
+    const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
+    const FString& SharedSummary,
+    bool bAdapterRecordGenerated)
+{
+    if (bAdapterRecordGenerated)
+    {
+        return TEXT("Adapter Generated");
+    }
+
+    if (!Snapshot.bHasSelectedActor || !Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Not Supported");
+    }
+
+    if (!Snapshot.bHasAnimBlueprint)
+    {
+        return TEXT("Limited");
+    }
+
+    if (!Snapshot.bHasWAYComponent || !Snapshot.bAnimationHookStateReadable)
+    {
+        return TEXT("Needs Enhance");
+    }
+
+    return TEXT("Adapter Recommended");
+}
+
+FString GetWanaAnimationRecommendedStrategy(
+    const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
+    const FString& SharedSummary)
+{
+    if (!Snapshot.bHasSelectedActor || !Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Not Supported");
+    }
+
+    if (!Snapshot.bHasAnimBlueprint || !Snapshot.bHasWAYComponent || !Snapshot.bAnimationHookStateReadable)
+    {
+        return TEXT("Needs Enhance");
+    }
+
+    if (SharedSummaryHasSharedAnimBP(SharedSummary))
+    {
+        return TEXT("Generated Adapter / Linked Layer");
+    }
+
+    if (Snapshot.AnimationSupportedAutoWireFieldCount > 0)
+    {
+        return TEXT("Generated Adapter");
+    }
+
+    return TEXT("Generated Adapter / Manual Review");
+}
+
+FString BuildWanaAnimationAdapterReadinessDetail(
+    const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
+    const FString& SharedSummary,
+    bool bAdapterRecordGenerated,
+    const FString& AdapterRecordPath)
+{
+    const FString SharedAnimBPStatus = GetSharedAnimBPStatusLabel(SharedSummary);
+    const FString DirectGraphEditSafety = GetAnimBPDirectGraphEditSafetyLabel(Snapshot, SharedSummary);
+    const FString RecommendedStrategy = GetWanaAnimationRecommendedStrategy(Snapshot, SharedSummary);
+    const FString AdapterStatus = GetWanaAnimationAdapterStatusLabel(Snapshot, SharedSummary, bAdapterRecordGenerated);
+    const FString OutputPath = AdapterRecordPath.IsEmpty() ? BuildWanaAnimationAdapterOutputPath(Snapshot) : AdapterRecordPath;
+    const FString PostureInputs = Snapshot.AnimationPostureHint.IsEmpty()
+        ? TEXT("posture/reaction inputs pending hook drive")
+        : FString::Printf(
+            TEXT("posture=%s, category=%s, reaction=%s"),
+            *Snapshot.AnimationPostureHint,
+            Snapshot.AnimationPostureCategory.IsEmpty() ? TEXT("Observe") : *Snapshot.AnimationPostureCategory,
+            *UIFmt::GetReactionStateSummaryLabel(Snapshot.AnimationReactionState));
+
+    return FString::Printf(
+        TEXT("Adapter Status: %s. Output: %s. Shared Anim BP: %s. Direct Graph Edit Safety: %s. Recommended Strategy: %s. Source=%s, Mesh=%s, Skeleton=%s, Anim Class=%s, Generated Class=%s, Parent=%s, Hook Provider=%s, Hook Readable=%s, Physical Provider=%s, Auto-Wire Fields=%d supported/%d applied, Inputs=%s. Original Anim BP is not edited or reassigned."),
+        *AdapterStatus,
+        *OutputPath,
+        *SharedAnimBPStatus,
+        *DirectGraphEditSafety,
+        *RecommendedStrategy,
+        Snapshot.SelectedActorLabel.IsEmpty() ? TEXT("(none)") : *Snapshot.SelectedActorLabel,
+        Snapshot.SkeletalMeshLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.SkeletalMeshLabel,
+        Snapshot.SkeletonLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.SkeletonLabel,
+        Snapshot.AnimationAssignedClassLabel.IsEmpty() ? (Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("(not detected)") : *Snapshot.LinkedAnimationBlueprintLabel) : *Snapshot.AnimationAssignedClassLabel,
+        Snapshot.AnimationGeneratedClassLabel.IsEmpty() ? TEXT("(not detected)") : *Snapshot.AnimationGeneratedClassLabel,
+        Snapshot.AnimationParentInstanceClassLabel.IsEmpty() ? TEXT("(not detected)") : *Snapshot.AnimationParentInstanceClassLabel,
+        Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Needs Enhance"),
+        Snapshot.bAnimationHookStateReadable ? TEXT("Ready") : TEXT("Needs Enhance"),
+        Snapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited"),
+        Snapshot.AnimationSupportedAutoWireFieldCount,
+        Snapshot.AnimationLastAppliedAutoWireFieldCount,
+        *PostureInputs);
+}
+
+FWanaPersistentAnimationAdapterReportResult SavePersistentWanaAnimationAdapterReportAsset(
+    const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
+    const FString& SharedSummary,
+    const FString& WorkspaceLabel,
+    const FString& BuildOutputPath)
+{
+    FWanaPersistentAnimationAdapterReportResult Result;
+
+    if (!Snapshot.bHasSelectedActor)
+    {
+        Result.StatusLabel = TEXT("Adapter Not Generated");
+        Result.Detail = TEXT("Adapter not generated: no selected subject was available.");
+        return Result;
+    }
+
+    if (!Snapshot.bHasSkeletalMeshComponent)
+    {
+        Result.StatusLabel = TEXT("Not Supported");
+        Result.Detail = TEXT("Adapter not generated: no compatible skeletal mesh detected.");
+        return Result;
+    }
+
+    if (!Snapshot.bHasAnimBlueprint)
+    {
+        Result.StatusLabel = TEXT("Limited");
+        Result.Detail = TEXT("Adapter not generated: no assigned Animation Blueprint was detected.");
+        return Result;
+    }
+
+    FString DesiredPackagePath = BuildWanaAnimationAdapterOutputPath(Snapshot);
+    FString FinalPackagePath = DesiredPackagePath;
+    FString AssetName = FPackageName::GetLongPackageAssetName(FinalPackagePath);
+    if (AssetName.IsEmpty())
+    {
+        Result.StatusLabel = TEXT("Adapter Not Generated");
+        Result.Detail = TEXT("Adapter not generated: WanaWorks could not create a valid adapter asset name.");
+        return Result;
+    }
+
+    UWanaAnimationAdapterReportAsset* ReportAsset = LoadWanaAnimationAdapterReportAsset(FinalPackagePath);
+    UObject* ExistingObject = ReportAsset
+        ? static_cast<UObject*>(ReportAsset)
+        : StaticLoadObject(UObject::StaticClass(), nullptr, *BuildWanaAnimationAdapterObjectPath(FinalPackagePath));
+
+    int32 DuplicateSuffix = 1;
+    while (ExistingObject && !ExistingObject->IsA<UWanaAnimationAdapterReportAsset>())
+    {
+        const FString CandidateName = FString::Printf(TEXT("%s_%02d"), *MakeSafeWanaAnimationAdapterAssetName(Snapshot), DuplicateSuffix++);
+        FinalPackagePath = FString::Printf(TEXT("%s/%s"), WanaAnimationAdapterReportRootPath, *CandidateName);
+        AssetName = CandidateName;
+        ReportAsset = LoadWanaAnimationAdapterReportAsset(FinalPackagePath);
+        ExistingObject = ReportAsset
+            ? static_cast<UObject*>(ReportAsset)
+            : StaticLoadObject(UObject::StaticClass(), nullptr, *BuildWanaAnimationAdapterObjectPath(FinalPackagePath));
+
+        if (DuplicateSuffix > 99)
+        {
+            Result.StatusLabel = TEXT("Adapter Not Generated");
+            Result.Detail = TEXT("Adapter not generated: WanaWorks could not find a safe unique report asset name.");
+            return Result;
+        }
+    }
+
+    UPackage* Package = ReportAsset ? ReportAsset->GetOutermost() : CreatePackage(*FinalPackagePath);
+    if (!Package)
+    {
+        Result.StatusLabel = TEXT("Adapter Not Generated");
+        Result.Detail = TEXT("Adapter not generated: WanaWorks could not create the adapter package.");
+        return Result;
+    }
+
+    const bool bCreatedNewAsset = ReportAsset == nullptr;
+    if (!ReportAsset)
+    {
+        ReportAsset = NewObject<UWanaAnimationAdapterReportAsset>(
+            Package,
+            UWanaAnimationAdapterReportAsset::StaticClass(),
+            *AssetName,
+            RF_Public | RF_Standalone | RF_Transactional);
+    }
+
+    if (!ReportAsset)
+    {
+        Result.StatusLabel = TEXT("Adapter Not Generated");
+        Result.Detail = TEXT("Adapter not generated: WanaWorks could not create the adapter report object.");
+        return Result;
+    }
+
+    ReportAsset->Modify();
+
+    const FString ObjectPath = BuildWanaAnimationAdapterObjectPath(FinalPackagePath);
+    const FString SharedCharacterBlueprintStatus = ExtractSharedSummaryFieldValue(SharedSummary, TEXT("Shared Character Blueprint"));
+    const FString SharedSkeletalMeshStatus = ExtractSharedSummaryFieldValue(SharedSummary, TEXT("Shared Skeletal Mesh"));
+    const FString SharedSkeletonStatus = ExtractSharedSummaryFieldValue(SharedSummary, TEXT("Shared Skeleton"));
+    const FString SharedAnimBlueprintStatus = ExtractSharedSummaryFieldValue(SharedSummary, TEXT("Shared Animation Blueprint"));
+    const FString DirectGraphEditSafety = GetAnimBPDirectGraphEditSafetyLabel(Snapshot, SharedSummary);
+    const FString RecommendedStrategy = GetWanaAnimationRecommendedStrategy(Snapshot, SharedSummary);
+    const FString AdapterReadinessState = GetAnimBPWiringReadinessLabel(Snapshot, SharedSummary);
+    const FString PostureReactionMappingSummary = BuildWanaAnimationPostureReactionMappingSummary(Snapshot);
+    const FString Limitations = BuildWanaAnimationAdapterLimitationsText(Snapshot, SharedSummary);
+
+    ReportAsset->GeneratedLabel = AssetName;
+    ReportAsset->GeneratedAtUtc = FDateTime::UtcNow().ToString(TEXT("%Y-%m-%dT%H:%M:%SZ"));
+    ReportAsset->WorkspaceLabel = WorkspaceLabel.IsEmpty() ? TEXT("WanaWorks") : WorkspaceLabel;
+    ReportAsset->SourceSubjectName = Snapshot.SelectedActorLabel.IsEmpty() ? TEXT("(none)") : Snapshot.SelectedActorLabel;
+    ReportAsset->SourceSubjectPath = Snapshot.SubjectAssetPath.IsEmpty() ? TEXT("(not detected)") : Snapshot.SubjectAssetPath;
+    ReportAsset->SkeletalMeshLabel = Snapshot.SkeletalMeshLabel.IsEmpty() ? TEXT("Unknown") : Snapshot.SkeletalMeshLabel;
+    ReportAsset->SkeletonLabel = Snapshot.SkeletonLabel.IsEmpty() ? TEXT("Unknown") : Snapshot.SkeletonLabel;
+    ReportAsset->AssignedAnimClassLabel = Snapshot.AnimationAssignedClassLabel.IsEmpty()
+        ? (Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("(not detected)") : Snapshot.LinkedAnimationBlueprintLabel)
+        : Snapshot.AnimationAssignedClassLabel;
+    ReportAsset->GeneratedAnimBPClassLabel = Snapshot.AnimationGeneratedClassLabel.IsEmpty() ? TEXT("(not detected)") : Snapshot.AnimationGeneratedClassLabel;
+    ReportAsset->ParentAnimInstanceClassLabel = Snapshot.AnimationParentInstanceClassLabel.IsEmpty() ? TEXT("(not detected)") : Snapshot.AnimationParentInstanceClassLabel;
+    ReportAsset->AnimBlueprintAssetLabel = Snapshot.AnimationBlueprintAssetLabel.IsEmpty() ? TEXT("(not detected)") : Snapshot.AnimationBlueprintAssetLabel;
+    ReportAsset->AnimBlueprintAssetPath = Snapshot.AnimationBlueprintAssetPath.IsEmpty()
+        ? (Snapshot.AnimationAssignedClassPath.IsEmpty() ? TEXT("(not detected)") : Snapshot.AnimationAssignedClassPath)
+        : Snapshot.AnimationBlueprintAssetPath;
+    ReportAsset->HookProviderStatus = Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Needs Enhance");
+    ReportAsset->HookDataReadableStatus = Snapshot.bAnimationHookStateReadable ? TEXT("Ready") : TEXT("Needs Enhance");
+    ReportAsset->PhysicalStateProviderStatus = Snapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited");
+    ReportAsset->SharedCharacterBlueprintStatus = SharedCharacterBlueprintStatus;
+    ReportAsset->SharedSkeletalMeshStatus = SharedSkeletalMeshStatus;
+    ReportAsset->SharedSkeletonStatus = SharedSkeletonStatus;
+    ReportAsset->SharedAnimBlueprintStatus = SharedAnimBlueprintStatus;
+    ReportAsset->DirectGraphEditSafety = DirectGraphEditSafety;
+    ReportAsset->RecommendedIntegrationStrategy = RecommendedStrategy;
+    ReportAsset->AdapterReadinessState = AdapterReadinessState;
+    ReportAsset->AdapterStatus = TEXT("Adapter Generated");
+    ReportAsset->AdapterPackagePath = FinalPackagePath;
+    ReportAsset->AdapterObjectPath = ObjectPath;
+    ReportAsset->ReadableHookFields = BuildReadableWanaAnimationHookFieldList(Snapshot);
+    ReportAsset->PostureReactionMappingSummary = PostureReactionMappingSummary;
+    ReportAsset->Limitations = Limitations;
+    ReportAsset->bOriginalAnimBlueprintPreserved = true;
+    ReportAsset->bAssignedAnimClassReplaced = false;
+    ReportAsset->bDirectGraphEditPerformed = false;
+    ReportAsset->bPersistentReportSaved = true;
+    ReportAsset->FullReportText = FString::Printf(
+        TEXT("Persistent WanaAnimation Adapter Report\nGenerated: %s\nWorkspace: %s\nAdapter Package: %s\nAdapter Object: %s\nBuild Output: %s\nSource Subject: %s\nSource Path: %s\nSkeletal Mesh: %s\nSkeleton: %s\nAssigned Anim Class: %s\nGenerated Anim BP Class: %s\nParent Anim Instance Class: %s\nAnim BP Asset: %s\nAnim BP Asset Path: %s\nHook Provider: %s\nHook State Readable: %s\nPhysical Provider: %s\nShared Character Blueprint: %s\nShared Skeletal Mesh: %s\nShared Skeleton: %s\nShared Animation Blueprint: %s\nDirect Graph Edit Safety: %s\nRecommended Strategy: %s\nAdapter Readiness: %s\nReadable Hook Fields: %s\nPosture / Reaction Mapping: %s\nOriginal Anim BP Modified: No\nVariables Added To User Anim BP: No\nAssigned Anim Class Replaced: No\nLimitations: %s"),
+        *ReportAsset->GeneratedAtUtc,
+        *ReportAsset->WorkspaceLabel,
+        *FinalPackagePath,
+        *ObjectPath,
+        BuildOutputPath.IsEmpty() ? TEXT("(no finalized output path reported)") : *BuildOutputPath,
+        *ReportAsset->SourceSubjectName,
+        *ReportAsset->SourceSubjectPath,
+        *ReportAsset->SkeletalMeshLabel,
+        *ReportAsset->SkeletonLabel,
+        *ReportAsset->AssignedAnimClassLabel,
+        *ReportAsset->GeneratedAnimBPClassLabel,
+        *ReportAsset->ParentAnimInstanceClassLabel,
+        *ReportAsset->AnimBlueprintAssetLabel,
+        *ReportAsset->AnimBlueprintAssetPath,
+        *ReportAsset->HookProviderStatus,
+        *ReportAsset->HookDataReadableStatus,
+        *ReportAsset->PhysicalStateProviderStatus,
+        *SharedCharacterBlueprintStatus,
+        *SharedSkeletalMeshStatus,
+        *SharedSkeletonStatus,
+        *SharedAnimBlueprintStatus,
+        *DirectGraphEditSafety,
+        *RecommendedStrategy,
+        *AdapterReadinessState,
+        *FString::Join(ReportAsset->ReadableHookFields, TEXT(", ")),
+        *PostureReactionMappingSummary,
+        *Limitations);
+
+    if (bCreatedNewAsset)
+    {
+        FAssetRegistryModule::AssetCreated(ReportAsset);
+    }
+
+    Package->MarkPackageDirty();
+
+    const FString PackageFilename = FPackageName::LongPackageNameToFilename(
+        FinalPackagePath,
+        FPackageName::GetAssetPackageExtension());
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(PackageFilename), true);
+
+    FSavePackageArgs SaveArgs;
+    SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+    SaveArgs.SaveFlags = SAVE_NoError;
+
+    const bool bSaved = UPackage::SavePackage(Package, ReportAsset, *PackageFilename, SaveArgs);
+    if (!bSaved)
+    {
+        Result.StatusLabel = TEXT("Adapter Not Generated");
+        Result.PackagePath = FinalPackagePath;
+        Result.ObjectPath = ObjectPath;
+        Result.Detail = FString::Printf(
+            TEXT("Adapter not generated: WanaWorks could not save the report package at %s."),
+            *FinalPackagePath);
+        return Result;
+    }
+
+    Result.bSucceeded = true;
+    Result.StatusLabel = TEXT("Adapter Generated");
+    Result.PackagePath = FinalPackagePath;
+    Result.ObjectPath = ObjectPath;
+    Result.Detail = SharedSummaryHasSharedAnimBP(SharedSummary)
+        ? FString::Printf(TEXT("Adapter generated with limitations: shared Anim BP requires non-destructive integration. WanaAnimation adapter report saved to %s."), *FinalPackagePath)
+        : FString::Printf(TEXT("WanaAnimation adapter report saved to %s. Original Anim BP was preserved."), *FinalPackagePath);
+    return Result;
 }
 
 FString GetSafeActorLabel(const AActor* Actor)
@@ -3870,6 +4482,19 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             const FString PlayableModeStatus = GetPlayableModeStatusLabel(&Snapshot);
             const bool bBuildReady = Snapshot.bHasSkeletalMeshComponent && Snapshot.bHasAnimBlueprint;
             const bool bProfileAssigned = !ProfileLabel.Equals(CharacterBuildingDefaultProfileLabel, ESearchCase::IgnoreCase);
+            const bool bAdapterRecordGenerated =
+                IsGeneratedAnimationAdapterRecordForSnapshot(Snapshot)
+                || HasPersistentAnimationAdapterReportForSnapshot(Snapshot);
+            const FString AdapterRecordPath = ResolveAnimationAdapterReportPathForSnapshot(Snapshot);
+            const FString AnimBPWiringReadiness = GetAnimBPWiringReadinessLabel(Snapshot, SharedStackSummary);
+            const FString AdapterStatus = GetWanaAnimationAdapterStatusLabel(Snapshot, SharedStackSummary, bAdapterRecordGenerated);
+            const FString DirectGraphEditSafety = GetAnimBPDirectGraphEditSafetyLabel(Snapshot, SharedStackSummary);
+            const FString RecommendedAdapterStrategy = GetWanaAnimationRecommendedStrategy(Snapshot, SharedStackSummary);
+            const FString AdapterReadinessDetail = BuildWanaAnimationAdapterReadinessDetail(
+                Snapshot,
+                SharedStackSummary,
+                bAdapterRecordGenerated,
+                AdapterRecordPath);
 
             AddAnalysisItem(PrimaryItems, Result, TEXT("Character Subject"), TEXT("Ready"), Snapshot.SelectedActorLabel);
             AddAnalysisItem(
@@ -3894,6 +4519,8 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             AddAnalysisItem(AnimationItems, Result, TEXT("Skeletal Mesh"), Snapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Missing"), Snapshot.SkeletalMeshLabel.IsEmpty() ? (bHasSkeletalMeshAsset ? SkeletalMeshLabel : TEXT("No skeletal mesh asset detected.")) : Snapshot.SkeletalMeshLabel);
             AddAnalysisItem(AnimationItems, Result, TEXT("Skeleton / Rig"), bRigReady ? TEXT("Ready") : TEXT("Limited"), Snapshot.SkeletonLabel.IsEmpty() ? (bRigReady ? SkeletonLabel : TEXT("Skeleton or rig could not be confirmed.")) : Snapshot.SkeletonLabel);
             AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), bAnimationReady ? TEXT("Ready") : TEXT("Limited"), Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : Snapshot.LinkedAnimationBlueprintLabel);
+            AddAnalysisItem(AnimationItems, Result, TEXT("Anim BP Wiring Readiness"), AnimBPWiringReadiness, AdapterReadinessDetail);
+            AddAnalysisItem(AnimationItems, Result, TEXT("Generated WanaAnimation Adapter"), AdapterStatus, FString::Printf(TEXT("Output: %s. Direct Graph Edit Safety: %s. Recommended Strategy: %s."), *AdapterRecordPath, *DirectGraphEditSafety, *RecommendedAdapterStrategy));
             AddAnalysisItem(AnimationItems, Result, TEXT("Compatible Skeleton"), Snapshot.bHasSkeletalMeshComponent && IsKnownStackValue(Snapshot.SkeletonLabel) ? (Snapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited")) : TEXT("Unknown"), Snapshot.CompatibleSkeletonSummary.IsEmpty() ? TEXT("Skeleton compatibility could not be summarized.") : Snapshot.CompatibleSkeletonSummary);
             AddAnalysisItem(AnimationItems, Result, TEXT("Shared Skeleton / Anim BP"), SharedStackStatus, SharedStackSummary);
 
@@ -3911,6 +4538,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             AddAnalysisItem(SuggestedItems, Result, TEXT("Build Readiness"), bBuildReady ? TEXT("Ready") : TEXT("Limited"), bBuildReady ? TEXT("Mesh and animation are detected; character is ready for build preparation.") : TEXT("Build readiness is limited until mesh and animation are both detected."));
             AddAnalysisItem(SuggestedItems, Result, TEXT("Output Status"), bWorkingSubjectReady ? TEXT("Ready") : TEXT("Limited"), bWorkingSubjectReady ? TEXT("A WanaWorks working subject is available for safe output flow.") : TEXT("Enhancement has not prepared a working subject in this session yet."));
             AddAnalysisItem(SuggestedItems, Result, TEXT("Playable Control Next Step"), PlayableModeStatus, Snapshot.bHasPlayerControllerSignal ? TEXT("Player-control context is visible. Confirm the expected input/camera path in PIE if needed.") : TEXT("If this is meant to be directly playable, confirm Auto Possess Player or GameMode PlayerController setup."));
+            AddAnalysisItem(SuggestedItems, Result, TEXT("Animation Adapter Next Step"), AdapterStatus, RecommendedAdapterStrategy.Equals(TEXT("Needs Enhance"), ESearchCase::IgnoreCase) ? TEXT("Run Enhance to prepare WanaAnimation hook providers before adapter generation.") : TEXT("Build can save a persistent WanaWorks-owned adapter report without changing the original Animation Blueprint."));
 
             RecommendedAction = bBuildReady
                 ? TEXT("Build can proceed after any desired character-facing enhancement or visual review.")
@@ -4038,6 +4666,19 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                 || BehaviorSnapshot.AnimationHookApplicationStatus != EWAYAnimationHookApplicationStatus::NotAvailable;
             const FString SharedStackSummary = GetSharedCharacterStackSummaryText();
             const FString SharedStackStatus = GetSharedCharacterStackStatusLabel();
+            const bool bAdapterRecordGenerated =
+                IsGeneratedAnimationAdapterRecordForSnapshot(Snapshot)
+                || HasPersistentAnimationAdapterReportForSnapshot(Snapshot);
+            const FString AdapterRecordPath = ResolveAnimationAdapterReportPathForSnapshot(Snapshot);
+            const FString AnimBPWiringReadiness = GetAnimBPWiringReadinessLabel(Snapshot, SharedStackSummary);
+            const FString AdapterStatus = GetWanaAnimationAdapterStatusLabel(Snapshot, SharedStackSummary, bAdapterRecordGenerated);
+            const FString DirectGraphEditSafety = GetAnimBPDirectGraphEditSafetyLabel(Snapshot, SharedStackSummary);
+            const FString RecommendedAdapterStrategy = GetWanaAnimationRecommendedStrategy(Snapshot, SharedStackSummary);
+            const FString AdapterReadinessDetail = BuildWanaAnimationAdapterReadinessDetail(
+                Snapshot,
+                SharedStackSummary,
+                bAdapterRecordGenerated,
+                AdapterRecordPath);
             const FString AnimationConsumptionStatus = !Snapshot.bHasSkeletalMeshComponent
                 ? FString(TEXT("Not Supported"))
                 : ((!Snapshot.bHasWAYComponent || !bAnimationHookReadableForTest)
@@ -4096,6 +4737,8 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             AddAnalysisItem(AnimationItems, Result, TEXT("WanaAnimation"), bAnimationReady ? TEXT("Ready") : TEXT("Limited"), Snapshot.AnimationAutomaticIntegrationDetail.IsEmpty() ? TEXT("Animation integration is not fully prepared yet.") : Snapshot.AnimationAutomaticIntegrationDetail);
             AddAnalysisItem(AnimationItems, Result, TEXT("Hook State Readable"), bAnimationHookReadableForTest ? TEXT("Ready") : TEXT("Needs Enhance"), bAnimationHookReadableForTest ? TEXT("WAY/WanaAnimation hook state is readable by WanaWorks and Blueprints.") : TEXT("Enhance can attach the WAY hook provider before animation consumption."));
             AddAnalysisItem(AnimationItems, Result, TEXT("Hook Consumption Readiness"), AnimationConsumptionStatus, AnimationConsumptionDetail);
+            AddAnalysisItem(AnimationItems, Result, TEXT("Anim BP Wiring Readiness"), AnimBPWiringReadiness, AdapterReadinessDetail);
+            AddAnalysisItem(AnimationItems, Result, TEXT("Generated WanaAnimation Adapter"), AdapterStatus, FString::Printf(TEXT("Output: %s. Direct Graph Edit Safety: %s. Recommended Strategy: %s."), *AdapterRecordPath, *DirectGraphEditSafety, *RecommendedAdapterStrategy));
             AddAnalysisItem(AnimationItems, Result, TEXT("Posture Hint"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), FString::Printf(TEXT("%s posture in the %s category from %s."), *AnimationPostureHint, *AnimationPostureCategory, *AnimationBehaviorIntent));
             AddAnalysisItem(AnimationItems, Result, TEXT("Hook Requests"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), AnimationHookRequestDetail);
             AddAnalysisItem(AnimationItems, Result, TEXT("Body-Language Source"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.AnimationHookDetail.IsEmpty() ? TEXT("WanaAnimation hook state has not reported details yet.") : BehaviorSnapshot.AnimationHookDetail);
@@ -4111,18 +4754,20 @@ void FWanaWorksUIModule::TestActiveWorkspace()
 
             AddAnalysisItem(SuggestedItems, Result, TEXT("Ready for Build"), bReadyForBuild ? TEXT("Ready") : TEXT("Limited"), bReadyForBuild ? TEXT("AI subject has the core readable systems expected for this V1 workflow.") : TEXT("Run Enhance or resolve limited systems before treating the subject as build-ready."));
             AddAnalysisItem(SuggestedItems, Result, TEXT("Animation Body Language"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), bAnimationHookDriven ? FString::Printf(TEXT("Test requested %s posture with %s."), *AnimationPostureHint, *AnimationLocomotionHint) : TEXT("Run Enhance/Test with a valid observer-target pair to drive WanaAnimation posture hints."));
+            AddAnalysisItem(SuggestedItems, Result, TEXT("Animation Adapter Next Step"), AdapterStatus, RecommendedAdapterStrategy.Equals(TEXT("Needs Enhance"), ESearchCase::IgnoreCase) ? TEXT("Run Enhance to prepare WanaAnimation hook providers before adapter generation.") : TEXT("Build can save a persistent WanaWorks-owned adapter report without changing the original Animation Blueprint."));
 
             RecommendedAction = bReadyForBuild
                 ? TEXT("Use Build after visual review, or Test again after changing behavior/environment context.")
                 : TEXT("Run Enhance to prepare missing WanaWorks layers, then Test again before Build.");
             ResultLabel = bBehaviorExecutionSucceeded
                 ? FString::Printf(
-                    TEXT("%s active via %s. WanaAnimation: %s posture, facing hook %s, %s"),
+                    TEXT("%s active via %s. WanaAnimation: %s posture, facing hook %s, %s. Adapter: %s"),
                     BehaviorSnapshot.AnimationVisibleBehaviorLabel.IsEmpty() ? *UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior) : *BehaviorSnapshot.AnimationVisibleBehaviorLabel,
                     *UIFmt::GetBehaviorExecutionModeSummaryLabel(BehaviorSnapshot.ExecutionMode),
                     *AnimationPostureHint,
                     *UIFmt::GetAnimationHookRequestSummaryLabel(BehaviorSnapshot.bAnimationFacingHookRequested),
-                    *AnimationLocomotionHint)
+                    *AnimationLocomotionHint,
+                    *AdapterStatus)
                 : (bReadyForBuild ? TEXT("AI subject is enhanced and ready for build review") : TEXT("AI behavior readiness is limited but safe fallback data is available"));
             Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Intelligence Stage Reaction"), PrimaryItems, RecommendedAction);
             Result.AnimationSummary = BuildAnalysisCardText(TEXT("Animation Integration Test"), AnimationItems, RecommendedAction);
@@ -4609,6 +5254,19 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
             const FString SharedStackSummary = GetSharedCharacterStackSummaryText();
             const FString SharedStackStatus = GetSharedCharacterStackStatusLabel();
             const bool bProfileAssigned = !ProfileLabel.Equals(CharacterBuildingDefaultProfileLabel, ESearchCase::IgnoreCase);
+            const bool bAdapterRecordGenerated =
+                IsGeneratedAnimationAdapterRecordForSnapshot(Snapshot)
+                || HasPersistentAnimationAdapterReportForSnapshot(Snapshot);
+            const FString AdapterRecordPath = ResolveAnimationAdapterReportPathForSnapshot(Snapshot);
+            const FString AnimBPWiringReadiness = GetAnimBPWiringReadinessLabel(Snapshot, SharedStackSummary);
+            const FString AdapterStatus = GetWanaAnimationAdapterStatusLabel(Snapshot, SharedStackSummary, bAdapterRecordGenerated);
+            const FString DirectGraphEditSafety = GetAnimBPDirectGraphEditSafetyLabel(Snapshot, SharedStackSummary);
+            const FString RecommendedAdapterStrategy = GetWanaAnimationRecommendedStrategy(Snapshot, SharedStackSummary);
+            const FString AdapterReadinessDetail = BuildWanaAnimationAdapterReadinessDetail(
+                Snapshot,
+                SharedStackSummary,
+                bAdapterRecordGenerated,
+                AdapterRecordPath);
 
             AddAnalysisItem(
                 PrimaryItems,
@@ -4662,6 +5320,18 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
             AddAnalysisItem(
                 AnimationItems,
                 Result,
+                TEXT("Assigned Anim Class"),
+                Snapshot.AnimationAssignedClassLabel.IsEmpty() ? TEXT("Limited") : TEXT("Ready"),
+                Snapshot.AnimationAssignedClassLabel.IsEmpty() ? TEXT("Assigned Anim Class could not be confirmed from the selected subject.") : Snapshot.AnimationAssignedClassLabel);
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("Anim BP Wiring Readiness"),
+                AnimBPWiringReadiness,
+                AdapterReadinessDetail);
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
                 TEXT("Compatible Skeleton"),
                 Snapshot.bHasSkeletalMeshComponent && IsKnownStackValue(Snapshot.SkeletonLabel) ? (Snapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited")) : TEXT("Unknown"),
                 Snapshot.CompatibleSkeletonSummary.IsEmpty() ? TEXT("Skeleton compatibility could not be summarized.") : Snapshot.CompatibleSkeletonSummary);
@@ -4671,6 +5341,21 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
                 TEXT("Shared Skeleton / Anim BP"),
                 SharedStackStatus,
                 SharedStackSummary);
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("Shared Anim BP Risk"),
+                DirectGraphEditSafety.Equals(TEXT("Unsafe"), ESearchCase::IgnoreCase) ? TEXT("Unsafe Shared Stack") : DirectGraphEditSafety,
+                FString::Printf(
+                    TEXT("Shared Anim BP: %s. Direct Graph Edit Safety: %s. WanaWorks will not edit or add variables to the original Anim BP in this phase."),
+                    *GetSharedAnimBPStatusLabel(SharedStackSummary),
+                    *DirectGraphEditSafety));
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("Generated WanaAnimation Adapter"),
+                AdapterStatus,
+                FString::Printf(TEXT("%s. Recommended Strategy: %s."), *AdapterReadinessDetail, *RecommendedAdapterStrategy));
 
             AddAnalysisItem(
                 PhysicalItems,
@@ -4724,6 +5409,14 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
             AddAnalysisItem(
                 SuggestedItems,
                 Result,
+                TEXT("WanaAnimation Adapter"),
+                AdapterStatus,
+                RecommendedAdapterStrategy.Equals(TEXT("Needs Enhance"), ESearchCase::IgnoreCase)
+                    ? TEXT("Run Enhance to prepare the hook provider before generating adapter output.")
+                    : TEXT("Build can save a WanaWorks-owned adapter report under /Game/WanaWorks/Adapters while preserving the original Anim BP."));
+            AddAnalysisItem(
+                SuggestedItems,
+                Result,
                 TEXT("Shared Stack Next Step"),
                 SharedStackStatus,
                 SharedStackStatus.Equals(TEXT("Shared Character BP"), ESearchCase::IgnoreCase)
@@ -4742,6 +5435,19 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
         {
             const FString SharedStackSummary = GetSharedCharacterStackSummaryText();
             const FString SharedStackStatus = GetSharedCharacterStackStatusLabel();
+            const bool bAdapterRecordGenerated =
+                IsGeneratedAnimationAdapterRecordForSnapshot(Snapshot)
+                || HasPersistentAnimationAdapterReportForSnapshot(Snapshot);
+            const FString AdapterRecordPath = ResolveAnimationAdapterReportPathForSnapshot(Snapshot);
+            const FString AnimBPWiringReadiness = GetAnimBPWiringReadinessLabel(Snapshot, SharedStackSummary);
+            const FString AdapterStatus = GetWanaAnimationAdapterStatusLabel(Snapshot, SharedStackSummary, bAdapterRecordGenerated);
+            const FString DirectGraphEditSafety = GetAnimBPDirectGraphEditSafetyLabel(Snapshot, SharedStackSummary);
+            const FString RecommendedAdapterStrategy = GetWanaAnimationRecommendedStrategy(Snapshot, SharedStackSummary);
+            const FString AdapterReadinessDetail = BuildWanaAnimationAdapterReadinessDetail(
+                Snapshot,
+                SharedStackSummary,
+                bAdapterRecordGenerated,
+                AdapterRecordPath);
             const UClass* AIControllerClass = GetAIControllerClassForAnalysis(AnalysisActor);
             const UObject* ControllerDefaultObject = AIControllerClass ? AIControllerClass->GetDefaultObject() : nullptr;
             FString BehaviorTreeLabel;
@@ -4839,6 +5545,33 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
                     ? TEXT("Ready")
                     : (Snapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Limited ? TEXT("Limited") : TEXT("Missing")),
                 Snapshot.AnimationAutomaticIntegrationDetail.IsEmpty() ? TEXT("Animation hook integration has not been prepared yet.") : Snapshot.AnimationAutomaticIntegrationDetail);
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("Assigned Anim Class"),
+                Snapshot.AnimationAssignedClassLabel.IsEmpty() ? TEXT("Limited") : TEXT("Ready"),
+                Snapshot.AnimationAssignedClassLabel.IsEmpty() ? TEXT("Assigned Anim Class could not be confirmed from the selected subject.") : Snapshot.AnimationAssignedClassLabel);
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("Anim BP Wiring Readiness"),
+                AnimBPWiringReadiness,
+                AdapterReadinessDetail);
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("Shared Anim BP Risk"),
+                DirectGraphEditSafety.Equals(TEXT("Unsafe"), ESearchCase::IgnoreCase) ? TEXT("Unsafe Shared Stack") : DirectGraphEditSafety,
+                FString::Printf(
+                    TEXT("Shared Anim BP: %s. Direct Graph Edit Safety: %s. Direct graph edits and variable injection are not used in this phase."),
+                    *GetSharedAnimBPStatusLabel(SharedStackSummary),
+                    *DirectGraphEditSafety));
+            AddAnalysisItem(
+                AnimationItems,
+                Result,
+                TEXT("Generated WanaAnimation Adapter"),
+                AdapterStatus,
+                FString::Printf(TEXT("%s. Recommended Strategy: %s."), *AdapterReadinessDetail, *RecommendedAdapterStrategy));
 
             AddAnalysisItem(
                 PhysicalItems,
@@ -4909,6 +5642,14 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
                     ? TEXT("Recommended")
                     : TEXT("Ready"),
                 TEXT("Enhance can attach missing WanaWorks layers and prepare animation/behavior hooks on the safe workflow path."));
+            AddAnalysisItem(
+                SuggestedItems,
+                Result,
+                TEXT("WanaAnimation Adapter"),
+                AdapterStatus,
+                RecommendedAdapterStrategy.Equals(TEXT("Needs Enhance"), ESearchCase::IgnoreCase)
+                    ? TEXT("Run Enhance to prepare the hook provider before generating adapter output.")
+                    : TEXT("Use Build to save a WanaWorks-owned adapter report under /Game/WanaWorks/Adapters without touching the original Anim BP."));
 
             RecommendedAction = TEXT("Apply Character Intelligence enhancement to attach missing WanaWorks components and prepare behavior, animation, physical-state, and WIT hooks.");
             Result.PrimarySummary = BuildAnalysisCardText(TEXT("AI Subject Diagnosis"), PrimaryItems, RecommendedAction);
@@ -5315,6 +6056,44 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
     const bool bAnimationReady = EffectiveSnapshot.bHasAnimBlueprint
         || EffectiveSnapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Applied
         || EffectiveSnapshot.AnimationAutomaticIntegrationStatus == EWAYAutomaticAnimationIntegrationStatus::Ready;
+    const FString BuildSharedStackSummaryForAdapter = GetSharedCharacterStackSummaryText();
+
+    if (BuildResponse.bSucceeded && bHasEffectiveSnapshot && EffectiveSnapshot.bHasSkeletalMeshComponent && EffectiveSnapshot.bHasAnimBlueprint)
+    {
+        const FString AdapterReportSummary = GenerateWanaAnimationAdapterRecord(
+            EffectiveSnapshot,
+            BuildSharedStackSummaryForAdapter,
+            DisplayWorkspaceLabel,
+            OutputPath);
+        BuildResponse.OutputLines.Add(FString::Printf(
+            TEXT("Generated WanaAnimation Adapter: %s"),
+            LastGeneratedAnimationAdapterStatus.IsEmpty() ? TEXT("Adapter Not Generated") : *LastGeneratedAnimationAdapterStatus));
+        BuildResponse.OutputLines.Add(FString::Printf(
+            TEXT("WanaAnimation Adapter Report: %s"),
+            LastGeneratedAnimationAdapterOutputPath.IsEmpty() ? TEXT("(not saved)") : *LastGeneratedAnimationAdapterOutputPath));
+        BuildResponse.OutputLines.Add(FString::Printf(
+            TEXT("Shared Anim BP: %s"),
+            *GetSharedAnimBPStatusLabel(BuildSharedStackSummaryForAdapter)));
+        BuildResponse.OutputLines.Add(FString::Printf(
+            TEXT("Direct Graph Edit Safety: %s"),
+            *GetAnimBPDirectGraphEditSafetyLabel(EffectiveSnapshot, BuildSharedStackSummaryForAdapter)));
+        BuildResponse.OutputLines.Add(FString::Printf(
+            TEXT("Recommended Strategy: %s"),
+            *GetWanaAnimationRecommendedStrategy(EffectiveSnapshot, BuildSharedStackSummaryForAdapter)));
+        BuildResponse.OutputLines.Add(FString::Printf(
+            TEXT("Adapter Notes: %s"),
+            AdapterReportSummary.IsEmpty()
+                ? TEXT("Persistent WanaWorks-owned adapter report was attempted. Original Anim BP graph, variables, and assigned Anim Class were not modified.")
+                : *AdapterReportSummary.Replace(TEXT("\n"), TEXT(" "))));
+    }
+    else if (BuildResponse.bSucceeded && bHasEffectiveSnapshot)
+    {
+        BuildResponse.OutputLines.Add(TEXT("Generated WanaAnimation Adapter: Adapter Not Generated"));
+        BuildResponse.OutputLines.Add(TEXT("WanaAnimation Adapter Report: (not saved)"));
+        BuildResponse.OutputLines.Add(EffectiveSnapshot.bHasSkeletalMeshComponent
+            ? TEXT("Adapter Notes: Adapter not generated because no assigned Animation Blueprint was detected. Original animation assets were preserved.")
+            : TEXT("Adapter Notes: Adapter not generated because no compatible skeletal mesh was detected. Original animation assets were preserved."));
+    }
 
     bool bBuildHasLimitations = !BuildResponse.bSucceeded || !bTestWasAvailable;
 
@@ -5351,6 +6130,17 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         const FString SharedStackSummary = GetSharedCharacterStackSummaryText();
         const FString SharedStackStatus = GetSharedCharacterStackStatusLabel();
         const FString PlayableModeStatus = GetPlayableModeStatusLabel(&EffectiveSnapshot);
+        const bool bAdapterRecordGenerated =
+            IsGeneratedAnimationAdapterRecordForSnapshot(EffectiveSnapshot)
+            || HasPersistentAnimationAdapterReportForSnapshot(EffectiveSnapshot);
+        const FString AdapterRecordPath = ResolveAnimationAdapterReportPathForSnapshot(EffectiveSnapshot);
+        const FString AnimBPWiringReadiness = GetAnimBPWiringReadinessLabel(EffectiveSnapshot, SharedStackSummary);
+        const FString AdapterStatus = GetWanaAnimationAdapterStatusLabel(EffectiveSnapshot, SharedStackSummary, bAdapterRecordGenerated);
+        const FString DirectGraphEditSafety = GetAnimBPDirectGraphEditSafetyLabel(EffectiveSnapshot, SharedStackSummary);
+        const FString RecommendedAdapterStrategy = GetWanaAnimationRecommendedStrategy(EffectiveSnapshot, SharedStackSummary);
+        const FString AdapterReadinessDetail = IsGeneratedAnimationAdapterRecordForSnapshot(EffectiveSnapshot) && !LastGeneratedAnimationAdapterSummary.IsEmpty()
+            ? LastGeneratedAnimationAdapterSummary
+            : BuildWanaAnimationAdapterReadinessDetail(EffectiveSnapshot, SharedStackSummary, bAdapterRecordGenerated, AdapterRecordPath);
 
         AddAnalysisItem(PrimaryItems, Result, TEXT("Source Character"), bHasSourceSnapshot ? TEXT("Ready") : TEXT("Limited"), bHasSourceSnapshot ? SourceSnapshot.SelectedActorLabel : TEXT("Source subject was inferred from the active working subject."));
         AddAnalysisItem(PrimaryItems, Result, TEXT("Working Character Used"), TEXT("Ready"), BuildSourceActor->GetActorNameOrLabel());
@@ -5362,6 +6152,8 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         AddAnalysisItem(AnimationItems, Result, TEXT("Skeletal Mesh"), EffectiveSnapshot.bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.SkeletalMeshLabel.IsEmpty() ? (bHasSkeletalMeshAsset ? SkeletalMeshLabel : TEXT("No skeletal mesh asset detected.")) : EffectiveSnapshot.SkeletalMeshLabel);
         AddAnalysisItem(AnimationItems, Result, TEXT("Skeleton / Rig"), IsKnownStackValue(EffectiveSnapshot.SkeletonLabel) || (!SkeletonLabel.IsEmpty() && !SkeletonLabel.Equals(TEXT("(no skeleton asset)"))) ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.SkeletonLabel.IsEmpty() ? (SkeletonLabel.IsEmpty() ? TEXT("Skeleton or rig could not be confirmed.") : SkeletonLabel) : EffectiveSnapshot.SkeletonLabel);
         AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), EffectiveSnapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : EffectiveSnapshot.LinkedAnimationBlueprintLabel);
+        AddAnalysisItem(AnimationItems, Result, TEXT("Anim BP Wiring Readiness"), AnimBPWiringReadiness, AdapterReadinessDetail);
+        AddAnalysisItem(AnimationItems, Result, TEXT("Generated WanaAnimation Adapter"), AdapterStatus, FString::Printf(TEXT("Output: %s. Direct Graph Edit Safety: %s. Recommended Strategy: %s."), *AdapterRecordPath, *DirectGraphEditSafety, *RecommendedAdapterStrategy));
         AddAnalysisItem(AnimationItems, Result, TEXT("Compatible Skeleton"), EffectiveSnapshot.bHasSkeletalMeshComponent && IsKnownStackValue(EffectiveSnapshot.SkeletonLabel) ? (EffectiveSnapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited")) : TEXT("Unknown"), EffectiveSnapshot.CompatibleSkeletonSummary.IsEmpty() ? TEXT("Skeleton compatibility could not be summarized.") : EffectiveSnapshot.CompatibleSkeletonSummary);
         AddAnalysisItem(AnimationItems, Result, TEXT("Shared Skeleton / Anim BP"), SharedStackStatus, SharedStackSummary);
 
@@ -5379,6 +6171,7 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         AddAnalysisItem(SuggestedItems, Result, TEXT("Output Path"), BuildResponse.bSucceeded ? TEXT("Built") : TEXT("Blocked"), OutputPath.IsEmpty() ? TEXT("/Game/WanaWorks/Builds") : OutputPath);
         AddAnalysisItem(SuggestedItems, Result, TEXT("Validation"), bTestWasAvailable ? TEXT("Ready") : TEXT("Limited"), bTestWasAvailable ? TEXT("Test readiness was available before Build.") : TEXT("Build used lightweight readiness because Test had not been run yet."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Playable Control"), PlayableModeStatus, EffectiveSnapshot.bHasPlayerControllerSignal ? TEXT("Player-control context was visible during Build.") : TEXT("Build preserved existing controller/input setup; direct PlayerController class may be provided by GameMode/runtime."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("WanaAnimation Adapter"), AdapterStatus, bAdapterRecordGenerated ? FString::Printf(TEXT("WanaWorks saved or found a persistent adapter report at %s without modifying the original Anim BP."), *AdapterRecordPath) : TEXT("Adapter output is limited until the subject has mesh, Anim BP, and hook readiness."));
 
         Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Build Output"), PrimaryItems, RecommendedAction);
         Result.AnimationSummary = BuildAnalysisCardText(TEXT("Rig & Animation Build Readiness"), AnimationItems, RecommendedAction);
@@ -5391,6 +6184,17 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
     {
         const FString SharedStackSummary = GetSharedCharacterStackSummaryText();
         const FString SharedStackStatus = GetSharedCharacterStackStatusLabel();
+        const bool bAdapterRecordGenerated =
+            IsGeneratedAnimationAdapterRecordForSnapshot(EffectiveSnapshot)
+            || HasPersistentAnimationAdapterReportForSnapshot(EffectiveSnapshot);
+        const FString AdapterRecordPath = ResolveAnimationAdapterReportPathForSnapshot(EffectiveSnapshot);
+        const FString AnimBPWiringReadiness = GetAnimBPWiringReadinessLabel(EffectiveSnapshot, SharedStackSummary);
+        const FString AdapterStatus = GetWanaAnimationAdapterStatusLabel(EffectiveSnapshot, SharedStackSummary, bAdapterRecordGenerated);
+        const FString DirectGraphEditSafety = GetAnimBPDirectGraphEditSafetyLabel(EffectiveSnapshot, SharedStackSummary);
+        const FString RecommendedAdapterStrategy = GetWanaAnimationRecommendedStrategy(EffectiveSnapshot, SharedStackSummary);
+        const FString AdapterReadinessDetail = IsGeneratedAnimationAdapterRecordForSnapshot(EffectiveSnapshot) && !LastGeneratedAnimationAdapterSummary.IsEmpty()
+            ? LastGeneratedAnimationAdapterSummary
+            : BuildWanaAnimationAdapterReadinessDetail(EffectiveSnapshot, SharedStackSummary, bAdapterRecordGenerated, AdapterRecordPath);
         AActor* ObserverActor = nullptr;
         AActor* TargetActor = nullptr;
         FString PairSourceLabel;
@@ -5428,6 +6232,8 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
 
         AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), EffectiveSnapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : EffectiveSnapshot.LinkedAnimationBlueprintLabel);
         AddAnalysisItem(AnimationItems, Result, TEXT("WanaAnimation"), bAnimationReady ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.AnimationAutomaticIntegrationDetail.IsEmpty() ? TEXT("Animation integration is limited or not prepared.") : EffectiveSnapshot.AnimationAutomaticIntegrationDetail);
+        AddAnalysisItem(AnimationItems, Result, TEXT("Anim BP Wiring Readiness"), AnimBPWiringReadiness, AdapterReadinessDetail);
+        AddAnalysisItem(AnimationItems, Result, TEXT("Generated WanaAnimation Adapter"), AdapterStatus, FString::Printf(TEXT("Output: %s. Direct Graph Edit Safety: %s. Recommended Strategy: %s."), *AdapterRecordPath, *DirectGraphEditSafety, *RecommendedAdapterStrategy));
         AddAnalysisItem(PhysicalItems, Result, TEXT("Physical State"), EffectiveSnapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.bHasPhysicalStateComponent ? TEXT("Readable body-state layer is available.") : TEXT("Physical state layer was not detected."));
         AddAnalysisItem(PhysicalItems, Result, TEXT("WanaCombat-lite"), EffectiveSnapshot.bHasPhysicalStateComponent && EffectiveSnapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), TEXT("Combat-lite readiness stays additive and does not replace AI logic."));
 
@@ -5437,6 +6243,7 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         AddAnalysisItem(SuggestedItems, Result, TEXT("Build Status"), BuildState, BuildResponse.bSucceeded ? TEXT("Character Intelligence output completed without touching the original.") : TEXT("Character Intelligence build did not complete."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Output Path"), BuildResponse.bSucceeded ? TEXT("Built") : TEXT("Blocked"), OutputPath.IsEmpty() ? TEXT("/Game/WanaWorks/Builds") : OutputPath);
         AddAnalysisItem(SuggestedItems, Result, TEXT("Validation"), bTestWasAvailable ? TEXT("Ready") : TEXT("Limited"), bTestWasAvailable ? TEXT("Test readiness was available before Build.") : TEXT("Build used lightweight readiness because Test had not been run yet."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("WanaAnimation Adapter"), AdapterStatus, bAdapterRecordGenerated ? FString::Printf(TEXT("WanaWorks saved or found a persistent adapter report at %s without modifying the original Anim BP."), *AdapterRecordPath) : TEXT("Adapter output is limited until the subject has mesh, Anim BP, and hook readiness."));
 
         Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Intelligence Build Output"), PrimaryItems, RecommendedAction);
         Result.AnimationSummary = BuildAnalysisCardText(TEXT("WanaAnimation Build Readiness"), AnimationItems, RecommendedAction);
@@ -5915,6 +6722,109 @@ FString FWanaWorksUIModule::GetSharedCharacterStackSummaryText() const
 FString FWanaWorksUIModule::GetSharedCharacterStackStatusLabel() const
 {
     return GetSharedStackStatusFromSummary(GetSharedCharacterStackSummaryText());
+}
+
+bool FWanaWorksUIModule::IsGeneratedAnimationAdapterRecordForSnapshot(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot) const
+{
+    if (!bGeneratedAnimationAdapterRecordInitialized
+        || !Snapshot.bHasSelectedActor
+        || !LastGeneratedAnimationAdapterStatus.Equals(TEXT("Adapter Generated"), ESearchCase::IgnoreCase))
+    {
+        return false;
+    }
+
+    const bool bSubjectMatches =
+        (!LastGeneratedAnimationAdapterSubjectPath.IsEmpty() && LastGeneratedAnimationAdapterSubjectPath == Snapshot.SubjectAssetPath)
+        || (!LastGeneratedAnimationAdapterSubjectLabel.IsEmpty() && LastGeneratedAnimationAdapterSubjectLabel == Snapshot.SelectedActorLabel);
+    const bool bAnimBlueprintMatches =
+        LastGeneratedAnimationAdapterAnimBlueprintLabel.IsEmpty()
+        || LastGeneratedAnimationAdapterAnimBlueprintLabel == Snapshot.LinkedAnimationBlueprintLabel
+        || LastGeneratedAnimationAdapterAnimBlueprintLabel == Snapshot.AnimationAssignedClassLabel;
+
+    return bSubjectMatches && bAnimBlueprintMatches;
+}
+
+bool FWanaWorksUIModule::HasPersistentAnimationAdapterReportForSnapshot(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot) const
+{
+    if (!Snapshot.bHasSelectedActor || !Snapshot.bHasSkeletalMeshComponent || !Snapshot.bHasAnimBlueprint)
+    {
+        return false;
+    }
+
+    return DoesWanaAnimationAdapterReportExist(Snapshot);
+}
+
+FString FWanaWorksUIModule::ResolveAnimationAdapterReportPathForSnapshot(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot) const
+{
+    if (IsGeneratedAnimationAdapterRecordForSnapshot(Snapshot) && !LastGeneratedAnimationAdapterOutputPath.IsEmpty())
+    {
+        return LastGeneratedAnimationAdapterOutputPath;
+    }
+
+    const FString ExistingReportPath = FindExistingWanaAnimationAdapterReportPath(Snapshot);
+    if (!ExistingReportPath.IsEmpty())
+    {
+        return ExistingReportPath;
+    }
+
+    return BuildWanaAnimationAdapterOutputPath(Snapshot);
+}
+
+FString FWanaWorksUIModule::GenerateWanaAnimationAdapterRecord(
+    const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
+    const FString& SharedStackSummary,
+    const FString& WorkspaceLabel,
+    const FString& BuildOutputPath)
+{
+    if (!Snapshot.bHasSelectedActor || !Snapshot.bHasSkeletalMeshComponent || !Snapshot.bHasAnimBlueprint)
+    {
+        return TEXT("WanaAnimation adapter report was not generated because the selected subject does not have a complete skeletal mesh and Anim BP stack yet.");
+    }
+
+    LastGeneratedAnimationAdapterSubjectLabel = Snapshot.SelectedActorLabel;
+    LastGeneratedAnimationAdapterSubjectPath = Snapshot.SubjectAssetPath;
+    LastGeneratedAnimationAdapterAnimBlueprintLabel = Snapshot.LinkedAnimationBlueprintLabel.IsEmpty()
+        ? Snapshot.AnimationAssignedClassLabel
+        : Snapshot.LinkedAnimationBlueprintLabel;
+    LastGeneratedAnimationAdapterWorkspaceLabel = WorkspaceLabel;
+    const FWanaPersistentAnimationAdapterReportResult SaveResult = SavePersistentWanaAnimationAdapterReportAsset(
+        Snapshot,
+        SharedStackSummary,
+        WorkspaceLabel,
+        BuildOutputPath);
+    LastGeneratedAnimationAdapterStatus = SaveResult.StatusLabel;
+    LastGeneratedAnimationAdapterOutputPath = SaveResult.PackagePath.IsEmpty()
+        ? BuildWanaAnimationAdapterOutputPath(Snapshot)
+        : SaveResult.PackagePath;
+
+    LastGeneratedAnimationAdapterSummary = FString::Printf(
+        TEXT("Persistent WanaAnimation Adapter Report\nWorkspace: %s\nAdapter Status: %s\nAdapter Output: %s\nBuild Output: %s\nSource Subject: %s\nSkeletal Mesh: %s\nSkeleton: %s\nAnim BP Class: %s\nAnim BP Asset: %s\nAnim BP Asset Path: %s\nShared Character Blueprint: %s\nShared Skeletal Mesh: %s\nShared Skeleton: %s\nShared Anim BP: %s\nDirect Graph Edit Safety: %s\nRecommended Strategy: %s\nHook Provider: %s\nHook State Readable: %s\nPhysical Provider: %s\nPosture Inputs: %s\nReaction State: %s\nOriginal Anim BP Modified: No\nVariables Added To User Anim BP: No\nAssigned Anim Class Replaced: No\nPersistent Asset: %s\nReport Detail: %s"),
+        WorkspaceLabel.IsEmpty() ? TEXT("WanaWorks") : *WorkspaceLabel,
+        *LastGeneratedAnimationAdapterStatus,
+        *LastGeneratedAnimationAdapterOutputPath,
+        BuildOutputPath.IsEmpty() ? TEXT("(no finalized output path reported)") : *BuildOutputPath,
+        Snapshot.SelectedActorLabel.IsEmpty() ? TEXT("(none)") : *Snapshot.SelectedActorLabel,
+        Snapshot.SkeletalMeshLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.SkeletalMeshLabel,
+        Snapshot.SkeletonLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.SkeletonLabel,
+        LastGeneratedAnimationAdapterAnimBlueprintLabel.IsEmpty() ? TEXT("(not detected)") : *LastGeneratedAnimationAdapterAnimBlueprintLabel,
+        Snapshot.AnimationBlueprintAssetLabel.IsEmpty() ? TEXT("(not detected)") : *Snapshot.AnimationBlueprintAssetLabel,
+        Snapshot.AnimationBlueprintAssetPath.IsEmpty() ? (Snapshot.AnimationAssignedClassPath.IsEmpty() ? TEXT("(not detected)") : *Snapshot.AnimationAssignedClassPath) : *Snapshot.AnimationBlueprintAssetPath,
+        *ExtractSharedSummaryFieldValue(SharedStackSummary, TEXT("Shared Character Blueprint")),
+        *ExtractSharedSummaryFieldValue(SharedStackSummary, TEXT("Shared Skeletal Mesh")),
+        *ExtractSharedSummaryFieldValue(SharedStackSummary, TEXT("Shared Skeleton")),
+        *GetSharedAnimBPStatusLabel(SharedStackSummary),
+        *GetAnimBPDirectGraphEditSafetyLabel(Snapshot, SharedStackSummary),
+        *GetWanaAnimationRecommendedStrategy(Snapshot, SharedStackSummary),
+        Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Needs Enhance"),
+        Snapshot.bAnimationHookStateReadable ? TEXT("Ready") : TEXT("Needs Enhance"),
+        Snapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited"),
+        Snapshot.AnimationPostureHint.IsEmpty() ? TEXT("(pending hook drive)") : *Snapshot.AnimationPostureHint,
+        *UIFmt::GetReactionStateSummaryLabel(Snapshot.AnimationReactionState),
+        SaveResult.bSucceeded ? TEXT("Saved") : TEXT("Not Saved"),
+        SaveResult.Detail.IsEmpty() ? TEXT("No adapter save detail was available.") : *SaveResult.Detail);
+
+    bGeneratedAnimationAdapterRecordInitialized = SaveResult.bSucceeded;
+    return LastGeneratedAnimationAdapterSummary;
 }
 
 FText FWanaWorksUIModule::GetSavedSubjectProgressText() const

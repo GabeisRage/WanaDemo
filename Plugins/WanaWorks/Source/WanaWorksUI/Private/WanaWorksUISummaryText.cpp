@@ -125,6 +125,51 @@ FString GetAnimationHookConsumptionDetailText(const FWanaSelectedCharacterEnhanc
         *WanaWorksUIFormattingUtils::GetAutomaticAnimationWireSummaryLabel(Snapshot));
 }
 
+FString GetAnimBPAdapterReadinessLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Not Supported");
+    }
+
+    if (!Snapshot.bHasAnimBlueprint)
+    {
+        return TEXT("Limited");
+    }
+
+    if (!Snapshot.bHasWAYComponent || !Snapshot.bAnimationHookStateReadable)
+    {
+        return TEXT("Needs Enhance");
+    }
+
+    if (!Snapshot.bHasAnimationInstance || !Snapshot.bHasPhysicalStateComponent)
+    {
+        return TEXT("Partially Ready");
+    }
+
+    return TEXT("Ready");
+}
+
+FString GetAdapterStrategySummary(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Not Supported");
+    }
+
+    if (!Snapshot.bHasAnimBlueprint)
+    {
+        return TEXT("Needs Enhance");
+    }
+
+    if (!Snapshot.bHasWAYComponent || !Snapshot.bAnimationHookStateReadable)
+    {
+        return TEXT("Needs Enhance");
+    }
+
+    return TEXT("Generated Adapter");
+}
+
 FString GetAnimationPreviewBodyLanguageLabel(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
 {
     TArray<FString> StateLabels;
@@ -318,17 +363,28 @@ FString BuildAnimationIntegrationSummaryText(const FWanaSelectedCharacterEnhance
 {
     if (!Snapshot || !Snapshot->bHasSelectedActor)
     {
-        return TEXT("Animation Blueprint: Unknown\nIntegration Status: Unknown\nExisting Anim BP Preserved: Yes\nAutomatic Integration: Not Supported\nAuto-Attach: Not Supported\nAuto-Wire: Not Supported\nIntegration Target: (not prepared)\nHook Provider: Needs Enhance\nHook State Readable: Needs Enhance\nSkeletal Mesh: Not Supported\nSkeleton: Unknown\nCompatible Skeleton: Unknown\nAnimation Instance: Limited\nHook Consumption Readiness: Not Supported\nPhysical Provider: Limited\nHook Application: Not Available\nHook Readiness: Missing\nFacing Hook: Missing\nTurn-To-Target Hook: Missing\nLocomotion Hook: Missing\nReaction Animation Hook: Missing\nPosture Hint: Missing\nBody Language Category: Missing\nMovement-Limited Hook: Missing\nPhysical Reaction Hook: Missing\nNotes: Choose a subject in WanaWorks to inspect safe animation integration.");
+        return TEXT("Animation Blueprint: Unknown\nAssigned Anim Class: Unknown\nAnim BP Generated Class: Unknown\nParent Anim Instance Class: Unknown\nIntegration Status: Unknown\nExisting Anim BP Preserved: Yes\nAutomatic Integration: Not Supported\nAuto-Attach: Not Supported\nAuto-Wire: Not Supported\nAuto-Wire Fields: 0 supported, 0 applied\nIntegration Target: (not prepared)\nAnim BP Wiring Readiness: Not Supported\nGenerated Adapter Status: Not Supported\nAdapter Output: (not prepared)\nDirect Graph Edit Safety: Unsafe by policy\nRecommended Strategy: Needs Enhance\nHook Provider: Needs Enhance\nHook State Readable: Needs Enhance\nSkeletal Mesh: Not Supported\nSkeleton: Unknown\nCompatible Skeleton: Unknown\nAnimation Instance: Limited\nHook Consumption Readiness: Not Supported\nPhysical Provider: Limited\nHook Application: Not Available\nHook Readiness: Missing\nFacing Hook: Missing\nTurn-To-Target Hook: Missing\nLocomotion Hook: Missing\nReaction Animation Hook: Missing\nPosture Hint: Missing\nBody Language Category: Missing\nMovement-Limited Hook: Missing\nPhysical Reaction Hook: Missing\nNotes: Choose a subject in WanaWorks to inspect safe animation integration.");
     }
 
     return FString::Printf(
-        TEXT("Animation Blueprint: %s\nIntegration Status: %s\nExisting Anim BP Preserved: Yes\nAutomatic Integration: %s\nAuto-Attach: %s\nAuto-Wire: %s\nIntegration Target: %s\nHook Provider: %s\nHook State Readable: %s\nSkeletal Mesh: %s\nSkeleton: %s\nCompatible Skeleton: %s\nAnimation Instance: %s\nHook Consumption Readiness: %s\nPhysical Provider: %s\nHook Application: %s\nHook Readiness: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s\nLocomotion Hook: %s\nReaction Animation Hook: %s\nPosture Hint: %s\nBody Language Category: %s\nMovement-Limited Hook: %s\nPhysical Reaction Hook: %s\nNotes: %s"),
+        TEXT("Animation Blueprint: %s\nAssigned Anim Class: %s\nAnim BP Asset: %s\nAnim BP Generated Class: %s\nParent Anim Instance Class: %s\nIntegration Status: %s\nExisting Anim BP Preserved: Yes\nAutomatic Integration: %s\nAuto-Attach: %s\nAuto-Wire: %s\nAuto-Wire Fields: %d supported, %d applied\nIntegration Target: %s\nAnim BP Wiring Readiness: %s\nGenerated Adapter Status: %s\nAdapter Output: %s\nDirect Graph Edit Safety: %s\nRecommended Strategy: %s\nHook Provider: %s\nHook State Readable: %s\nSkeletal Mesh: %s\nSkeleton: %s\nCompatible Skeleton: %s\nAnimation Instance: %s\nHook Consumption Readiness: %s\nPhysical Provider: %s\nHook Application: %s\nHook Readiness: %s\nFacing Hook: %s\nTurn-To-Target Hook: %s\nLocomotion Hook: %s\nReaction Animation Hook: %s\nPosture Hint: %s\nBody Language Category: %s\nMovement-Limited Hook: %s\nPhysical Reaction Hook: %s\nNotes: %s"),
         *WanaWorksUIFormattingUtils::GetAnimationBlueprintStatusLabel(*Snapshot),
+        Snapshot->AnimationAssignedClassLabel.IsEmpty() ? TEXT("(not assigned)") : *Snapshot->AnimationAssignedClassLabel,
+        Snapshot->AnimationBlueprintAssetLabel.IsEmpty() ? TEXT("(not detected)") : *Snapshot->AnimationBlueprintAssetLabel,
+        Snapshot->AnimationGeneratedClassLabel.IsEmpty() ? TEXT("(not detected)") : *Snapshot->AnimationGeneratedClassLabel,
+        Snapshot->AnimationParentInstanceClassLabel.IsEmpty() ? TEXT("(not detected)") : *Snapshot->AnimationParentInstanceClassLabel,
         *WanaWorksUIFormattingUtils::GetAnimationIntegrationStatusLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetAutomaticAnimationIntegrationStatusLabel(Snapshot->AnimationAutomaticIntegrationStatus),
         *WanaWorksUIFormattingUtils::GetAutomaticAnimationAttachSummaryLabel(*Snapshot),
         *WanaWorksUIFormattingUtils::GetAutomaticAnimationWireSummaryLabel(*Snapshot),
+        Snapshot->AnimationSupportedAutoWireFieldCount,
+        Snapshot->AnimationLastAppliedAutoWireFieldCount,
         Snapshot->AnimationIntegrationTargetLabel.IsEmpty() ? TEXT("(not prepared)") : *Snapshot->AnimationIntegrationTargetLabel,
+        *GetAnimBPAdapterReadinessLabel(*Snapshot),
+        Snapshot->bHasAnimBlueprint ? TEXT("Adapter Recommended") : (Snapshot->bHasSkeletalMeshComponent ? TEXT("Limited") : TEXT("Not Supported")),
+        Snapshot->bHasAnimBlueprint ? TEXT("/Game/WanaWorks/Adapters/(saved by Build)") : TEXT("(not prepared)"),
+        Snapshot->bHasAnimBlueprint ? TEXT("Limited until shared-stack risk is evaluated") : TEXT("Limited"),
+        *GetAdapterStrategySummary(*Snapshot),
         Snapshot->bHasWAYComponent ? TEXT("Ready") : TEXT("Needs Enhance"),
         Snapshot->bAnimationHookStateReadable ? TEXT("Ready") : TEXT("Needs Enhance"),
         Snapshot->SkeletalMeshLabel.IsEmpty() ? (Snapshot->bHasSkeletalMeshComponent ? TEXT("Ready") : TEXT("Not Supported")) : *Snapshot->SkeletalMeshLabel,

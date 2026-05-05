@@ -39,6 +39,9 @@ struct FWanaSelectedCharacterEnhancementSnapshot
     bool bHasSpringArmComponent = false;
     bool bHasSkeletalMeshComponent = false;
     bool bHasAnimBlueprint = false;
+    bool bHasAnimationBlueprintAsset = false;
+    bool bHasAnimationBlueprintGeneratedClass = false;
+    bool bHasAnimationParentInstanceClass = false;
     TWeakObjectPtr<AActor> SelectedActor;
     FString SelectedActorLabel;
     FString SubjectSourceLabel;
@@ -47,6 +50,14 @@ struct FWanaSelectedCharacterEnhancementSnapshot
     FString SkeletalMeshLabel;
     FString SkeletonLabel;
     FString LinkedAnimationBlueprintLabel;
+    FString AnimationMeshComponentLabel;
+    FString AnimationAssignedClassLabel;
+    FString AnimationAssignedClassPath;
+    FString AnimationBlueprintAssetLabel;
+    FString AnimationBlueprintAssetPath;
+    FString AnimationGeneratedClassLabel;
+    FString AnimationParentInstanceClassLabel;
+    FString AnimationInstanceClassLabel;
     FString LinkedAIControllerLabel;
     FString LinkedPlayerControllerLabel;
     FString AutoPossessPlayerLabel;
@@ -60,6 +71,8 @@ struct FWanaSelectedCharacterEnhancementSnapshot
     bool bAnimationAutoAttachSucceeded = false;
     bool bAnimationAutoWireSucceeded = false;
     bool bAnimationHookStateReadable = false;
+    int32 AnimationSupportedAutoWireFieldCount = 0;
+    int32 AnimationLastAppliedAutoWireFieldCount = 0;
     EWAYAutomaticAnimationIntegrationStatus AnimationAutomaticIntegrationStatus = EWAYAutomaticAnimationIntegrationStatus::NotSupported;
     FString AnimationIntegrationTargetLabel;
     FString AnimationAutomaticIntegrationDetail;

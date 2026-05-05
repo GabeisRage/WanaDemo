@@ -324,6 +324,101 @@ UWanaAutoAnimationIntegrationComponent::UWanaAutoAnimationIntegrationComponent()
     PrimaryComponentTick.bStartWithTickEnabled = true;
 }
 
+FWAYAnimationHookState UWanaAutoAnimationIntegrationComponent::GetAdapterAnimationHookState() const
+{
+    const AActor* OwnerActor = GetOwner();
+    const UWAYPlayerProfileComponent* WAYComponent = OwnerActor
+        ? OwnerActor->FindComponentByClass<UWAYPlayerProfileComponent>()
+        : nullptr;
+
+    if (WAYComponent)
+    {
+        return WAYComponent->GetCurrentAnimationHookState();
+    }
+
+    FWAYAnimationHookState EmptyState;
+    EmptyState.Detail = TEXT("WanaAnimation adapter hook state is limited because no WAY hook provider was found on the owner.");
+    return EmptyState;
+}
+
+FString UWanaAutoAnimationIntegrationComponent::GetAdapterPostureHint() const
+{
+    return GetAdapterAnimationHookState().PostureHint;
+}
+
+EWAYReactionState UWanaAutoAnimationIntegrationComponent::GetAdapterReactionState() const
+{
+    return GetAdapterAnimationHookState().ReactionState;
+}
+
+EWAYBehaviorPreset UWanaAutoAnimationIntegrationComponent::GetAdapterRecommendedBehavior() const
+{
+    return GetAdapterAnimationHookState().RecommendedBehavior;
+}
+
+FString UWanaAutoAnimationIntegrationComponent::GetAdapterVisibleBehaviorLabel() const
+{
+    return GetAdapterAnimationHookState().VisibleBehaviorLabel;
+}
+
+bool UWanaAutoAnimationIntegrationComponent::IsAdapterLocomotionSafeHintActive() const
+{
+    return GetAdapterAnimationHookState().bLocomotionSafeExecutionHint;
+}
+
+bool UWanaAutoAnimationIntegrationComponent::IsAdapterMovementLimitedFallbackActive() const
+{
+    return GetAdapterAnimationHookState().bMovementLimitedFallbackHint;
+}
+
+float UWanaAutoAnimationIntegrationComponent::GetAdapterInstabilityAlpha() const
+{
+    const FWAYAnimationHookState HookState = GetAdapterAnimationHookState();
+
+    if (HookState.bPhysicalReactionStateAvailable)
+    {
+        return HookState.PhysicalInstabilityAlpha;
+    }
+
+    const AActor* OwnerActor = GetOwner();
+    const UWanaPhysicalStateComponent* PhysicalStateComponent = OwnerActor
+        ? OwnerActor->FindComponentByClass<UWanaPhysicalStateComponent>()
+        : nullptr;
+    return PhysicalStateComponent ? PhysicalStateComponent->InstabilityAlpha : 0.0f;
+}
+
+float UWanaAutoAnimationIntegrationComponent::GetAdapterRecoveryProgress() const
+{
+    const FWAYAnimationHookState HookState = GetAdapterAnimationHookState();
+
+    if (HookState.bPhysicalReactionStateAvailable)
+    {
+        return HookState.PhysicalRecoveryProgress;
+    }
+
+    const AActor* OwnerActor = GetOwner();
+    const UWanaPhysicalStateComponent* PhysicalStateComponent = OwnerActor
+        ? OwnerActor->FindComponentByClass<UWanaPhysicalStateComponent>()
+        : nullptr;
+    return PhysicalStateComponent ? PhysicalStateComponent->RecoveryProgress : 1.0f;
+}
+
+FVector UWanaAutoAnimationIntegrationComponent::GetAdapterImpactDirection() const
+{
+    const FWAYAnimationHookState HookState = GetAdapterAnimationHookState();
+
+    if (HookState.bPhysicalReactionStateAvailable)
+    {
+        return HookState.PhysicalImpactDirection;
+    }
+
+    const AActor* OwnerActor = GetOwner();
+    const UWanaPhysicalStateComponent* PhysicalStateComponent = OwnerActor
+        ? OwnerActor->FindComponentByClass<UWanaPhysicalStateComponent>()
+        : nullptr;
+    return PhysicalStateComponent ? PhysicalStateComponent->LastImpactDirection : FVector::ZeroVector;
+}
+
 void UWanaAutoAnimationIntegrationComponent::BeginPlay()
 {
     Super::BeginPlay();

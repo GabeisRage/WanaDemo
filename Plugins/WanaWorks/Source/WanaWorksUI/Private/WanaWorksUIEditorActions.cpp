@@ -838,6 +838,82 @@ FString BuildUniqueFinalizedAssetPath(const FString& SourceLabel)
     return CandidateAssetPath;
 }
 
+void CaptureAnimationStackInspection(
+    const USkeletalMeshComponent* SkeletalMeshComponent,
+    FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot)
+{
+    if (!SkeletalMeshComponent)
+    {
+        return;
+    }
+
+    if (OutSnapshot.AnimationMeshComponentLabel.IsEmpty())
+    {
+        OutSnapshot.AnimationMeshComponentLabel = SkeletalMeshComponent->GetName();
+    }
+
+    const UAnimInstance* AnimInstance = SkeletalMeshComponent->GetAnimInstance();
+
+    if (AnimInstance && OutSnapshot.AnimationInstanceClassLabel.IsEmpty())
+    {
+        OutSnapshot.AnimationInstanceClassLabel = AnimInstance->GetClass() ? AnimInstance->GetClass()->GetName() : TEXT("AnimInstance");
+    }
+
+    const UClass* AnimClass = const_cast<USkeletalMeshComponent*>(SkeletalMeshComponent)->GetAnimClass();
+
+    if (!AnimClass && AnimInstance)
+    {
+        AnimClass = AnimInstance->GetClass();
+    }
+
+    if (!AnimClass)
+    {
+        return;
+    }
+
+    OutSnapshot.bHasAnimationBlueprintGeneratedClass = true;
+
+    if (OutSnapshot.AnimationAssignedClassLabel.IsEmpty())
+    {
+        OutSnapshot.AnimationAssignedClassLabel = AnimClass->GetName();
+    }
+
+    if (OutSnapshot.AnimationAssignedClassPath.IsEmpty())
+    {
+        OutSnapshot.AnimationAssignedClassPath = FSoftObjectPath(AnimClass).ToString();
+    }
+
+    if (OutSnapshot.AnimationGeneratedClassLabel.IsEmpty())
+    {
+        OutSnapshot.AnimationGeneratedClassLabel = AnimClass->GetName();
+    }
+
+    if (const UObject* GeneratedBy = AnimClass->ClassGeneratedBy)
+    {
+        OutSnapshot.bHasAnimationBlueprintAsset = true;
+
+        if (OutSnapshot.AnimationBlueprintAssetLabel.IsEmpty())
+        {
+            OutSnapshot.AnimationBlueprintAssetLabel = GeneratedBy->GetName();
+        }
+
+        if (OutSnapshot.AnimationBlueprintAssetPath.IsEmpty())
+        {
+            OutSnapshot.AnimationBlueprintAssetPath = FSoftObjectPath(GeneratedBy).ToString();
+        }
+    }
+
+    if (const UClass* ParentClass = AnimClass->GetSuperClass())
+    {
+        OutSnapshot.bHasAnimationParentInstanceClass = true;
+
+        if (OutSnapshot.AnimationParentInstanceClassLabel.IsEmpty())
+        {
+            OutSnapshot.AnimationParentInstanceClassLabel = ParentClass->GetName();
+        }
+    }
+}
+
 FString MakeAnimationCompatibilitySummary(bool bHasSkeletalMeshComponent, bool bHasAnimBlueprint)
 {
     if (!bHasSkeletalMeshComponent)
@@ -929,6 +1005,8 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
             OutSnapshot.bHasAnimationInstance = true;
         }
 
+        CaptureAnimationStackInspection(SkeletalMeshComponent, OutSnapshot);
+
         if (SkeletalMeshComponent
             && (SkeletalMeshComponent->GetAnimationMode() == EAnimationMode::AnimationBlueprint
                 || SkeletalMeshComponent->GetAnimInstance() != nullptr))
@@ -971,6 +1049,8 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
         OutSnapshot.bHasAutomaticAnimationIntegrationComponent = true;
         OutSnapshot.bAnimationAutoAttachSucceeded = AutomaticIntegrationComponent->bAutoAttachSucceeded;
         OutSnapshot.bAnimationAutoWireSucceeded = AutomaticIntegrationComponent->bAutoWireSucceeded;
+        OutSnapshot.AnimationSupportedAutoWireFieldCount = AutomaticIntegrationComponent->SupportedFieldCount;
+        OutSnapshot.AnimationLastAppliedAutoWireFieldCount = AutomaticIntegrationComponent->LastAppliedFieldCount;
         OutSnapshot.AnimationAutomaticIntegrationStatus = AutomaticIntegrationComponent->AutomaticIntegrationStatus;
         OutSnapshot.AnimationIntegrationTargetLabel = AutomaticIntegrationComponent->IntegrationTargetLabel;
         OutSnapshot.AnimationAutomaticIntegrationDetail = AutomaticIntegrationComponent->Detail;
