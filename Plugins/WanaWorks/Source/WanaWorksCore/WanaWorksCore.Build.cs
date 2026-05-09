@@ -10,7 +10,9 @@ public class WanaWorksCore : ModuleRules
         {
             "Core",
             "CoreUObject",
-            "Engine"
+            "Engine",
+            "DeveloperSettings",
+            "GameplayTasks"
         });
     }
 }

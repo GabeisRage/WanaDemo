@@ -5,7 +5,11 @@
   "FriendlyName": "Wana Works",
   "Description": "Modular UE5 plugin scaffold for WIT, WAY, and WAI/WAMI AI systems.",
   "Category": "AI",
-  "CreatedBy": "OpenAI",
+  "CreatedBy": "Monarch Studios DBA NewBorn Factor",
+  "CreatedByURL": "",
+  "DocsURL": "",
+  "MarketplaceURL": "",
+  "SupportURL": "",
   "CanContainContent": true,
   "IsBetaVersion": true,
   "EnabledByDefault": false,
@@ -32,13 +36,13 @@
     },
     {
       "Name": "WanaWorksUI",
-      "Type": "Runtime",
-      "LoadingPhase": "Default"
+      "Type": "Editor",
+      "LoadingPhase": "PostEngineInit"
     },
     {
       "Name": "WanaWorksRender",
-      "Type": "Runtime",
-      "LoadingPhase": "Default"
+      "Type": "Editor",
+      "LoadingPhase": "PostEngineInit"
     }
   ],
   "Plugins": [

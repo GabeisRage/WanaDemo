@@ -10,7 +10,13 @@ public class WanaWorksUI : ModuleRules
         {
             "Core",
             "CoreUObject",
-            "Engine"
+            "Engine",
+            "Slate",
+            "SlateCore",
+            "EditorStyle",
+            "UnrealEd",
+            "ToolMenus",
+            "WanaWorksCore"
         });
     }
 }
