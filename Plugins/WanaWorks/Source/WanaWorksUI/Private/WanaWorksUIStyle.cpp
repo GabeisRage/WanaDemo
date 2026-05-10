@@ -1,5 +1,6 @@
 #include "WanaWorksUIStyle.h"
 
+#include "Brushes/SlateColorBrush.h"
 #include "Brushes/SlateImageBrush.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/Paths.h"
@@ -23,6 +24,16 @@ TSharedPtr<FSlateStyleSet> WanaStyleSet;
 
 const FName WanaStyleSetName(TEXT("WanaWorksUIStyle"));
 const FName LauncherIconName(TEXT("WanaWorks.Icon.Launcher"));
+
+const FName CardBrush(TEXT("Wana.Card"));
+const FName CardProminentBrush(TEXT("Wana.CardProminent"));
+const FName RailActiveBrush(TEXT("Wana.Rail.Active"));
+const FName RailHoverBrush(TEXT("Wana.Rail.Hover"));
+const FName ActionPrimaryBrush(TEXT("Wana.ActionPrimary"));
+const FName ActionSecondaryBrush(TEXT("Wana.ActionSecondary"));
+const FName StatusPillSuccessBrush(TEXT("Wana.StatusPill.Success"));
+const FName StatusPillWarningBrush(TEXT("Wana.StatusPill.Warning"));
+const FName StatusPillInfoBrush(TEXT("Wana.StatusPill.Info"));
 
 void SetImageBrush(const TSharedRef<FSlateStyleSet>& StyleSet, const FName BrushName, const TCHAR* ResourceName, const FVector2D& Size)
 {
@@ -80,6 +91,23 @@ void Register()
     SetImageBrush(StyleRef, GetWorkflowIconName(TEXT("Test")), TEXT("WorkflowTest"), FVector2D(24.0f, 24.0f));
     SetImageBrush(StyleRef, GetWorkflowIconName(TEXT("Analyze")), TEXT("WorkflowAnalyze"), FVector2D(24.0f, 24.0f));
     SetImageBrush(StyleRef, GetWorkflowIconName(TEXT("Build")), TEXT("WorkflowBuild"), FVector2D(24.0f, 24.0f));
+
+    const FWanaDesignTokens& T = Tokens();
+
+    auto MakeColorBrush = [](const FLinearColor& Color) -> FSlateColorBrush*
+    {
+        return new FSlateColorBrush(Color);
+    };
+
+    StyleRef->Set(CardBrush, MakeColorBrush(T.SurfaceRaised));
+    StyleRef->Set(CardProminentBrush, MakeColorBrush(T.Info.CopyWithNewOpacity(0.15f)));
+    StyleRef->Set(RailActiveBrush, MakeColorBrush(T.Info.CopyWithNewOpacity(0.18f)));
+    StyleRef->Set(RailHoverBrush, MakeColorBrush(T.SurfaceGlass));
+    StyleRef->Set(ActionPrimaryBrush, MakeColorBrush(T.Info));
+    StyleRef->Set(ActionSecondaryBrush, MakeColorBrush(T.SurfaceRaised));
+    StyleRef->Set(StatusPillSuccessBrush, MakeColorBrush(T.Success.CopyWithNewOpacity(0.20f)));
+    StyleRef->Set(StatusPillWarningBrush, MakeColorBrush(T.Warning.CopyWithNewOpacity(0.20f)));
+    StyleRef->Set(StatusPillInfoBrush, MakeColorBrush(T.Info.CopyWithNewOpacity(0.20f)));
 
     FSlateStyleRegistry::RegisterSlateStyle(*WanaStyleSet);
 }
@@ -196,6 +224,41 @@ FSlateFontInfo WanaFont(const ANSICHAR* Typeface, int32 Size)
 {
     return FCoreStyle::GetDefaultFontStyle(Typeface, Size);
 }
+
+FSlateFontInfo HeadingFont()
+{
+    return WanaFont("Bold", 18);
+}
+
+FSlateFontInfo SubheadingFont()
+{
+    return WanaFont("Bold", 12);
+}
+
+FSlateFontInfo LabelFont()
+{
+    return WanaFont("Regular", 10);
+}
+
+FSlateFontInfo CaptionFont()
+{
+    return WanaFont("Regular", 8);
+}
+
+FSlateFontInfo MonoFont()
+{
+    return WanaFont("Mono", 9);
+}
+
+FName CardBrushName() { return CardBrush; }
+FName CardProminentBrushName() { return CardProminentBrush; }
+FName RailActiveBrushName() { return RailActiveBrush; }
+FName RailHoverBrushName() { return RailHoverBrush; }
+FName ActionPrimaryBrushName() { return ActionPrimaryBrush; }
+FName ActionSecondaryBrushName() { return ActionSecondaryBrush; }
+FName StatusPillSuccessBrushName() { return StatusPillSuccessBrush; }
+FName StatusPillWarningBrushName() { return StatusPillWarningBrush; }
+FName StatusPillInfoBrushName() { return StatusPillInfoBrush; }
 
 TSharedRef<SWidget> WanaStatusPill(
     const FText& Label,

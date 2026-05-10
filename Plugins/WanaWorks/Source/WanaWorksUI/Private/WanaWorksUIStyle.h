@@ -34,6 +34,22 @@ const FWanaDesignTokens& Tokens();
 
 FSlateFontInfo WanaFont(const ANSICHAR* Typeface, int32 Size);
 
+FSlateFontInfo HeadingFont();
+FSlateFontInfo SubheadingFont();
+FSlateFontInfo LabelFont();
+FSlateFontInfo CaptionFont();
+FSlateFontInfo MonoFont();
+
+FName CardBrushName();
+FName CardProminentBrushName();
+FName RailActiveBrushName();
+FName RailHoverBrushName();
+FName ActionPrimaryBrushName();
+FName ActionSecondaryBrushName();
+FName StatusPillSuccessBrushName();
+FName StatusPillWarningBrushName();
+FName StatusPillInfoBrushName();
+
 TSharedRef<SWidget> WanaStatusPill(
     const FText& Label,
     const FLinearColor& AccentColor,

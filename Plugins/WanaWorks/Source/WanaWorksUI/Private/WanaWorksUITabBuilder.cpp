@@ -3745,103 +3745,120 @@ TSharedRef<SWidget> MakeStudioNavigationRail(const FWanaWorksUITabBuilderArgs& A
         ];
     }
 
+    const WanaWorksUIStyle::FWanaDesignTokens& DT = WanaWorksUIStyle::Tokens();
+
     return SNew(SBorder)
-        .Padding(1.0f)
-        .BorderBackgroundColor(StudioOutlineColor.CopyWithNewOpacity(0.32f))
+        .Padding(0.0f)
+        .BorderBackgroundColor(DT.SurfaceGlass.CopyWithNewOpacity(0.45f))
         [
             SNew(SBorder)
-            .Padding(18.0f)
-            .BorderBackgroundColor(StudioShellRaisedColor)
+            .Padding(FMargin(0.0f, 0.0f, 1.0f, 0.0f))
+            .BorderBackgroundColor(DT.Surface)
             [
                 SNew(SVerticalBox)
                 + SVerticalBox::Slot()
                 .AutoHeight()
-                .Padding(0.0f, 0.0f, 0.0f, 22.0f)
+                .Padding(0.0f, 0.0f, 0.0f, 0.0f)
                 [
                     SNew(SBorder)
-                    .Padding(20.0f)
-                    .BorderBackgroundColor(FLinearColor(0.028f, 0.033f, 0.058f, 0.98f))
+                    .Padding(FMargin(20.0f, 20.0f, 20.0f, 20.0f))
+                    .BorderBackgroundColor(DT.SurfaceRaised)
                     [
                         SNew(SVerticalBox)
                         + SVerticalBox::Slot()
                         .AutoHeight()
                         [
-                            SNew(STextBlock)
-                            .Font(MakeStudioFont("Bold", 20))
-                            .ColorAndOpacity(FLinearColor::White)
-                            .ShadowColorAndOpacity(StudioShadowColor)
-                            .ShadowOffset(FVector2D(0.0f, 1.0f))
-                            .Text(LOCTEXT("WanaWorksStudioBrand", "WanaWorks"))
+                            SNew(SHorizontalBox)
+                            + SHorizontalBox::Slot()
+                            .AutoWidth()
+                            .VAlign(VAlign_Center)
+                            .Padding(0.0f, 0.0f, 10.0f, 0.0f)
+                            [
+                                SNew(STextBlock)
+                                .Font(WanaWorksUIStyle::WanaFont("Bold", 22))
+                                .ColorAndOpacity(DT.Info)
+                                .ShadowColorAndOpacity(DT.Shadow)
+                                .ShadowOffset(FVector2D(0.0f, 1.0f))
+                                .Text(LOCTEXT("WanaWorksStudioBrandMark", "WW"))
+                            ]
+                            + SHorizontalBox::Slot()
+                            .FillWidth(1.0f)
+                            .VAlign(VAlign_Center)
+                            [
+                                SNew(STextBlock)
+                                .Font(WanaWorksUIStyle::SubheadingFont())
+                                .ColorAndOpacity(DT.TextPrimary)
+                                .ShadowColorAndOpacity(DT.Shadow)
+                                .ShadowOffset(FVector2D(0.0f, 1.0f))
+                                .Text(LOCTEXT("WanaWorksStudioBrand", "WanaWorks"))
+                            ]
                         ]
                         + SVerticalBox::Slot()
                         .AutoHeight()
-                        .Padding(0.0f, 5.0f, 0.0f, 0.0f)
+                        .Padding(0.0f, 6.0f, 0.0f, 0.0f)
                         [
                             SNew(STextBlock)
-                            .Font(MakeStudioFont("Bold", 8))
-                            .ColorAndOpacity(TertiaryTextColor)
-                            .Text(LOCTEXT("WanaWorksStudioBrandEyebrow", "MODULAR UE5 CHARACTER PLATFORM"))
-                        ]
-                        + SVerticalBox::Slot()
-                        .AutoHeight()
-                        .Padding(0.0f, 10.0f, 0.0f, 0.0f)
-                        [
-                            SNew(STextBlock)
-                            .Font(MakeStudioFont("Regular", 9))
-                            .ColorAndOpacity(SecondaryTextColor)
+                            .Font(WanaWorksUIStyle::CaptionFont())
+                            .ColorAndOpacity(DT.TextMuted)
                             .AutoWrapText(true)
-                            .Text(LOCTEXT("WanaWorksStudioBrandSubtitle", "Non-destructive orchestration layer for character intelligence, animation, combat response, and editor-side authoring over UE5-native systems."))
+                            .Text(LOCTEXT("WanaWorksStudioBrandTagline", "Powering Your Creativity."))
                         ]
                         + SVerticalBox::Slot()
                         .AutoHeight()
                         .Padding(0.0f, 14.0f, 0.0f, 0.0f)
                         [
-                            MakeStudioDivider(1.0f, StudioAccentColor.CopyWithNewOpacity(0.45f))
+                            MakeStudioDivider(1.0f, DT.SurfaceGlass.CopyWithNewOpacity(0.55f))
                         ]
                     ]
                 ]
                 + SVerticalBox::Slot()
                 .AutoHeight()
-                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
+                .Padding(16.0f, 18.0f, 16.0f, 10.0f)
                 [
                     SNew(STextBlock)
-                    .Font(MakeStudioFont("Bold", 8))
-                    .ColorAndOpacity(TertiaryTextColor)
+                    .Font(WanaWorksUIStyle::CaptionFont())
+                    .ColorAndOpacity(DT.TextMuted)
                     .Text(LOCTEXT("WanaWorksStudioWorkspacesLabel", "WORKSPACES"))
                 ]
                 + SVerticalBox::Slot()
                 .FillHeight(1.0f)
+                .Padding(8.0f, 0.0f, 8.0f, 0.0f)
                 [
-                    WorkspaceButtons
+                    SNew(SScrollBox)
+                    + SScrollBox::Slot()
+                    [
+                        WorkspaceButtons
+                    ]
                 ]
                 + SVerticalBox::Slot()
                 .AutoHeight()
-                .Padding(0.0f, 18.0f, 0.0f, 0.0f)
+                .Padding(16.0f, 14.0f, 16.0f, 18.0f)
                 [
-                    SNew(SBorder)
-                    .Padding(16.0f)
-                    .BorderBackgroundColor(FLinearColor(0.026f, 0.031f, 0.054f, 0.98f))
+                    SNew(SVerticalBox)
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
                     [
-                        SNew(SVerticalBox)
-                        + SVerticalBox::Slot()
-                        .AutoHeight()
-                        [
-                            SNew(STextBlock)
-                            .Font(MakeStudioFont("Bold", 8))
-                            .ColorAndOpacity(TertiaryTextColor)
-                            .Text(LOCTEXT("WanaWorksStudioProjectLabel", "PROJECT"))
-                        ]
-                        + SVerticalBox::Slot()
-                        .AutoHeight()
-                        .Padding(0.0f, 8.0f, 0.0f, 0.0f)
-                        [
-                            SNew(STextBlock)
-                            .ColorAndOpacity(FLinearColor::White)
-                            .Font(MakeStudioFont("Bold", 11))
-                            .ShadowColorAndOpacity(StudioShadowColor)
-                            .ShadowOffset(FVector2D(0.0f, 1.0f))
-                            .Text(LOCTEXT("WanaWorksStudioProjectValue", "WanaDemo"))
-                        ]
+                        MakeStudioDivider(1.0f, DT.SurfaceGlass.CopyWithNewOpacity(0.55f))
+                    ]
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 14.0f, 0.0f, 0.0f)
+                    [
+                        SNew(STextBlock)
+                        .Font(WanaWorksUIStyle::CaptionFont())
+                        .ColorAndOpacity(DT.TextMuted)
+                        .Text(LOCTEXT("WanaWorksStudioProjectLabel", "PROJECT"))
+                    ]
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 6.0f, 0.0f, 0.0f)
+                    [
+                        SNew(STextBlock)
+                        .ColorAndOpacity(DT.TextPrimary)
+                        .Font(WanaWorksUIStyle::SubheadingFont())
+                        .ShadowColorAndOpacity(DT.Shadow)
+                        .ShadowOffset(FVector2D(0.0f, 1.0f))
+                        .Text(LOCTEXT("WanaWorksStudioProjectValue", "WanaDemo"))
                     ]
                 ]
             ]
@@ -5635,28 +5652,30 @@ namespace WanaWorksUITabBuilder
 {
 TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
 {
+    const WanaWorksUIStyle::FWanaDesignTokens& T = WanaWorksUIStyle::Tokens();
+
     return SNew(SBorder)
-        .Padding(20.0f)
-        .BorderBackgroundColor(StudioShellColor)
+        .Padding(0.0f)
+        .BorderBackgroundColor(T.AppBackground)
         [
             SNew(SHorizontalBox)
             + SHorizontalBox::Slot()
             .AutoWidth()
-            .Padding(0.0f, 0.0f, 20.0f, 0.0f)
             [
                 SNew(SBox)
-                .WidthOverride(296.0f)
+                .WidthOverride(220.0f)
                 [
                     MakeStudioNavigationRail(Args)
                 ]
             ]
             + SHorizontalBox::Slot()
             .FillWidth(1.0f)
+            .Padding(16.0f, 16.0f, 16.0f, 16.0f)
             [
                 SNew(SVerticalBox)
                 + SVerticalBox::Slot()
                 .AutoHeight()
-                .Padding(0.0f, 0.0f, 0.0f, 16.0f)
+                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                 [
                     MakeStudioTopChrome(Args)
                 ]
@@ -5665,11 +5684,11 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
                 [
                     SNew(SBorder)
                     .Padding(1.0f)
-                    .BorderBackgroundColor(StudioOutlineColor.CopyWithNewOpacity(0.50f))
+                    .BorderBackgroundColor(T.SurfaceGlass.CopyWithNewOpacity(0.55f))
                     [
                         SNew(SBorder)
-                        .Padding(20.0f)
-                        .BorderBackgroundColor(StudioShellRaisedColor.CopyWithNewOpacity(0.998f))
+                        .Padding(18.0f)
+                        .BorderBackgroundColor(T.Surface)
                         [
                             SNew(SScrollBox)
                             + SScrollBox::Slot()
@@ -5690,9 +5709,9 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
                                     .Padding(0.0f, 12.0f, 0.0f, 0.0f)
                                     [
                                         SNew(STextBlock)
-                                        .Font(MakeStudioFont("Bold", 26))
-                                        .ColorAndOpacity(FLinearColor::White)
-                                        .ShadowColorAndOpacity(StudioShadowColor)
+                                        .Font(WanaWorksUIStyle::WanaFont("Bold", 24))
+                                        .ColorAndOpacity(T.TextPrimary)
+                                        .ShadowColorAndOpacity(T.Shadow)
                                         .ShadowOffset(FVector2D(0.0f, 1.0f))
                                         .Text_Lambda([GetSelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel]()
                                         {
@@ -5708,8 +5727,8 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
                                     [
                                         SNew(STextBlock)
                                         .AutoWrapText(true)
-                                        .Font(MakeStudioFont("Regular", 10))
-                                        .ColorAndOpacity(SecondaryTextColor)
+                                        .Font(WanaWorksUIStyle::LabelFont())
+                                        .ColorAndOpacity(T.TextSecondary)
                                         .Text_Lambda([GetSelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel]()
                                         {
                                             const FString WorkspaceLabel = GetSelectedWorkspaceLabel
@@ -5720,14 +5739,14 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
                                     ]
                                     + SVerticalBox::Slot()
                                     .AutoHeight()
-                                    .Padding(0.0f, 18.0f, 0.0f, 0.0f)
+                                    .Padding(0.0f, 16.0f, 0.0f, 0.0f)
                                     [
-                                        MakeStudioDivider(1.0f, StudioAccentColor.CopyWithNewOpacity(0.34f))
+                                        MakeStudioDivider(1.0f, T.Info.CopyWithNewOpacity(0.30f))
                                     ]
                                 ]
                                 + SVerticalBox::Slot()
                                 .AutoHeight()
-                                .Padding(0.0f, 18.0f, 0.0f, 0.0f)
+                                .Padding(0.0f, 14.0f, 0.0f, 0.0f)
                                 [
                                     SNew(SWanaWorksWorkspaceBodySwitcher)
                                     .BuilderArgs(Args)
