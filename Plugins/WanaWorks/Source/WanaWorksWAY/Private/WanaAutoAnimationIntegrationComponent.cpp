@@ -2,8 +2,10 @@
 
 #include "Animation/AnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Misc/PackageName.h"
 #include "UObject/UnrealType.h"
 #include "WAYPlayerProfileComponent.h"
+#include "WanaAnimationAdapterReportAsset.h"
 #include "WanaPhysicalStateComponent.h"
 
 namespace
@@ -54,6 +56,17 @@ bool HasFloatPropertyAlias(const UClass* OwnerClass, std::initializer_list<const
         [](FProperty* Property)
         {
             return CastField<FFloatProperty>(Property) != nullptr || CastField<FDoubleProperty>(Property) != nullptr;
+        }) != nullptr;
+}
+
+bool HasStringPropertyAlias(const UClass* OwnerClass, std::initializer_list<const TCHAR*> Aliases)
+{
+    return FindMatchingPropertyByAliases(
+        OwnerClass,
+        Aliases,
+        [](FProperty* Property)
+        {
+            return CastField<FStrProperty>(Property) != nullptr;
         }) != nullptr;
 }
 
@@ -142,6 +155,28 @@ bool TrySetFloatPropertyAlias(UObject* Object, const UClass* OwnerClass, std::in
             })))
     {
         DoubleProperty->SetPropertyValue_InContainer(Object, static_cast<double>(Value));
+        return true;
+    }
+
+    return false;
+}
+
+bool TrySetStringPropertyAlias(UObject* Object, const UClass* OwnerClass, std::initializer_list<const TCHAR*> Aliases, const FString& Value)
+{
+    if (!Object)
+    {
+        return false;
+    }
+
+    if (FStrProperty* StringProperty = CastField<FStrProperty>(FindMatchingPropertyByAliases(
+            OwnerClass,
+            Aliases,
+            [](FProperty* Property)
+            {
+                return CastField<FStrProperty>(Property) != nullptr;
+            })))
+    {
+        StringProperty->SetPropertyValue_InContainer(Object, Value);
         return true;
     }
 
@@ -252,12 +287,20 @@ int32 CountSupportedAutomaticIntegrationFields(const UClass* AnimClass)
 
     int32 SupportedFieldCount = 0;
     SupportedFieldCount += HasStructPropertyAlias(AnimClass, { TEXT("WanaAnimationHookState"), TEXT("AnimationHookState") }, FWAYAnimationHookState::StaticStruct()) ? 1 : 0;
+    SupportedFieldCount += HasObjectPropertyAlias(AnimClass, { TEXT("WanaRuntimeAnimationAdapter"), TEXT("WanaAnimationAdapterComponent"), TEXT("WanaAutoAnimationIntegrationComponent") }, UWanaAutoAnimationIntegrationComponent::StaticClass()) ? 1 : 0;
     SupportedFieldCount += HasObjectPropertyAlias(AnimClass, { TEXT("WanaWAYComponent"), TEXT("WanaProfileComponent"), TEXT("WAYPlayerProfileComponent") }, UWAYPlayerProfileComponent::StaticClass()) ? 1 : 0;
     SupportedFieldCount += HasObjectPropertyAlias(AnimClass, { TEXT("WanaPhysicalStateComponent"), TEXT("PhysicalStateComponent") }, UWanaPhysicalStateComponent::StaticClass()) ? 1 : 0;
     SupportedFieldCount += HasBoolPropertyAlias(AnimClass, { TEXT("bWanaFacingHookRequested"), TEXT("bFacingHookRequested") }) ? 1 : 0;
     SupportedFieldCount += HasBoolPropertyAlias(AnimClass, { TEXT("bWanaTurnToTargetRequested"), TEXT("bTurnToTargetRequested") }) ? 1 : 0;
     SupportedFieldCount += HasEnumPropertyAlias(AnimClass, { TEXT("WanaReactionState"), TEXT("ReactionState") }) ? 1 : 0;
     SupportedFieldCount += HasEnumPropertyAlias(AnimClass, { TEXT("WanaRecommendedBehavior"), TEXT("RecommendedBehavior") }) ? 1 : 0;
+    SupportedFieldCount += HasStringPropertyAlias(AnimClass, { TEXT("WanaBehaviorIntent"), TEXT("BehaviorIntent") }) ? 1 : 0;
+    SupportedFieldCount += HasStringPropertyAlias(AnimClass, { TEXT("WanaVisibleBehaviorLabel"), TEXT("VisibleBehaviorLabel") }) ? 1 : 0;
+    SupportedFieldCount += HasStringPropertyAlias(AnimClass, { TEXT("WanaPostureHint"), TEXT("PostureHint") }) ? 1 : 0;
+    SupportedFieldCount += HasStringPropertyAlias(AnimClass, { TEXT("WanaPostureCategory"), TEXT("PostureCategory") }) ? 1 : 0;
+    SupportedFieldCount += HasStringPropertyAlias(AnimClass, { TEXT("WanaFallbackHint"), TEXT("FallbackHint") }) ? 1 : 0;
+    SupportedFieldCount += HasStringPropertyAlias(AnimClass, { TEXT("WanaAdapterReadinessState"), TEXT("AdapterReadinessState") }) ? 1 : 0;
+    SupportedFieldCount += HasStringPropertyAlias(AnimClass, { TEXT("WanaAdapterRecommendedStrategy"), TEXT("AdapterRecommendedStrategy") }) ? 1 : 0;
     SupportedFieldCount += HasBoolPropertyAlias(AnimClass, { TEXT("bWanaLocomotionSafeExecutionHint"), TEXT("bLocomotionSafeExecutionHint") }) ? 1 : 0;
     SupportedFieldCount += HasEnumPropertyAlias(AnimClass, { TEXT("WanaPhysicalState"), TEXT("PhysicalState") }) ? 1 : 0;
     SupportedFieldCount += HasFloatPropertyAlias(AnimClass, { TEXT("WanaStabilityScore"), TEXT("StabilityScore") }) ? 1 : 0;
@@ -275,6 +318,7 @@ int32 CountSupportedAutomaticIntegrationFields(const UClass* AnimClass)
 int32 ApplyAutomaticIntegrationToAnimInstance(
     UAnimInstance* AnimInstance,
     const UClass* AnimClass,
+    UWanaAutoAnimationIntegrationComponent* AdapterComponent,
     UWAYPlayerProfileComponent* WAYComponent,
     UWanaPhysicalStateComponent* PhysicalStateComponent)
 {
@@ -297,12 +341,20 @@ int32 ApplyAutomaticIntegrationToAnimInstance(
 
     int32 AppliedFieldCount = 0;
     AppliedFieldCount += TrySetStructPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaAnimationHookState"), TEXT("AnimationHookState") }, FWAYAnimationHookState::StaticStruct(), HookState) ? 1 : 0;
+    AppliedFieldCount += TrySetObjectPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaRuntimeAnimationAdapter"), TEXT("WanaAnimationAdapterComponent"), TEXT("WanaAutoAnimationIntegrationComponent") }, UWanaAutoAnimationIntegrationComponent::StaticClass(), AdapterComponent) ? 1 : 0;
     AppliedFieldCount += TrySetObjectPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaWAYComponent"), TEXT("WanaProfileComponent"), TEXT("WAYPlayerProfileComponent") }, UWAYPlayerProfileComponent::StaticClass(), WAYComponent) ? 1 : 0;
     AppliedFieldCount += TrySetObjectPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaPhysicalStateComponent"), TEXT("PhysicalStateComponent") }, UWanaPhysicalStateComponent::StaticClass(), PhysicalStateComponent) ? 1 : 0;
     AppliedFieldCount += TrySetBoolPropertyAlias(AnimInstance, AnimClass, { TEXT("bWanaFacingHookRequested"), TEXT("bFacingHookRequested") }, HookState.bFacingHookRequested) ? 1 : 0;
     AppliedFieldCount += TrySetBoolPropertyAlias(AnimInstance, AnimClass, { TEXT("bWanaTurnToTargetRequested"), TEXT("bTurnToTargetRequested") }, HookState.bTurnToTargetRequested) ? 1 : 0;
     AppliedFieldCount += TrySetEnumPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaReactionState"), TEXT("ReactionState") }, static_cast<int64>(HookState.ReactionState)) ? 1 : 0;
     AppliedFieldCount += TrySetEnumPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaRecommendedBehavior"), TEXT("RecommendedBehavior") }, static_cast<int64>(HookState.RecommendedBehavior)) ? 1 : 0;
+    AppliedFieldCount += TrySetStringPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaBehaviorIntent"), TEXT("BehaviorIntent") }, HookState.BehaviorIntent) ? 1 : 0;
+    AppliedFieldCount += TrySetStringPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaVisibleBehaviorLabel"), TEXT("VisibleBehaviorLabel") }, HookState.VisibleBehaviorLabel) ? 1 : 0;
+    AppliedFieldCount += TrySetStringPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaPostureHint"), TEXT("PostureHint") }, HookState.PostureHint) ? 1 : 0;
+    AppliedFieldCount += TrySetStringPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaPostureCategory"), TEXT("PostureCategory") }, HookState.PostureCategory) ? 1 : 0;
+    AppliedFieldCount += TrySetStringPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaFallbackHint"), TEXT("FallbackHint") }, HookState.FallbackHint) ? 1 : 0;
+    AppliedFieldCount += TrySetStringPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaAdapterReadinessState"), TEXT("AdapterReadinessState") }, AdapterComponent ? AdapterComponent->RuntimeAdapterReadinessState : FString(TEXT("Limited"))) ? 1 : 0;
+    AppliedFieldCount += TrySetStringPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaAdapterRecommendedStrategy"), TEXT("AdapterRecommendedStrategy") }, AdapterComponent ? AdapterComponent->RuntimeAdapterRecommendedStrategy : FString(TEXT("Needs Enhance"))) ? 1 : 0;
     AppliedFieldCount += TrySetBoolPropertyAlias(AnimInstance, AnimClass, { TEXT("bWanaLocomotionSafeExecutionHint"), TEXT("bLocomotionSafeExecutionHint") }, HookState.bLocomotionSafeExecutionHint) ? 1 : 0;
     AppliedFieldCount += TrySetEnumPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaPhysicalState"), TEXT("PhysicalState") }, static_cast<int64>(PhysicalState)) ? 1 : 0;
     AppliedFieldCount += TrySetFloatPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaStabilityScore"), TEXT("StabilityScore") }, StabilityScore) ? 1 : 0;
@@ -315,6 +367,29 @@ int32 ApplyAutomaticIntegrationToAnimInstance(
     AppliedFieldCount += TrySetBoolPropertyAlias(AnimInstance, AnimClass, { TEXT("bWanaCanCommitToMovement"), TEXT("bCanCommitToMovement") }, bCanCommitToMovement) ? 1 : 0;
     AppliedFieldCount += TrySetBoolPropertyAlias(AnimInstance, AnimClass, { TEXT("bWanaCanCommitToAttack"), TEXT("bCanCommitToAttack") }, bCanCommitToAttack) ? 1 : 0;
     return AppliedFieldCount;
+}
+
+FString BuildAdapterReportObjectPath(const FString& ReportPath)
+{
+    if (ReportPath.IsEmpty())
+    {
+        return FString();
+    }
+
+    if (ReportPath.Contains(TEXT(".")))
+    {
+        return ReportPath;
+    }
+
+    FString AssetName = FPackageName::GetLongPackageAssetName(ReportPath);
+    if (AssetName.IsEmpty())
+    {
+        int32 LastSlashIndex = INDEX_NONE;
+        ReportPath.FindLastChar(TEXT('/'), LastSlashIndex);
+        AssetName = LastSlashIndex == INDEX_NONE ? ReportPath : ReportPath.RightChop(LastSlashIndex + 1);
+    }
+
+    return FString::Printf(TEXT("%s.%s"), *ReportPath, *AssetName);
 }
 }
 
@@ -419,6 +494,182 @@ FVector UWanaAutoAnimationIntegrationComponent::GetAdapterImpactDirection() cons
     return PhysicalStateComponent ? PhysicalStateComponent->LastImpactDirection : FVector::ZeroVector;
 }
 
+void UWanaAutoAnimationIntegrationComponent::SetPersistentAdapterReportAsset(UWanaAnimationAdapterReportAsset* InReportAsset)
+{
+    PersistentAdapterReport = InReportAsset;
+    PersistentAdapterReportPath = InReportAsset
+        ? (InReportAsset->AdapterPackagePath.IsEmpty() ? InReportAsset->GetPathName() : InReportAsset->AdapterPackagePath)
+        : FString();
+    RefreshRuntimeAnimationAdapter();
+}
+
+void UWanaAutoAnimationIntegrationComponent::SetPersistentAdapterReportPath(const FString& InReportPath)
+{
+    PersistentAdapterReportPath = InReportPath;
+    RefreshRuntimeAnimationAdapter();
+}
+
+UWanaAnimationAdapterReportAsset* UWanaAutoAnimationIntegrationComponent::ResolvePersistentAdapterReportAsset() const
+{
+    if (UWanaAnimationAdapterReportAsset* LoadedReport = PersistentAdapterReport.Get())
+    {
+        return LoadedReport;
+    }
+
+    if (!PersistentAdapterReport.IsNull())
+    {
+        if (UWanaAnimationAdapterReportAsset* LoadedReport = PersistentAdapterReport.LoadSynchronous())
+        {
+            return LoadedReport;
+        }
+    }
+
+    const FString ObjectPath = BuildAdapterReportObjectPath(PersistentAdapterReportPath);
+    if (ObjectPath.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    return Cast<UWanaAnimationAdapterReportAsset>(
+        StaticLoadObject(
+            UWanaAnimationAdapterReportAsset::StaticClass(),
+            nullptr,
+            *ObjectPath));
+}
+
+void UWanaAutoAnimationIntegrationComponent::RefreshRuntimeAnimationAdapter()
+{
+    bRuntimeAdapterHookReadable = false;
+    bRuntimeAdapterReportReadable = false;
+    bRuntimeAdapterSharedAnimBPDetected = false;
+    bRuntimeAdapterDirectGraphEditSafe = false;
+    bRuntimeAdapterFacingHookRequested = false;
+    bRuntimeAdapterTurnToTargetRequested = false;
+    bRuntimeAdapterLocomotionSafeExecutionHint = false;
+    bRuntimeAdapterMovementLimitedFallbackHint = false;
+    RuntimeAdapterBehaviorIntent = FString();
+    RuntimeAdapterVisibleBehaviorLabel = FString();
+    RuntimeAdapterPostureHint = TEXT("observant");
+    RuntimeAdapterFallbackHint = TEXT("stable observe stance");
+    RuntimeAdapterIdentityRole = TEXT("neutral");
+    RuntimeAdapterReactionState = EWAYReactionState::Observational;
+    RuntimeAdapterRelationshipState = EWAYRelationshipState::Neutral;
+    RuntimeAdapterRecommendedBehavior = EWAYBehaviorPreset::None;
+    RuntimeAdapterInstabilityAlpha = 0.0f;
+    RuntimeAdapterRecoveryProgress = 1.0f;
+    RuntimeAdapterImpactDirection = FVector::ZeroVector;
+    RuntimeAdapterDirectGraphEditSafety = TEXT("Limited");
+    RuntimeAdapterSharedAnimBPRisk = TEXT("Unknown");
+    RuntimeAdapterRecommendedStrategy = TEXT("Needs Enhance");
+    RuntimeAdapterReadinessState = TEXT("Not Supported");
+    RuntimeAdapterDetail = TEXT("Runtime WanaAnimation adapter is limited because no valid owner was found.");
+
+    AActor* OwnerActor = GetOwner();
+    if (!OwnerActor)
+    {
+        return;
+    }
+
+    USkeletalMeshComponent* MeshComponent = ResolveIntegrationMesh();
+    UClass* AnimClass = MeshComponent ? MeshComponent->GetAnimClass() : nullptr;
+    if (!AnimClass && MeshComponent && MeshComponent->GetAnimInstance())
+    {
+        AnimClass = MeshComponent->GetAnimInstance()->GetClass();
+    }
+
+    const UWAYPlayerProfileComponent* WAYComponent = OwnerActor->FindComponentByClass<UWAYPlayerProfileComponent>();
+    const UWanaPhysicalStateComponent* PhysicalStateComponent = OwnerActor->FindComponentByClass<UWanaPhysicalStateComponent>();
+    const FWAYAnimationHookState HookState = WAYComponent ? WAYComponent->GetCurrentAnimationHookState() : FWAYAnimationHookState();
+
+    bRuntimeAdapterHookReadable = WAYComponent != nullptr;
+    bRuntimeAdapterFacingHookRequested = HookState.bFacingHookRequested;
+    bRuntimeAdapterTurnToTargetRequested = HookState.bTurnToTargetRequested;
+    bRuntimeAdapterLocomotionSafeExecutionHint = HookState.bLocomotionSafeExecutionHint;
+    bRuntimeAdapterMovementLimitedFallbackHint = HookState.bMovementLimitedFallbackHint;
+    RuntimeAdapterBehaviorIntent = HookState.BehaviorIntent;
+    RuntimeAdapterVisibleBehaviorLabel = HookState.VisibleBehaviorLabel;
+    RuntimeAdapterPostureHint = HookState.PostureHint.IsEmpty() ? RuntimeAdapterPostureHint : HookState.PostureHint;
+    RuntimeAdapterFallbackHint = HookState.FallbackHint.IsEmpty() ? RuntimeAdapterFallbackHint : HookState.FallbackHint;
+    RuntimeAdapterIdentityRole = HookState.IdentityRoleHint.IsEmpty() ? RuntimeAdapterIdentityRole : HookState.IdentityRoleHint;
+    RuntimeAdapterReactionState = HookState.ReactionState;
+    RuntimeAdapterRelationshipState = HookState.RelationshipState;
+    RuntimeAdapterRecommendedBehavior = HookState.RecommendedBehavior;
+
+    if (HookState.bPhysicalReactionStateAvailable)
+    {
+        RuntimeAdapterInstabilityAlpha = HookState.PhysicalInstabilityAlpha;
+        RuntimeAdapterRecoveryProgress = HookState.PhysicalRecoveryProgress;
+        RuntimeAdapterImpactDirection = HookState.PhysicalImpactDirection;
+    }
+    else if (PhysicalStateComponent)
+    {
+        RuntimeAdapterInstabilityAlpha = PhysicalStateComponent->InstabilityAlpha;
+        RuntimeAdapterRecoveryProgress = PhysicalStateComponent->RecoveryProgress;
+        RuntimeAdapterImpactDirection = PhysicalStateComponent->LastImpactDirection;
+    }
+
+    if (UWanaAnimationAdapterReportAsset* ReportAsset = ResolvePersistentAdapterReportAsset())
+    {
+        bRuntimeAdapterReportReadable = true;
+        if (PersistentAdapterReportPath.IsEmpty())
+        {
+            PersistentAdapterReportPath = ReportAsset->AdapterPackagePath.IsEmpty()
+                ? ReportAsset->GetPathName()
+                : ReportAsset->AdapterPackagePath;
+        }
+
+        RuntimeAdapterReadinessState = ReportAsset->AdapterReadinessState.IsEmpty()
+            ? ReportAsset->AdapterStatus
+            : ReportAsset->AdapterReadinessState;
+        RuntimeAdapterRecommendedStrategy = ReportAsset->RecommendedIntegrationStrategy.IsEmpty()
+            ? TEXT("Generated Adapter")
+            : ReportAsset->RecommendedIntegrationStrategy;
+        RuntimeAdapterDirectGraphEditSafety = ReportAsset->DirectGraphEditSafety.IsEmpty()
+            ? TEXT("Limited")
+            : ReportAsset->DirectGraphEditSafety;
+        RuntimeAdapterSharedAnimBPRisk = ReportAsset->SharedAnimBlueprintStatus.IsEmpty()
+            ? TEXT("Unknown")
+            : ReportAsset->SharedAnimBlueprintStatus;
+    }
+    else if (!MeshComponent)
+    {
+        RuntimeAdapterReadinessState = TEXT("Not Supported");
+        RuntimeAdapterRecommendedStrategy = TEXT("Not Supported");
+    }
+    else if (!AnimClass)
+    {
+        RuntimeAdapterReadinessState = TEXT("Limited");
+        RuntimeAdapterRecommendedStrategy = TEXT("Needs Anim BP");
+    }
+    else if (!WAYComponent)
+    {
+        RuntimeAdapterReadinessState = TEXT("Needs Enhance");
+        RuntimeAdapterRecommendedStrategy = TEXT("Needs Enhance");
+    }
+    else
+    {
+        RuntimeAdapterReadinessState = SupportedFieldCount > 0 ? TEXT("Ready") : TEXT("Adapter Recommended");
+        RuntimeAdapterRecommendedStrategy = SupportedFieldCount > 0 ? TEXT("Runtime Adapter / Existing Fields") : TEXT("Generated Adapter / Manual Review");
+    }
+
+    bRuntimeAdapterSharedAnimBPDetected = RuntimeAdapterSharedAnimBPRisk.Equals(TEXT("Yes"), ESearchCase::IgnoreCase)
+        || RuntimeAdapterDirectGraphEditSafety.Equals(TEXT("Unsafe"), ESearchCase::IgnoreCase);
+    bRuntimeAdapterDirectGraphEditSafe = RuntimeAdapterDirectGraphEditSafety.Equals(TEXT("Safe"), ESearchCase::IgnoreCase);
+
+    RuntimeAdapterDetail = FString::Printf(
+        TEXT("Runtime WanaAnimation adapter: %s. Hook Readable: %s. Persistent Report: %s. Posture: %s. Reaction: %s. Facing Hook: %s. Turn-To-Target: %s. Locomotion: %s. Movement Fallback: %s. Report Path: %s. Original Anim BP remains untouched."),
+        RuntimeAdapterReadinessState.IsEmpty() ? TEXT("Limited") : *RuntimeAdapterReadinessState,
+        bRuntimeAdapterHookReadable ? TEXT("Ready") : TEXT("Needs Enhance"),
+        bRuntimeAdapterReportReadable ? TEXT("Readable") : TEXT("Not Found"),
+        RuntimeAdapterPostureHint.IsEmpty() ? TEXT("(pending)") : *RuntimeAdapterPostureHint,
+        *UEnum::GetValueAsString(RuntimeAdapterReactionState),
+        bRuntimeAdapterFacingHookRequested ? TEXT("Requested") : TEXT("Not Requested"),
+        bRuntimeAdapterTurnToTargetRequested ? TEXT("Requested") : TEXT("Not Requested"),
+        bRuntimeAdapterLocomotionSafeExecutionHint ? TEXT("Safe") : TEXT("Limited"),
+        bRuntimeAdapterMovementLimitedFallbackHint ? TEXT("Active") : TEXT("Inactive"),
+        PersistentAdapterReportPath.IsEmpty() ? TEXT("(not linked)") : *PersistentAdapterReportPath);
+}
+
 void UWanaAutoAnimationIntegrationComponent::BeginPlay()
 {
     Super::BeginPlay();
@@ -449,6 +700,7 @@ void UWanaAutoAnimationIntegrationComponent::RefreshAutomaticAnimationIntegratio
     if (!MeshComponent)
     {
         Detail = TEXT("Automatic Anim BP integration is not supported because this subject has no skeletal animation stack.");
+        RefreshRuntimeAnimationAdapter();
         return;
     }
 
@@ -465,15 +717,18 @@ void UWanaAutoAnimationIntegrationComponent::RefreshAutomaticAnimationIntegratio
     if (!AnimClass)
     {
         Detail = TEXT("Automatic Anim BP integration is not supported because no linked Animation Blueprint or live AnimInstance class was detected on the sandbox subject.");
+        RefreshRuntimeAnimationAdapter();
         return;
     }
 
     SupportedFieldCount = CountSupportedAutomaticIntegrationFields(AnimClass);
+    RefreshRuntimeAnimationAdapter();
 
     if (SupportedFieldCount <= 0)
     {
         AutomaticIntegrationStatus = EWAYAutomaticAnimationIntegrationStatus::Limited;
         Detail = TEXT("Automatic Anim BP integration is limited because the detected Animation Blueprint does not expose the supported WanaWorks auto-wire fields or component references in this first pass.");
+        RefreshRuntimeAnimationAdapter();
         return;
     }
 
@@ -490,10 +745,11 @@ void UWanaAutoAnimationIntegrationComponent::RefreshAutomaticAnimationIntegratio
             SupportedFieldCount,
             *WAYSourceLabel,
             *PhysicalSourceLabel);
+        RefreshRuntimeAnimationAdapter();
         return;
     }
 
-    LastAppliedFieldCount = ApplyAutomaticIntegrationToAnimInstance(AnimInstance, AnimClass, WAYComponent, PhysicalStateComponent);
+    LastAppliedFieldCount = ApplyAutomaticIntegrationToAnimInstance(AnimInstance, AnimClass, this, WAYComponent, PhysicalStateComponent);
 
     if (LastAppliedFieldCount > 0)
     {
@@ -504,6 +760,7 @@ void UWanaAutoAnimationIntegrationComponent::RefreshAutomaticAnimationIntegratio
             LastAppliedFieldCount,
             *WAYSourceLabel,
             *PhysicalSourceLabel);
+        RefreshRuntimeAnimationAdapter();
         return;
     }
 
@@ -513,6 +770,7 @@ void UWanaAutoAnimationIntegrationComponent::RefreshAutomaticAnimationIntegratio
         SupportedFieldCount,
         *WAYSourceLabel,
         *PhysicalSourceLabel);
+    RefreshRuntimeAnimationAdapter();
 }
 
 USkeletalMeshComponent* UWanaAutoAnimationIntegrationComponent::ResolveIntegrationMesh() const

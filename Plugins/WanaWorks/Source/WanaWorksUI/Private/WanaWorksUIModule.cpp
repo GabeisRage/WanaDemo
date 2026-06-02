@@ -38,8 +38,10 @@
 #include "WanaWorksUISummaryText.h"
 #include "WanaWorksUIStyle.h"
 #include "WanaWorksUITabBuilder.h"
+#include "WanaAutoAnimationIntegrationComponent.h"
 #include "WanaAnimationAdapterReportAsset.h"
 #include "WanaIdentityComponent.h"
+#include "WanaPhysicalStateComponent.h"
 #include "WAYPlayerProfileComponent.h"
 #include "Widgets/Docking/SDockTab.h"
 
@@ -715,7 +717,15 @@ FString BuildWanaAnimationAdapterReadinessDetail(
     const FString DirectGraphEditSafety = GetAnimBPDirectGraphEditSafetyLabel(Snapshot, SharedSummary);
     const FString RecommendedStrategy = GetWanaAnimationRecommendedStrategy(Snapshot, SharedSummary);
     const FString AdapterStatus = GetWanaAnimationAdapterStatusLabel(Snapshot, SharedSummary, bAdapterRecordGenerated);
-    const FString OutputPath = AdapterRecordPath.IsEmpty() ? BuildWanaAnimationAdapterOutputPath(Snapshot) : AdapterRecordPath;
+    const FString OutputPath = !Snapshot.RuntimeAnimationAdapterReportPath.IsEmpty()
+        ? Snapshot.RuntimeAnimationAdapterReportPath
+        : (AdapterRecordPath.IsEmpty() ? BuildWanaAnimationAdapterOutputPath(Snapshot) : AdapterRecordPath);
+    const FString RuntimeAdapterStatus = Snapshot.bHasRuntimeAnimationAdapterComponent
+        ? (Snapshot.RuntimeAnimationAdapterReadiness.IsEmpty() ? TEXT("Limited") : Snapshot.RuntimeAnimationAdapterReadiness)
+        : TEXT("Needs Enhance");
+    const FString RuntimeAdapterStrategy = Snapshot.RuntimeAnimationAdapterRecommendedStrategy.IsEmpty()
+        ? RecommendedStrategy
+        : Snapshot.RuntimeAnimationAdapterRecommendedStrategy;
     const FString PostureInputs = Snapshot.AnimationPostureHint.IsEmpty()
         ? TEXT("posture/reaction inputs pending hook drive")
         : FString::Printf(
@@ -725,12 +735,16 @@ FString BuildWanaAnimationAdapterReadinessDetail(
             *UIFmt::GetReactionStateSummaryLabel(Snapshot.AnimationReactionState));
 
     return FString::Printf(
-        TEXT("Adapter Status: %s. Output: %s. Shared Anim BP: %s. Direct Graph Edit Safety: %s. Recommended Strategy: %s. Source=%s, Mesh=%s, Skeleton=%s, Anim Class=%s, Generated Class=%s, Parent=%s, Hook Provider=%s, Hook Readable=%s, Physical Provider=%s, Auto-Wire Fields=%d supported/%d applied, Inputs=%s. Original Anim BP is not edited or reassigned."),
+        TEXT("Adapter Status: %s. Runtime Adapter: %s. Runtime Hook: %s. Persistent Report: %s. Output: %s. Shared Anim BP: %s. Direct Graph Edit Safety: %s. Recommended Strategy: %s. Runtime Strategy: %s. Source=%s, Mesh=%s, Skeleton=%s, Anim Class=%s, Generated Class=%s, Parent=%s, Hook Provider=%s, Hook Readable=%s, Physical Provider=%s, Auto-Wire Fields=%d supported/%d applied, Inputs=%s. Runtime Detail: %s Original Anim BP is not edited or reassigned."),
         *AdapterStatus,
+        *RuntimeAdapterStatus,
+        Snapshot.bRuntimeAnimationAdapterHookReadable ? TEXT("Ready") : TEXT("Needs Enhance"),
+        Snapshot.bRuntimeAnimationAdapterReportReadable ? TEXT("Readable") : (bAdapterRecordGenerated ? TEXT("Ready after Build refresh") : TEXT("Not Found")),
         *OutputPath,
         *SharedAnimBPStatus,
         *DirectGraphEditSafety,
         *RecommendedStrategy,
+        *RuntimeAdapterStrategy,
         Snapshot.SelectedActorLabel.IsEmpty() ? TEXT("(none)") : *Snapshot.SelectedActorLabel,
         Snapshot.SkeletalMeshLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.SkeletalMeshLabel,
         Snapshot.SkeletonLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.SkeletonLabel,
@@ -742,7 +756,8 @@ FString BuildWanaAnimationAdapterReadinessDetail(
         Snapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited"),
         Snapshot.AnimationSupportedAutoWireFieldCount,
         Snapshot.AnimationLastAppliedAutoWireFieldCount,
-        *PostureInputs);
+        *PostureInputs,
+        Snapshot.RuntimeAnimationAdapterDetail.IsEmpty() ? TEXT("Runtime adapter has not been prepared on this subject yet.") : *Snapshot.RuntimeAnimationAdapterDetail);
 }
 
 FWanaPersistentAnimationAdapterReportResult SavePersistentWanaAnimationAdapterReportAsset(
@@ -948,6 +963,21 @@ FWanaPersistentAnimationAdapterReportResult SavePersistentWanaAnimationAdapterRe
         ? FString::Printf(TEXT("Adapter generated with limitations: shared Anim BP requires non-destructive integration. WanaAnimation adapter report saved to %s."), *FinalPackagePath)
         : FString::Printf(TEXT("WanaAnimation adapter report saved to %s. Original Anim BP was preserved."), *FinalPackagePath);
     return Result;
+}
+
+void ApplyPersistentAnimationAdapterReportPathToRuntimeComponent(
+    const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
+    const FString& AdapterReportPath)
+{
+    if (AdapterReportPath.IsEmpty() || !Snapshot.SelectedActor.IsValid())
+    {
+        return;
+    }
+
+    if (UWanaAutoAnimationIntegrationComponent* RuntimeAdapterComponent = Snapshot.SelectedActor->FindComponentByClass<UWanaAutoAnimationIntegrationComponent>())
+    {
+        RuntimeAdapterComponent->SetPersistentAdapterReportPath(AdapterReportPath);
+    }
 }
 
 FString GetSafeActorLabel(const AActor* Actor)
@@ -1634,6 +1664,243 @@ FString BuildAIPhysicalBehaviorCommitmentDetail(const FWanaSelectedCharacterEnha
         Snapshot.bPhysicalCanCommitToAttack ? TEXT("ready") : TEXT("limited"),
         Snapshot.bPhysicalNeedsRecovery ? TEXT("needed") : TEXT("not needed"),
         Snapshot.PhysicalInstabilityAlpha);
+}
+
+FString GetWanaPhysicalStateDisplayLabel(EWanaPhysicalState PhysicalState)
+{
+    const UEnum* PhysicalStateEnum = StaticEnum<EWanaPhysicalState>();
+    return PhysicalStateEnum
+        ? PhysicalStateEnum->GetDisplayNameTextByValue(static_cast<int64>(PhysicalState)).ToString()
+        : TEXT("Stable");
+}
+
+struct FWanaVisibleReactionTestResult
+{
+    bool bAttempted = false;
+    bool bApplied = false;
+    bool bHasPhysicalStateComponent = false;
+    bool bHasRuntimeAdapter = false;
+    bool bRuntimeAdapterRefreshed = false;
+    bool bRuntimeFieldsApplied = false;
+    FString StatusLabel = TEXT("Limited");
+    FString ScenarioLabel = TEXT("Readiness Only");
+    FString BodyStateLabel = TEXT("Unknown");
+    FString RuntimeConsumptionLabel = TEXT("Limited");
+    FString Detail;
+    EWanaPhysicalState PhysicalState = EWanaPhysicalState::Stable;
+    float StabilityScore = 1.0f;
+    float InstabilityAlpha = 0.0f;
+    float RecoveryProgress = 1.0f;
+    float ImpactStrength = 0.0f;
+    FVector ImpactDirection = FVector::ZeroVector;
+};
+
+bool IsWanaWorksWorkingOrFinalActor(const AActor* Actor)
+{
+    if (!Actor)
+    {
+        return false;
+    }
+
+    const FString ActorLabel = Actor->GetActorNameOrLabel();
+    return ActorLabel.StartsWith(TEXT("WW_Sandbox_"))
+        || ActorLabel.StartsWith(TEXT("WW_Final_"))
+        || ActorLabel.Contains(TEXT("/WanaWorks/"), ESearchCase::IgnoreCase);
+}
+
+FVector ResolveVisibleReactionImpactDirection(const AActor* ObserverActor, const AActor* TargetActor)
+{
+    if (ObserverActor && TargetActor)
+    {
+        const FVector DirectionFromTarget = ObserverActor->GetActorLocation() - TargetActor->GetActorLocation();
+        if (!DirectionFromTarget.IsNearlyZero())
+        {
+            return DirectionFromTarget.GetSafeNormal();
+        }
+    }
+
+    return ObserverActor ? -ObserverActor->GetActorForwardVector().GetSafeNormal() : FVector::ForwardVector;
+}
+
+FString BuildVisibleReactionSupportDetail(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Visible reaction testing is not supported because no skeletal character stack was detected.");
+    }
+
+    if (!Snapshot.bHasPhysicalStateComponent)
+    {
+        return TEXT("Visible reaction testing needs Enhance because UWanaPhysicalStateComponent is missing.");
+    }
+
+    if (!Snapshot.bHasRuntimeAnimationAdapterComponent)
+    {
+        return TEXT("Physical reaction state is readable, but the runtime WanaAnimation adapter bridge still needs Enhance.");
+    }
+
+    return FString::Printf(
+        TEXT("Supported. Runtime adapter %s, hook %s, physical state %s, AnimInstance consumption %s."),
+        Snapshot.RuntimeAnimationAdapterReadiness.IsEmpty() ? TEXT("Limited") : *Snapshot.RuntimeAnimationAdapterReadiness,
+        Snapshot.bRuntimeAnimationAdapterHookReadable ? TEXT("Ready") : TEXT("Needs Enhance"),
+        *GetWanaPhysicalStateDisplayLabel(Snapshot.PhysicalState),
+        Snapshot.AnimationLastAppliedAutoWireFieldCount > 0 ? TEXT("Applied") : TEXT("Readiness Only"));
+}
+
+FWanaVisibleReactionTestResult ApplyVisibleCharacterReactionTest(
+    AActor* ObserverActor,
+    AActor* TargetActor,
+    const FWanaBehaviorResultsSnapshot& BehaviorSnapshot,
+    bool bAllowRuntimeStateMutation)
+{
+    FWanaVisibleReactionTestResult Result;
+    Result.bAttempted = true;
+
+    if (!IsValid(ObserverActor))
+    {
+        Result.StatusLabel = TEXT("Not Supported");
+        Result.Detail = TEXT("Visible reaction test could not run because no observer/AI subject was available.");
+        return Result;
+    }
+
+    if (TargetActor && ObserverActor->GetWorld() && TargetActor->GetWorld() && ObserverActor->GetWorld() != TargetActor->GetWorld())
+    {
+        Result.StatusLabel = TEXT("Limited");
+        Result.Detail = TEXT("Visible reaction test was limited because observer and target are in different world contexts.");
+        return Result;
+    }
+
+    UWanaPhysicalStateComponent* PhysicalStateComponent = ObserverActor->FindComponentByClass<UWanaPhysicalStateComponent>();
+    UWanaAutoAnimationIntegrationComponent* RuntimeAdapterComponent = ObserverActor->FindComponentByClass<UWanaAutoAnimationIntegrationComponent>();
+    Result.bHasPhysicalStateComponent = PhysicalStateComponent != nullptr;
+    Result.bHasRuntimeAdapter = RuntimeAdapterComponent != nullptr;
+
+    if (!PhysicalStateComponent)
+    {
+        Result.StatusLabel = TEXT("Needs Enhance");
+        Result.RuntimeConsumptionLabel = RuntimeAdapterComponent ? TEXT("Runtime adapter present; physical reaction source missing") : TEXT("Needs Enhance");
+        Result.Detail = TEXT("Visible reaction test needs Enhance because the selected subject has no UWanaPhysicalStateComponent.");
+        return Result;
+    }
+
+    if (!bAllowRuntimeStateMutation)
+    {
+        PhysicalStateComponent->RefreshPhysicalReadiness();
+
+        if (RuntimeAdapterComponent)
+        {
+            RuntimeAdapterComponent->RefreshAutomaticAnimationIntegration();
+            Result.bRuntimeAdapterRefreshed = true;
+            Result.RuntimeConsumptionLabel = RuntimeAdapterComponent->LastAppliedFieldCount > 0
+                ? FString::Printf(TEXT("Applied - %d runtime field(s) filled"), RuntimeAdapterComponent->LastAppliedFieldCount)
+                : TEXT("Readiness Only - compatible runtime fields not active");
+        }
+        else
+        {
+            Result.RuntimeConsumptionLabel = TEXT("Needs Enhance - runtime adapter missing");
+        }
+
+        Result.PhysicalState = PhysicalStateComponent->PhysicalState;
+        Result.BodyStateLabel = GetWanaPhysicalStateDisplayLabel(Result.PhysicalState);
+        Result.StabilityScore = PhysicalStateComponent->StabilityScore;
+        Result.InstabilityAlpha = PhysicalStateComponent->InstabilityAlpha;
+        Result.RecoveryProgress = PhysicalStateComponent->RecoveryProgress;
+        Result.ImpactStrength = PhysicalStateComponent->LastImpactStrength;
+        Result.ImpactDirection = PhysicalStateComponent->LastImpactDirection;
+        Result.StatusLabel = TEXT("Limited");
+        Result.Detail = TEXT("Visible reaction ran in readiness-only mode because the subject is not a WanaWorks working/finalized actor. Run Enhance first to test the safe working subject.");
+        return Result;
+    }
+
+    const EWAYBehaviorPreset BehaviorPreset = BehaviorSnapshot.RecommendedBehavior != EWAYBehaviorPreset::None
+        ? BehaviorSnapshot.RecommendedBehavior
+        : BehaviorSnapshot.LastAppliedHook;
+    const bool bFriendlyRelationship = BehaviorSnapshot.RelationshipState == EWAYRelationshipState::Friend
+        || BehaviorSnapshot.RelationshipState == EWAYRelationshipState::Partner;
+    const bool bHostileRelationship = BehaviorSnapshot.RelationshipState == EWAYRelationshipState::Enemy;
+    const bool bMovementLimited =
+        BehaviorSnapshot.ExecutionMode == EWAYBehaviorExecutionMode::FallbackActive
+        || BehaviorSnapshot.ExecutionMode == EWAYBehaviorExecutionMode::FacingOnly
+        || !BehaviorSnapshot.MovementReadiness.bCanAttemptMovement
+        || BehaviorSnapshot.bAnimationMovementLimitedFallbackHint;
+    const FVector ImpactDirection = ResolveVisibleReactionImpactDirection(ObserverActor, TargetActor);
+
+    if (BehaviorPreset == EWAYBehaviorPreset::GuardTarget && bFriendlyRelationship)
+    {
+        Result.ScenarioLabel = TEXT("Protective Bracing");
+        PhysicalStateComponent->SetBracing(true, 0.24f);
+        PhysicalStateComponent->ApplyImpactHint(ImpactDirection, bMovementLimited ? 0.34f : 0.24f, false);
+    }
+    else if (BehaviorPreset == EWAYBehaviorPreset::ApproachHostile || bHostileRelationship)
+    {
+        Result.ScenarioLabel = TEXT("Tense Impact Recovery");
+        PhysicalStateComponent->SetBracing(false);
+        PhysicalStateComponent->ApplyImpactHint(ImpactDirection, bMovementLimited ? 0.68f : 0.54f, true);
+    }
+    else if (bMovementLimited)
+    {
+        Result.ScenarioLabel = TEXT("Movement-Limited Facing Fallback");
+        PhysicalStateComponent->SetBracing(false);
+        PhysicalStateComponent->ApplyImpactHint(ImpactDirection, 0.48f, true);
+    }
+    else if (BehaviorPreset == EWAYBehaviorPreset::ObserveTarget || BehaviorPreset == EWAYBehaviorPreset::None)
+    {
+        Result.ScenarioLabel = TEXT("Cautious Observation");
+        PhysicalStateComponent->EnterAlertState(0.32f);
+        PhysicalStateComponent->ApplyImpactHint(ImpactDirection, 0.20f, false);
+    }
+    else
+    {
+        Result.ScenarioLabel = TEXT("Cooperative Attentive Readiness");
+        PhysicalStateComponent->SetBracing(false);
+        PhysicalStateComponent->EnterAlertState(0.22f);
+    }
+
+    PhysicalStateComponent->RefreshPhysicalReadiness();
+
+    if (UWAYPlayerProfileComponent* ProfileComponent = ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>())
+    {
+        if (TargetActor && BehaviorPreset != EWAYBehaviorPreset::None)
+        {
+            ProfileComponent->ApplyBehaviorPresetHook(TargetActor, BehaviorPreset);
+        }
+    }
+
+    if (RuntimeAdapterComponent)
+    {
+        RuntimeAdapterComponent->RefreshAutomaticAnimationIntegration();
+        Result.bRuntimeAdapterRefreshed = true;
+        Result.bRuntimeFieldsApplied = RuntimeAdapterComponent->LastAppliedFieldCount > 0;
+        Result.RuntimeConsumptionLabel = Result.bRuntimeFieldsApplied
+            ? FString::Printf(TEXT("Applied - %d runtime field(s) filled"), RuntimeAdapterComponent->LastAppliedFieldCount)
+            : (RuntimeAdapterComponent->SupportedFieldCount > 0
+                ? FString::Printf(TEXT("Ready - %d compatible field(s), waiting for live AnimInstance or graph consumption"), RuntimeAdapterComponent->SupportedFieldCount)
+                : TEXT("Limited - no compatible runtime fields detected"));
+    }
+    else
+    {
+        Result.RuntimeConsumptionLabel = TEXT("Needs Enhance - runtime adapter missing");
+    }
+
+    Result.bApplied = true;
+    Result.StatusLabel = TEXT("Applied");
+    Result.PhysicalState = PhysicalStateComponent->PhysicalState;
+    Result.BodyStateLabel = GetWanaPhysicalStateDisplayLabel(Result.PhysicalState);
+    Result.StabilityScore = PhysicalStateComponent->StabilityScore;
+    Result.InstabilityAlpha = PhysicalStateComponent->InstabilityAlpha;
+    Result.RecoveryProgress = PhysicalStateComponent->RecoveryProgress;
+    Result.ImpactStrength = PhysicalStateComponent->LastImpactStrength;
+    Result.ImpactDirection = PhysicalStateComponent->LastImpactDirection;
+    Result.Detail = FString::Printf(
+        TEXT("%s simulated safely on the WanaWorks working subject. Body state %s, stability %.2f, instability %.2f, recovery %d%%, impact %.2f. %s"),
+        *Result.ScenarioLabel,
+        *Result.BodyStateLabel,
+        Result.StabilityScore,
+        Result.InstabilityAlpha,
+        FMath::RoundToInt(Result.RecoveryProgress * 100.0f),
+        Result.ImpactStrength,
+        *Result.RuntimeConsumptionLabel);
+    return Result;
 }
 
 FString GetAIAnimationStageCategoryLabel(const FString& PostureCategory, const FString& PostureHint)
@@ -4611,6 +4878,33 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                 BehaviorExecutionResponse.StatusMessage = TEXT("Status: Behavior test needs Enhance before visible execution.");
             }
 
+            FWanaBehaviorResultsSnapshot PreReactionBehaviorSnapshot;
+            WanaWorksUIEditorActions::GetBehaviorResultsSnapshotForActorPair(
+                ObserverActor,
+                TargetActor,
+                bTargetFallsBackToObserver,
+                PairSourceLabel,
+                PreReactionBehaviorSnapshot);
+
+            const bool bAllowVisibleReactionMutation = ObserverActor
+                && (IsWanaWorksWorkingOrFinalActor(ObserverActor)
+                    || (LastEnhancementResultsActor.IsValid() && LastEnhancementResultsActor.Get() == ObserverActor));
+            const FWanaVisibleReactionTestResult VisibleReactionResult = ApplyVisibleCharacterReactionTest(
+                ObserverActor,
+                TargetActor,
+                PreReactionBehaviorSnapshot,
+                bAllowVisibleReactionMutation);
+
+            if (ObserverActor)
+            {
+                FWanaSelectedCharacterEnhancementSnapshot ReactionSnapshot;
+                if (WanaWorksUIEditorActions::GetCharacterEnhancementSnapshotForActor(ObserverActor, ReactionSnapshot)
+                    && ReactionSnapshot.bHasSelectedActor)
+                {
+                    Snapshot = ReactionSnapshot;
+                }
+            }
+
             FWanaBehaviorResultsSnapshot BehaviorSnapshot;
             WanaWorksUIEditorActions::GetBehaviorResultsSnapshotForActorPair(
                 ObserverActor,
@@ -4702,6 +4996,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             AddAnalysisItem(PrimaryItems, Result, TEXT("Working / Enhanced Subject"), bWorkingSubjectReady ? TEXT("Ready") : TEXT("Limited"), bWorkingSubjectReady ? FString::Printf(TEXT("%s is available as the WanaWorks working subject."), *LastEnhancementResultsActorLabel) : TEXT("Enhancement has not prepared a working subject in this session; testing selected subject readiness instead."));
             AddAnalysisItem(PrimaryItems, Result, TEXT("Preview Stage"), bPreviewReady ? TEXT("Ready") : TEXT("Limited"), bPreviewReady ? FString::Printf(TEXT("Stage can show %s. %s"), *PreviewModeLabel, *AnimationStageSummary) : FString::Printf(TEXT("Preview subject is not available yet. %s"), *AnimationStageSummary));
             AddAnalysisItem(PrimaryItems, Result, TEXT("WanaAnimation Stage"), bAnimationHookDriven ? TEXT("Applied") : TEXT("Limited"), AnimationStageSummary);
+            AddAnalysisItem(PrimaryItems, Result, TEXT("Visible Reaction"), VisibleReactionResult.bApplied ? TEXT("Applied") : VisibleReactionResult.StatusLabel, VisibleReactionResult.Detail.IsEmpty() ? TEXT("Visible body-state reaction has not been driven yet.") : VisibleReactionResult.Detail);
             AddAnalysisItem(PrimaryItems, Result, TEXT("Shared Character BP"), SharedStackStatus, SharedStackSummary);
 
             AddAnalysisItem(BehaviorItems, Result, TEXT("AI Controller"), bAIControllerReady ? TEXT("Ready") : TEXT("Missing"), Snapshot.LinkedAIControllerLabel.IsEmpty() ? TEXT("No linked AI Controller detected.") : Snapshot.LinkedAIControllerLabel);
@@ -4737,6 +5032,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             AddAnalysisItem(AnimationItems, Result, TEXT("WanaAnimation"), bAnimationReady ? TEXT("Ready") : TEXT("Limited"), Snapshot.AnimationAutomaticIntegrationDetail.IsEmpty() ? TEXT("Animation integration is not fully prepared yet.") : Snapshot.AnimationAutomaticIntegrationDetail);
             AddAnalysisItem(AnimationItems, Result, TEXT("Hook State Readable"), bAnimationHookReadableForTest ? TEXT("Ready") : TEXT("Needs Enhance"), bAnimationHookReadableForTest ? TEXT("WAY/WanaAnimation hook state is readable by WanaWorks and Blueprints.") : TEXT("Enhance can attach the WAY hook provider before animation consumption."));
             AddAnalysisItem(AnimationItems, Result, TEXT("Hook Consumption Readiness"), AnimationConsumptionStatus, AnimationConsumptionDetail);
+            AddAnalysisItem(AnimationItems, Result, TEXT("Runtime Adapter Consumption"), VisibleReactionResult.bHasRuntimeAdapter ? (VisibleReactionResult.bRuntimeFieldsApplied ? TEXT("Applied") : TEXT("Limited")) : TEXT("Needs Enhance"), VisibleReactionResult.RuntimeConsumptionLabel);
             AddAnalysisItem(AnimationItems, Result, TEXT("Anim BP Wiring Readiness"), AnimBPWiringReadiness, AdapterReadinessDetail);
             AddAnalysisItem(AnimationItems, Result, TEXT("Generated WanaAnimation Adapter"), AdapterStatus, FString::Printf(TEXT("Output: %s. Direct Graph Edit Safety: %s. Recommended Strategy: %s."), *AdapterRecordPath, *DirectGraphEditSafety, *RecommendedAdapterStrategy));
             AddAnalysisItem(AnimationItems, Result, TEXT("Posture Hint"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), FString::Printf(TEXT("%s posture in the %s category from %s."), *AnimationPostureHint, *AnimationPostureCategory, *AnimationBehaviorIntent));
@@ -4745,6 +5041,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
 
             AddAnalysisItem(PhysicalItems, Result, TEXT("Movement / Facing"), bMovementReady ? TEXT("Ready") : TEXT("Limited"), bMovementReady ? TEXT("Movement or facing readiness is available without forcing locomotion.") : TEXT("Movement-safe execution is limited; fallback facing/attention behavior should be used."));
             AddAnalysisItem(PhysicalItems, Result, TEXT("Physical State"), bPhysicalReady ? TEXT("Ready") : TEXT("Limited"), bPhysicalReady ? TEXT("Readable body-state layer is available for physical response testing.") : TEXT("Physical state layer is missing; visible disruption testing is limited."));
+            AddAnalysisItem(PhysicalItems, Result, TEXT("Visible Body State"), VisibleReactionResult.bApplied ? TEXT("Applied") : VisibleReactionResult.StatusLabel, FString::Printf(TEXT("%s via %s. Stability %.2f, instability %.2f, recovery %d%%, impact %.2f."), *VisibleReactionResult.BodyStateLabel, *VisibleReactionResult.ScenarioLabel, VisibleReactionResult.StabilityScore, VisibleReactionResult.InstabilityAlpha, FMath::RoundToInt(VisibleReactionResult.RecoveryProgress * 100.0f), VisibleReactionResult.ImpactStrength));
             AddAnalysisItem(PhysicalItems, Result, TEXT("Behavior Commitment"), bPhysicalReady && Snapshot.bPhysicalCanCommitToMovement && Snapshot.bPhysicalCanCommitToAttack ? TEXT("Ready") : TEXT("Limited"), BuildAIPhysicalBehaviorCommitmentDetail(Snapshot));
             AddAnalysisItem(PhysicalItems, Result, TEXT("Animation Reaction Feed"), BehaviorSnapshot.bAnimationPhysicalReactionStateAvailable ? TEXT("Ready") : TEXT("Limited"), AnimationPhysicalReactionDetail);
             AddAnalysisItem(PhysicalItems, Result, TEXT("WanaCombat-lite"), bPhysicalReady && Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), TEXT("Combat-lite validation stays additive and does not replace Behavior Trees, controllers, or locomotion."));
@@ -4754,6 +5051,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
 
             AddAnalysisItem(SuggestedItems, Result, TEXT("Ready for Build"), bReadyForBuild ? TEXT("Ready") : TEXT("Limited"), bReadyForBuild ? TEXT("AI subject has the core readable systems expected for this V1 workflow.") : TEXT("Run Enhance or resolve limited systems before treating the subject as build-ready."));
             AddAnalysisItem(SuggestedItems, Result, TEXT("Animation Body Language"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), bAnimationHookDriven ? FString::Printf(TEXT("Test requested %s posture with %s."), *AnimationPostureHint, *AnimationLocomotionHint) : TEXT("Run Enhance/Test with a valid observer-target pair to drive WanaAnimation posture hints."));
+            AddAnalysisItem(SuggestedItems, Result, TEXT("Visible Reaction Next Step"), VisibleReactionResult.bApplied ? TEXT("Ready") : TEXT("Recommended"), VisibleReactionResult.bApplied ? TEXT("Review the stage/body-state labels and confirm the subject reads as braced, disrupted, recovering, or observant without forced locomotion.") : TEXT("Run Enhance first so WanaWorks can test the visible reaction on a safe working subject."));
             AddAnalysisItem(SuggestedItems, Result, TEXT("Animation Adapter Next Step"), AdapterStatus, RecommendedAdapterStrategy.Equals(TEXT("Needs Enhance"), ESearchCase::IgnoreCase) ? TEXT("Run Enhance to prepare WanaAnimation hook providers before adapter generation.") : TEXT("Build can save a persistent WanaWorks-owned adapter report without changing the original Animation Blueprint."));
 
             RecommendedAction = bReadyForBuild
@@ -4761,9 +5059,11 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                 : TEXT("Run Enhance to prepare missing WanaWorks layers, then Test again before Build.");
             ResultLabel = bBehaviorExecutionSucceeded
                 ? FString::Printf(
-                    TEXT("%s active via %s. WanaAnimation: %s posture, facing hook %s, %s. Adapter: %s"),
+                    TEXT("%s active via %s. Body: %s, instability %.2f. WanaAnimation: %s posture, facing hook %s, %s. Adapter: %s"),
                     BehaviorSnapshot.AnimationVisibleBehaviorLabel.IsEmpty() ? *UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior) : *BehaviorSnapshot.AnimationVisibleBehaviorLabel,
                     *UIFmt::GetBehaviorExecutionModeSummaryLabel(BehaviorSnapshot.ExecutionMode),
+                    VisibleReactionResult.BodyStateLabel.IsEmpty() ? TEXT("Readable") : *VisibleReactionResult.BodyStateLabel,
+                    VisibleReactionResult.InstabilityAlpha,
                     *AnimationPostureHint,
                     *UIFmt::GetAnimationHookRequestSummaryLabel(BehaviorSnapshot.bAnimationFacingHookRequested),
                     *AnimationLocomotionHint,
@@ -5582,6 +5882,12 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
             AddAnalysisItem(
                 PhysicalItems,
                 Result,
+                TEXT("Visible Reaction Test"),
+                !Snapshot.bHasSkeletalMeshComponent ? TEXT("Not Supported") : ((Snapshot.bHasPhysicalStateComponent && Snapshot.bHasRuntimeAnimationAdapterComponent && Snapshot.bHasWAYComponent) ? TEXT("Ready") : TEXT("Needs Enhance")),
+                BuildVisibleReactionSupportDetail(Snapshot));
+            AddAnalysisItem(
+                PhysicalItems,
+                Result,
                 TEXT("WanaCombat-lite"),
                 (Snapshot.bHasPhysicalStateComponent && Snapshot.bHasWAYComponent) ? TEXT("Ready") : TEXT("Limited"),
                 TEXT("Combat-lite readiness depends on relationship context plus physical state without replacing AI logic."));
@@ -6065,12 +6371,18 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
             BuildSharedStackSummaryForAdapter,
             DisplayWorkspaceLabel,
             OutputPath);
+        ApplyPersistentAnimationAdapterReportPathToRuntimeComponent(EffectiveSnapshot, LastGeneratedAnimationAdapterOutputPath);
         BuildResponse.OutputLines.Add(FString::Printf(
             TEXT("Generated WanaAnimation Adapter: %s"),
             LastGeneratedAnimationAdapterStatus.IsEmpty() ? TEXT("Adapter Not Generated") : *LastGeneratedAnimationAdapterStatus));
         BuildResponse.OutputLines.Add(FString::Printf(
             TEXT("WanaAnimation Adapter Report: %s"),
             LastGeneratedAnimationAdapterOutputPath.IsEmpty() ? TEXT("(not saved)") : *LastGeneratedAnimationAdapterOutputPath));
+        BuildResponse.OutputLines.Add(FString::Printf(
+            TEXT("Runtime WanaAnimation Adapter: %s"),
+            EffectiveSnapshot.bHasRuntimeAnimationAdapterComponent
+                ? (EffectiveSnapshot.RuntimeAnimationAdapterReadiness.IsEmpty() ? TEXT("Limited") : *EffectiveSnapshot.RuntimeAnimationAdapterReadiness)
+                : TEXT("Needs Enhance")));
         BuildResponse.OutputLines.Add(FString::Printf(
             TEXT("Shared Anim BP: %s"),
             *GetSharedAnimBPStatusLabel(BuildSharedStackSummaryForAdapter)));
@@ -6093,6 +6405,13 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         BuildResponse.OutputLines.Add(EffectiveSnapshot.bHasSkeletalMeshComponent
             ? TEXT("Adapter Notes: Adapter not generated because no assigned Animation Blueprint was detected. Original animation assets were preserved.")
             : TEXT("Adapter Notes: Adapter not generated because no compatible skeletal mesh was detected. Original animation assets were preserved."));
+    }
+
+    if (BuildResponse.bSucceeded && bHasEffectiveSnapshot)
+    {
+        BuildResponse.OutputLines.Add(FString::Printf(
+            TEXT("Visible Reaction Support: %s"),
+            *BuildVisibleReactionSupportDetail(EffectiveSnapshot)));
     }
 
     bool bBuildHasLimitations = !BuildResponse.bSucceeded || !bTestWasAvailable;

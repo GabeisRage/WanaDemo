@@ -109,8 +109,14 @@ struct FWanaAutomaticAnimationPreparationResult
     bool bAutoWireSucceeded = false;
     bool bAddedPhysicalStateComponent = false;
     bool bAddedAutomaticIntegrationComponent = false;
+    bool bRuntimeAdapterHookReadable = false;
+    bool bRuntimeAdapterReportReadable = false;
     FString DetectedSourceAnimBlueprintLabel;
     FString IntegrationTargetLabel;
+    FString RuntimeAdapterReadiness;
+    FString RuntimeAdapterStrategy;
+    FString RuntimeAdapterReportPath;
+    FString RuntimeAdapterDetail;
     FString Detail;
     EWAYAutomaticAnimationIntegrationStatus IntegrationStatus = EWAYAutomaticAnimationIntegrationStatus::NotSupported;
 };
@@ -436,6 +442,12 @@ FWanaAutomaticAnimationPreparationResult PrepareAutomaticAnimationIntegrationFor
     AutomaticIntegrationComponent->RefreshAutomaticAnimationIntegration();
 
     Result.bAutoWireSucceeded = AutomaticIntegrationComponent->bAutoWireSucceeded;
+    Result.bRuntimeAdapterHookReadable = AutomaticIntegrationComponent->bRuntimeAdapterHookReadable;
+    Result.bRuntimeAdapterReportReadable = AutomaticIntegrationComponent->bRuntimeAdapterReportReadable;
+    Result.RuntimeAdapterReadiness = AutomaticIntegrationComponent->RuntimeAdapterReadinessState;
+    Result.RuntimeAdapterStrategy = AutomaticIntegrationComponent->RuntimeAdapterRecommendedStrategy;
+    Result.RuntimeAdapterReportPath = AutomaticIntegrationComponent->PersistentAdapterReportPath;
+    Result.RuntimeAdapterDetail = AutomaticIntegrationComponent->RuntimeAdapterDetail;
     Result.IntegrationStatus = AutomaticIntegrationComponent->AutomaticIntegrationStatus;
 
     if (!AutomaticIntegrationComponent->SourceAnimationBlueprintLabel.IsEmpty())
@@ -469,6 +481,20 @@ void AppendAutomaticAnimationIntegrationLines(FWanaCommandResponse& Response, co
     Response.OutputLines.Add(FString::Printf(
         TEXT("Auto-Wire: %s"),
         Result.bAutoWireSucceeded ? TEXT("Yes") : TEXT("No")));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Runtime WanaAnimation Adapter: %s"),
+        Result.RuntimeAdapterReadiness.IsEmpty() ? TEXT("Limited") : *Result.RuntimeAdapterReadiness));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Runtime Adapter Hook: %s"),
+        Result.bRuntimeAdapterHookReadable ? TEXT("Readable") : TEXT("Needs Enhance")));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Runtime Adapter Report: %s"),
+        Result.bRuntimeAdapterReportReadable
+            ? TEXT("Readable")
+            : (Result.RuntimeAdapterReportPath.IsEmpty() ? TEXT("Not Linked") : *Result.RuntimeAdapterReportPath)));
+    Response.OutputLines.Add(FString::Printf(
+        TEXT("Runtime Adapter Strategy: %s"),
+        Result.RuntimeAdapterStrategy.IsEmpty() ? TEXT("Needs Enhance") : *Result.RuntimeAdapterStrategy));
 
     if (Result.bAddedPhysicalStateComponent)
     {
@@ -483,6 +509,11 @@ void AppendAutomaticAnimationIntegrationLines(FWanaCommandResponse& Response, co
     if (!Result.Detail.IsEmpty())
     {
         Response.OutputLines.Add(FString::Printf(TEXT("Animation Integration Notes: %s"), *Result.Detail));
+    }
+
+    if (!Result.RuntimeAdapterDetail.IsEmpty())
+    {
+        Response.OutputLines.Add(FString::Printf(TEXT("Runtime Adapter Notes: %s"), *Result.RuntimeAdapterDetail));
     }
 }
 
@@ -1047,13 +1078,24 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
     {
         AutomaticIntegrationComponent->RefreshAutomaticAnimationIntegration();
         OutSnapshot.bHasAutomaticAnimationIntegrationComponent = true;
+        OutSnapshot.bHasRuntimeAnimationAdapterComponent = true;
         OutSnapshot.bAnimationAutoAttachSucceeded = AutomaticIntegrationComponent->bAutoAttachSucceeded;
         OutSnapshot.bAnimationAutoWireSucceeded = AutomaticIntegrationComponent->bAutoWireSucceeded;
+        OutSnapshot.bRuntimeAnimationAdapterHookReadable = AutomaticIntegrationComponent->bRuntimeAdapterHookReadable;
+        OutSnapshot.bRuntimeAnimationAdapterReportReadable = AutomaticIntegrationComponent->bRuntimeAdapterReportReadable;
+        OutSnapshot.bRuntimeAnimationAdapterSharedAnimBPDetected = AutomaticIntegrationComponent->bRuntimeAdapterSharedAnimBPDetected;
+        OutSnapshot.bRuntimeAnimationAdapterDirectGraphEditSafe = AutomaticIntegrationComponent->bRuntimeAdapterDirectGraphEditSafe;
         OutSnapshot.AnimationSupportedAutoWireFieldCount = AutomaticIntegrationComponent->SupportedFieldCount;
         OutSnapshot.AnimationLastAppliedAutoWireFieldCount = AutomaticIntegrationComponent->LastAppliedFieldCount;
         OutSnapshot.AnimationAutomaticIntegrationStatus = AutomaticIntegrationComponent->AutomaticIntegrationStatus;
         OutSnapshot.AnimationIntegrationTargetLabel = AutomaticIntegrationComponent->IntegrationTargetLabel;
         OutSnapshot.AnimationAutomaticIntegrationDetail = AutomaticIntegrationComponent->Detail;
+        OutSnapshot.RuntimeAnimationAdapterReadiness = AutomaticIntegrationComponent->RuntimeAdapterReadinessState;
+        OutSnapshot.RuntimeAnimationAdapterRecommendedStrategy = AutomaticIntegrationComponent->RuntimeAdapterRecommendedStrategy;
+        OutSnapshot.RuntimeAnimationAdapterDirectGraphSafety = AutomaticIntegrationComponent->RuntimeAdapterDirectGraphEditSafety;
+        OutSnapshot.RuntimeAnimationAdapterSharedAnimBPRisk = AutomaticIntegrationComponent->RuntimeAdapterSharedAnimBPRisk;
+        OutSnapshot.RuntimeAnimationAdapterReportPath = AutomaticIntegrationComponent->PersistentAdapterReportPath;
+        OutSnapshot.RuntimeAnimationAdapterDetail = AutomaticIntegrationComponent->RuntimeAdapterDetail;
 
         if (!AutomaticIntegrationComponent->SourceAnimationBlueprintLabel.IsEmpty())
         {
