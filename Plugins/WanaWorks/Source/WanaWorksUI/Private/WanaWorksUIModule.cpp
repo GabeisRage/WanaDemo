@@ -3,7 +3,9 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Animation/Skeleton.h"
 #include "Components/ActorComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/Blueprint.h"
 #include "Engine/SkeletalMesh.h"
 #include "EngineUtils.h"
@@ -42,6 +44,7 @@
 #include "WanaAnimationAdapterReportAsset.h"
 #include "WanaIdentityComponent.h"
 #include "WanaPhysicalStateComponent.h"
+#include "WanaWITEnvironmentReportAsset.h"
 #include "WAYPlayerProfileComponent.h"
 #include "Widgets/Docking/SDockTab.h"
 
@@ -373,11 +376,22 @@ FString GetSharedAnimBPStatusLabel(const FString& SharedSummary)
 }
 
 const TCHAR* WanaAnimationAdapterReportRootPath = TEXT("/Game/WanaWorks/Adapters");
+const TCHAR* WanaWITEnvironmentReportRootPath = TEXT("/Game/WanaWorks/WITReports");
+constexpr int32 WanaWITEnvironmentReportCandidateCap = 100;
 
 struct FWanaPersistentAnimationAdapterReportResult
 {
     bool bSucceeded = false;
     FString StatusLabel = TEXT("Adapter Not Generated");
+    FString PackagePath;
+    FString ObjectPath;
+    FString Detail;
+};
+
+struct FWanaPersistentWITEnvironmentReportResult
+{
+    bool bSucceeded = false;
+    FString StatusLabel = TEXT("Report Not Generated");
     FString PackagePath;
     FString ObjectPath;
     FString Detail;
@@ -1316,6 +1330,913 @@ FString GetPreviewObjectDisplayLabel(const UObject* PreviewObject)
     return PreviewObject ? PreviewObject->GetName() : FString();
 }
 
+constexpr int32 WanaWITEnvironmentScanActorCap = 350;
+constexpr int32 WanaWITEnvironmentScanExampleCap = 5;
+
+struct FWanaWITEnvironmentScanResult
+{
+    bool bHasWorldContext = false;
+    bool bWorldContextIsEditorWorld = false;
+    bool bUsedSelection = false;
+    bool bActorScanCapped = false;
+    bool bHasReadableActorContext = false;
+    int32 SelectedActorCount = 0;
+    int32 ScannedActorCount = 0;
+    int32 StaticMeshActorCount = 0;
+    int32 SkeletalMeshActorCount = 0;
+    int32 PrimitiveComponentCount = 0;
+    int32 CollisionCandidateCount = 0;
+    int32 CoverCandidateCount = 0;
+    int32 ObstacleCandidateCount = 0;
+    int32 MovementSpaceCandidateCount = 0;
+    int32 BoundaryCandidateCount = 0;
+    int32 NavigationRelevantCandidateCount = 0;
+    float Confidence = 0.0f;
+    FString WorldLabel;
+    FString WorldPackagePath;
+    FString ScanStatus = TEXT("No Context");
+    FString ReadinessStatus = TEXT("Missing");
+    FString SelectionContextLabel;
+    FString NavigationContextStatus = TEXT("Missing");
+    FString NavigationContextDetail;
+    FString SemanticSummary;
+    FString SceneInterpretation;
+    FString Limitations;
+    FString RecommendedNextAction;
+    TArray<FString> CoverExamples;
+    TArray<FString> ObstacleExamples;
+    TArray<FString> MovementSpaceExamples;
+    TArray<FString> BoundaryExamples;
+    TArray<FWanaWITEnvironmentReportCandidate> CandidateDetails;
+    bool bCandidateDetailsTruncated = false;
+};
+
+bool IsWITScannableActor(const AActor* Actor, const UWorld* ExpectedWorld)
+{
+    return IsValid(Actor)
+        && !Actor->IsTemplate()
+        && !Actor->IsActorBeingDestroyed()
+        && (!ExpectedWorld || Actor->GetWorld() == ExpectedWorld);
+}
+
+bool WITLabelContainsAny(const FString& SourceLabel, const TArray<FString>& Tokens)
+{
+    const FString LowerLabel = SourceLabel.ToLower();
+
+    for (const FString& Token : Tokens)
+    {
+        if (!Token.IsEmpty() && LowerLabel.Contains(Token.ToLower()))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+FString BuildWITWorldLabel(const UWorld* World)
+{
+    if (!World)
+    {
+        return FString();
+    }
+
+    return World->GetMapName().IsEmpty() ? World->GetName() : World->GetMapName();
+}
+
+void AddWITScanExample(TArray<FString>& Examples, const FString& ActorLabel)
+{
+    if (!ActorLabel.IsEmpty() && Examples.Num() < WanaWITEnvironmentScanExampleCap)
+    {
+        Examples.Add(ActorLabel);
+    }
+}
+
+void AddWITScanCandidateDetail(
+    FWanaWITEnvironmentScanResult& Result,
+    const AActor* Actor,
+    EWanaWITEnvironmentCandidateType CandidateType,
+    float CandidateConfidence,
+    const FString& Reason,
+    const FVector& ApproximateBoundsExtent)
+{
+    if (!IsValid(Actor))
+    {
+        return;
+    }
+
+    if (Result.CandidateDetails.Num() >= WanaWITEnvironmentReportCandidateCap)
+    {
+        Result.bCandidateDetailsTruncated = true;
+        return;
+    }
+
+    FWanaWITEnvironmentReportCandidate Candidate;
+    Candidate.ActorName = Actor->GetActorNameOrLabel();
+    Candidate.ActorPath = Actor->GetPathName();
+    Candidate.CandidateType = CandidateType;
+    Candidate.Confidence = FMath::Clamp(CandidateConfidence, 0.0f, 1.0f);
+    Candidate.Reason = Reason;
+    Candidate.ApproximateBoundsExtent = ApproximateBoundsExtent;
+    Result.CandidateDetails.Add(Candidate);
+}
+
+FString BuildWITExampleListText(const TArray<FString>& Examples)
+{
+    return Examples.Num() > 0
+        ? FString::Printf(TEXT("Examples: %s."), *FString::Join(Examples, TEXT(", ")))
+        : FString(TEXT("Examples are limited until matching scene actors are detected."));
+}
+
+FString BuildWITCountDetail(int32 CandidateCount, const FString& CandidateLabel, const TArray<FString>& Examples)
+{
+    return FString::Printf(
+        TEXT("%d %s. %s"),
+        CandidateCount,
+        *CandidateLabel,
+        *BuildWITExampleListText(Examples));
+}
+
+void CollectSelectedWITScanActors(UWorld* EditorWorld, TArray<AActor*>& OutActors)
+{
+    OutActors.Reset();
+
+    USelection* SelectedActors = GEditor ? GEditor->GetSelectedActors() : nullptr;
+    if (!SelectedActors)
+    {
+        return;
+    }
+
+    for (FSelectionIterator SelectionIt(*SelectedActors); SelectionIt; ++SelectionIt)
+    {
+        AActor* SelectedActor = Cast<AActor>(*SelectionIt);
+        if (IsWITScannableActor(SelectedActor, EditorWorld))
+        {
+            OutActors.AddUnique(SelectedActor);
+        }
+    }
+}
+
+void CollectWorldWITScanActors(UWorld* EditorWorld, TArray<AActor*>& OutActors, bool& bOutCapped)
+{
+    OutActors.Reset();
+    bOutCapped = false;
+
+    if (!EditorWorld)
+    {
+        return;
+    }
+
+    for (TActorIterator<AActor> It(EditorWorld); It; ++It)
+    {
+        AActor* CandidateActor = *It;
+        if (!IsWITScannableActor(CandidateActor, EditorWorld))
+        {
+            continue;
+        }
+
+        if (OutActors.Num() >= WanaWITEnvironmentScanActorCap)
+        {
+            bOutCapped = true;
+            break;
+        }
+
+        OutActors.Add(CandidateActor);
+    }
+}
+
+void ClassifyWITScanActor(AActor* Actor, FWanaWITEnvironmentScanResult& Result)
+{
+    if (!IsValid(Actor))
+    {
+        return;
+    }
+
+    ++Result.ScannedActorCount;
+
+    const FString ActorLabel = Actor->GetActorNameOrLabel();
+
+    TArray<UStaticMeshComponent*> StaticMeshComponents;
+    Actor->GetComponents<UStaticMeshComponent>(StaticMeshComponents);
+    bool bHasStaticMeshComponent = false;
+    for (const UStaticMeshComponent* StaticMeshComponent : StaticMeshComponents)
+    {
+        if (IsValid(StaticMeshComponent))
+        {
+            bHasStaticMeshComponent = true;
+            break;
+        }
+    }
+
+    TArray<USkeletalMeshComponent*> SkeletalMeshComponents;
+    Actor->GetComponents<USkeletalMeshComponent>(SkeletalMeshComponents);
+    bool bHasSkeletalMeshComponent = false;
+    for (const USkeletalMeshComponent* SkeletalMeshComponent : SkeletalMeshComponents)
+    {
+        if (IsValid(SkeletalMeshComponent))
+        {
+            bHasSkeletalMeshComponent = true;
+            break;
+        }
+    }
+
+    TArray<UPrimitiveComponent*> PrimitiveComponents;
+    Actor->GetComponents<UPrimitiveComponent>(PrimitiveComponents);
+    bool bHasCollisionCandidate = false;
+    bool bNavigationRelevantComponent = false;
+    int32 ValidPrimitiveComponentCount = 0;
+    for (const UPrimitiveComponent* PrimitiveComponent : PrimitiveComponents)
+    {
+        if (!IsValid(PrimitiveComponent))
+        {
+            continue;
+        }
+
+        ++ValidPrimitiveComponentCount;
+        bHasCollisionCandidate = bHasCollisionCandidate || PrimitiveComponent->IsCollisionEnabled();
+        bNavigationRelevantComponent = bNavigationRelevantComponent || PrimitiveComponent->CanEverAffectNavigation();
+    }
+    Result.PrimitiveComponentCount += ValidPrimitiveComponentCount;
+
+    if (bHasStaticMeshComponent)
+    {
+        ++Result.StaticMeshActorCount;
+    }
+
+    if (bHasSkeletalMeshComponent)
+    {
+        ++Result.SkeletalMeshActorCount;
+    }
+
+    if (bHasCollisionCandidate)
+    {
+        ++Result.CollisionCandidateCount;
+    }
+
+    const FBox Bounds = Actor->GetComponentsBoundingBox(true);
+    const bool bHasBounds = Bounds.IsValid != 0;
+    const FVector Extent = bHasBounds ? Bounds.GetExtent() : FVector::ZeroVector;
+    const float Height = Extent.Z * 2.0f;
+    const float MaxXY = FMath::Max(Extent.X, Extent.Y) * 2.0f;
+    const float MinXY = FMath::Min(Extent.X, Extent.Y) * 2.0f;
+
+    const bool bNameSuggestsCover = WITLabelContainsAny(ActorLabel, {TEXT("cover"), TEXT("crate"), TEXT("barrel"), TEXT("barricade"), TEXT("sandbag")});
+    const bool bNameSuggestsObstacle = WITLabelContainsAny(ActorLabel, {TEXT("obstacle"), TEXT("block"), TEXT("rock"), TEXT("pillar"), TEXT("prop"), TEXT("debris")});
+    const bool bNameSuggestsMovementSpace = WITLabelContainsAny(ActorLabel, {TEXT("floor"), TEXT("ground"), TEXT("terrain"), TEXT("platform"), TEXT("road"), TEXT("path"), TEXT("walk"), TEXT("ramp"), TEXT("stairs")});
+    const bool bNameSuggestsBoundary = WITLabelContainsAny(ActorLabel, {TEXT("wall"), TEXT("barrier"), TEXT("fence"), TEXT("gate"), TEXT("boundary"), TEXT("door")});
+    const bool bNameSuggestsNavigation = WITLabelContainsAny(ActorLabel, {TEXT("nav"), TEXT("path"), TEXT("road"), TEXT("walk"), TEXT("floor"), TEXT("ground"), TEXT("ramp"), TEXT("stairs")});
+
+    const bool bMovementSpaceCandidate =
+        bNameSuggestsMovementSpace
+        || (bHasBounds && Height <= 90.0f && MaxXY >= 350.0f && MinXY >= 120.0f);
+    const bool bBoundaryCandidate =
+        bNameSuggestsBoundary
+        || (bHasCollisionCandidate && bHasBounds && Height >= 120.0f && MaxXY >= 250.0f);
+    const bool bCoverCandidate =
+        bNameSuggestsCover
+        || (bHasCollisionCandidate && bHasBounds && Height >= 70.0f && Height <= 220.0f && MaxXY >= 50.0f && !bMovementSpaceCandidate);
+    const bool bObstacleCandidate =
+        bNameSuggestsObstacle
+        || (bHasCollisionCandidate && bHasBounds && !bMovementSpaceCandidate && (Height >= 35.0f || MaxXY >= 80.0f));
+    const bool bNavigationRelevantCandidate =
+        bNavigationRelevantComponent
+        || bMovementSpaceCandidate
+        || bNameSuggestsNavigation;
+
+    if (bCoverCandidate)
+    {
+        ++Result.CoverCandidateCount;
+        AddWITScanExample(Result.CoverExamples, ActorLabel);
+        AddWITScanCandidateDetail(
+            Result,
+            Actor,
+            EWanaWITEnvironmentCandidateType::Cover,
+            bNameSuggestsCover ? 0.82f : 0.64f,
+            bNameSuggestsCover
+                ? TEXT("Name suggests cover or defensive affordance.")
+                : TEXT("Collision and height/width heuristics suggest a possible cover candidate."),
+            Extent);
+    }
+
+    if (bObstacleCandidate)
+    {
+        ++Result.ObstacleCandidateCount;
+        AddWITScanExample(Result.ObstacleExamples, ActorLabel);
+        AddWITScanCandidateDetail(
+            Result,
+            Actor,
+            EWanaWITEnvironmentCandidateType::Obstacle,
+            bNameSuggestsObstacle ? 0.82f : 0.66f,
+            bNameSuggestsObstacle
+                ? TEXT("Name suggests obstacle or blocking prop.")
+                : TEXT("Collision and bounds heuristics suggest a movement obstacle."),
+            Extent);
+    }
+
+    if (bMovementSpaceCandidate)
+    {
+        ++Result.MovementSpaceCandidateCount;
+        AddWITScanExample(Result.MovementSpaceExamples, ActorLabel);
+        AddWITScanCandidateDetail(
+            Result,
+            Actor,
+            EWanaWITEnvironmentCandidateType::MovementSpace,
+            bNameSuggestsMovementSpace ? 0.84f : 0.68f,
+            bNameSuggestsMovementSpace
+                ? TEXT("Name suggests floor, ground, path, ramp, or traversal space.")
+                : TEXT("Flat, broad bounds suggest movement-space surface."),
+            Extent);
+    }
+
+    if (bBoundaryCandidate)
+    {
+        ++Result.BoundaryCandidateCount;
+        AddWITScanExample(Result.BoundaryExamples, ActorLabel);
+        AddWITScanCandidateDetail(
+            Result,
+            Actor,
+            EWanaWITEnvironmentCandidateType::Boundary,
+            bNameSuggestsBoundary ? 0.84f : 0.65f,
+            bNameSuggestsBoundary
+                ? TEXT("Name suggests wall, fence, gate, or boundary.")
+                : TEXT("Large vertical collision bounds suggest a boundary candidate."),
+            Extent);
+    }
+
+    if (bNavigationRelevantCandidate)
+    {
+        ++Result.NavigationRelevantCandidateCount;
+        AddWITScanCandidateDetail(
+            Result,
+            Actor,
+            EWanaWITEnvironmentCandidateType::NavigationRelevant,
+            (bNameSuggestsNavigation || bNavigationRelevantComponent) ? 0.76f : 0.58f,
+            bNameSuggestsNavigation
+                ? TEXT("Name suggests navigation, traversal, or path relevance.")
+                : TEXT("Movement-space or component navigation relevance suggests future navigation context."),
+            Extent);
+    }
+}
+
+FString BuildWITSceneInterpretation(const FWanaWITEnvironmentScanResult& Result)
+{
+    if (!Result.bHasWorldContext)
+    {
+        return TEXT("WanaWorks does not have an editor world to interpret yet.");
+    }
+
+    if (Result.ScannedActorCount <= 0)
+    {
+        return TEXT("WanaWorks has world context, but no scene actors were available for semantic interpretation.");
+    }
+
+    if (Result.MovementSpaceCandidateCount <= 0)
+    {
+        return TEXT("WanaWorks sees objects in the scene, but movement-space meaning is limited until floor, ground, platform, or path surfaces are readable.");
+    }
+
+    if (Result.BoundaryCandidateCount >= 2 && Result.MovementSpaceCandidateCount <= 2)
+    {
+        return TEXT("WanaWorks understands this scene as constrained space with boundary pressure and limited movement room.");
+    }
+
+    if (Result.CoverCandidateCount > 0 && Result.ObstacleCandidateCount > 0)
+    {
+        return TEXT("WanaWorks understands this scene as an encounter space with cover and obstacle affordances.");
+    }
+
+    if (Result.MovementSpaceCandidateCount >= Result.CoverCandidateCount + Result.ObstacleCandidateCount)
+    {
+        return TEXT("WanaWorks understands this scene as open traversal space with movement meaning stronger than cover pressure.");
+    }
+
+    return TEXT("WanaWorks has an early semantic world reading, with classification confidence limited by available scene signals.");
+}
+
+FString BuildWITScanLimitations(const FWanaWITEnvironmentScanResult& Result)
+{
+    TArray<FString> Limitations;
+
+    if (!Result.bHasWorldContext)
+    {
+        Limitations.Add(TEXT("No editor world context was available."));
+    }
+
+    if (Result.bHasWorldContext && !Result.bWorldContextIsEditorWorld)
+    {
+        Limitations.Add(TEXT("World context is not the standard editor world, so PIE/editor context may be mixed."));
+    }
+
+    if (Result.bHasWorldContext && !Result.bUsedSelection)
+    {
+        Limitations.Add(TEXT("No actor selection was used; WanaWorks scanned a capped editor-world sample."));
+    }
+
+    if (Result.bActorScanCapped)
+    {
+        Limitations.Add(FString::Printf(TEXT("Scan was capped at %d actors to keep the workspace responsive."), WanaWITEnvironmentScanActorCap));
+    }
+
+    if (Result.ScannedActorCount > 0 && Result.CollisionCandidateCount <= 0)
+    {
+        Limitations.Add(TEXT("No collision-enabled candidates were detected, so cover and obstacle confidence is limited."));
+    }
+
+    if (Result.MovementSpaceCandidateCount <= 0)
+    {
+        Limitations.Add(TEXT("No movement-space surface was confidently detected."));
+    }
+
+    if (Result.NavigationRelevantCandidateCount <= 0)
+    {
+        Limitations.Add(TEXT("NavMesh is not validated in V1; navigation relevance is heuristic and currently weak."));
+    }
+
+    if (Limitations.Num() <= 0)
+    {
+        Limitations.Add(TEXT("Read-only V1 scan uses safe heuristics and does not modify level actors, collision, navmesh, or geometry."));
+    }
+
+    return FString::Join(Limitations, TEXT(" "));
+}
+
+FString BuildWITScanRecommendedNextAction(const FWanaWITEnvironmentScanResult& Result)
+{
+    if (!Result.bHasWorldContext)
+    {
+        return TEXT("Open a valid editor level, then run Level Design Analyze again.");
+    }
+
+    if (Result.ScannedActorCount <= 0)
+    {
+        return TEXT("Select scene actors or place readable environment actors, then run Test to refresh the WIT scan.");
+    }
+
+    if (Result.MovementSpaceCandidateCount <= 0)
+    {
+        return TEXT("Select floor, ground, platform, or path actors so WIT can read movement space more clearly.");
+    }
+
+    if (Result.CoverCandidateCount <= 0 && Result.ObstacleCandidateCount <= 0)
+    {
+        return TEXT("Select or add collision-enabled environment props if cover and obstacle meaning should matter.");
+    }
+
+    if (Result.NavigationRelevantCandidateCount <= 0)
+    {
+        return TEXT("Add or rebuild NavMesh for stronger movement analysis, then rerun Test.");
+    }
+
+    return TEXT("Use Build to prepare the WanaWorks-owned semantic world summary, then verify the classifications in the viewport.");
+}
+
+FWanaWITEnvironmentScanResult RunWITEnvironmentScan()
+{
+    FWanaWITEnvironmentScanResult Result;
+
+    UWorld* EditorWorld = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    Result.WorldLabel = BuildWITWorldLabel(EditorWorld);
+    Result.WorldPackagePath = EditorWorld && EditorWorld->GetOutermost()
+        ? EditorWorld->GetOutermost()->GetName()
+        : FString();
+    Result.bHasWorldContext = EditorWorld != nullptr;
+    Result.bWorldContextIsEditorWorld = EditorWorld && EditorWorld->WorldType == EWorldType::Editor;
+
+    if (!EditorWorld)
+    {
+        Result.ScanStatus = TEXT("No Context");
+        Result.ReadinessStatus = TEXT("Missing");
+        Result.SelectionContextLabel = TEXT("No editor world is available for Level Design scanning.");
+        Result.NavigationContextStatus = TEXT("Missing");
+        Result.NavigationContextDetail = TEXT("Navigation context cannot be read without a valid editor world.");
+        Result.SemanticSummary = TEXT("WIT scan could not run because no editor world context is available.");
+        Result.SceneInterpretation = BuildWITSceneInterpretation(Result);
+        Result.Limitations = BuildWITScanLimitations(Result);
+        Result.RecommendedNextAction = BuildWITScanRecommendedNextAction(Result);
+        return Result;
+    }
+
+    TArray<AActor*> SelectedActors;
+    CollectSelectedWITScanActors(EditorWorld, SelectedActors);
+    Result.SelectedActorCount = SelectedActors.Num();
+
+    TArray<AActor*> ActorsToScan = SelectedActors;
+    Result.bUsedSelection = ActorsToScan.Num() > 0;
+
+    if (ActorsToScan.Num() <= 0)
+    {
+        bool bWorldScanCapped = false;
+        CollectWorldWITScanActors(EditorWorld, ActorsToScan, bWorldScanCapped);
+        Result.bActorScanCapped = bWorldScanCapped;
+    }
+    else if (ActorsToScan.Num() > WanaWITEnvironmentScanActorCap)
+    {
+        ActorsToScan.SetNum(WanaWITEnvironmentScanActorCap);
+        Result.bActorScanCapped = true;
+    }
+
+    for (AActor* Actor : ActorsToScan)
+    {
+        if (IsWITScannableActor(Actor, EditorWorld))
+        {
+            ClassifyWITScanActor(Actor, Result);
+        }
+    }
+
+    Result.bHasReadableActorContext = Result.ScannedActorCount > 0;
+    Result.SelectionContextLabel = Result.bUsedSelection
+        ? FString::Printf(TEXT("%d selected actor(s) scanned as focused scene context."), Result.SelectedActorCount)
+        : FString::Printf(TEXT("No actor selection was required; WanaWorks scanned up to %d actors from the editor world."), WanaWITEnvironmentScanActorCap);
+
+    if (Result.ScannedActorCount <= 0)
+    {
+        Result.ScanStatus = TEXT("Needs Selection");
+        Result.ReadinessStatus = TEXT("Limited");
+    }
+    else if (Result.bActorScanCapped || Result.MovementSpaceCandidateCount <= 0)
+    {
+        Result.ScanStatus = TEXT("Scan Complete With Limitations");
+        Result.ReadinessStatus = TEXT("Limited");
+    }
+    else
+    {
+        Result.ScanStatus = TEXT("Scan Complete");
+        Result.ReadinessStatus = TEXT("Ready");
+    }
+
+    Result.NavigationContextStatus = Result.NavigationRelevantCandidateCount > 0 ? TEXT("Limited") : TEXT("Needs NavMesh");
+    Result.NavigationContextDetail = Result.NavigationRelevantCandidateCount > 0
+        ? FString::Printf(TEXT("%d navigation-relevant candidate(s) inferred from movement surfaces, paths, collision, or nav-like naming. NavMesh itself is not modified or validated in V1."), Result.NavigationRelevantCandidateCount)
+        : TEXT("No navigation-relevant candidates were inferred. Add or rebuild NavMesh for stronger movement analysis.");
+
+    Result.SceneInterpretation = BuildWITSceneInterpretation(Result);
+    Result.SemanticSummary = FString::Printf(
+        TEXT("WIT scan identified %d cover candidate(s), %d obstacle candidate(s), %d movement-space surface(s), and %d boundary candidate(s) across %d actor(s). %s"),
+        Result.CoverCandidateCount,
+        Result.ObstacleCandidateCount,
+        Result.MovementSpaceCandidateCount,
+        Result.BoundaryCandidateCount,
+        Result.ScannedActorCount,
+        *Result.SceneInterpretation);
+
+    float Confidence = Result.bHasWorldContext ? 0.25f : 0.0f;
+    if (Result.ScannedActorCount > 0)
+    {
+        Confidence += 0.25f;
+    }
+    if (Result.StaticMeshActorCount > 0 || Result.SkeletalMeshActorCount > 0)
+    {
+        Confidence += 0.10f;
+    }
+    Confidence += Result.CoverCandidateCount > 0 ? 0.07f : 0.0f;
+    Confidence += Result.ObstacleCandidateCount > 0 ? 0.07f : 0.0f;
+    Confidence += Result.MovementSpaceCandidateCount > 0 ? 0.12f : 0.0f;
+    Confidence += Result.BoundaryCandidateCount > 0 ? 0.06f : 0.0f;
+    Confidence += Result.NavigationRelevantCandidateCount > 0 ? 0.05f : 0.0f;
+    Confidence -= Result.bActorScanCapped ? 0.08f : 0.0f;
+    Confidence -= Result.bWorldContextIsEditorWorld ? 0.0f : 0.08f;
+    Result.Confidence = FMath::Clamp(Confidence, 0.0f, 0.90f);
+
+    Result.Limitations = BuildWITScanLimitations(Result);
+    Result.RecommendedNextAction = BuildWITScanRecommendedNextAction(Result);
+    return Result;
+}
+
+FString GetWITCandidateTypeLabel(EWanaWITEnvironmentCandidateType CandidateType)
+{
+    switch (CandidateType)
+    {
+    case EWanaWITEnvironmentCandidateType::Cover:
+        return TEXT("Cover");
+
+    case EWanaWITEnvironmentCandidateType::Obstacle:
+        return TEXT("Obstacle");
+
+    case EWanaWITEnvironmentCandidateType::MovementSpace:
+        return TEXT("Movement Space");
+
+    case EWanaWITEnvironmentCandidateType::Boundary:
+        return TEXT("Boundary");
+
+    case EWanaWITEnvironmentCandidateType::NavigationRelevant:
+        return TEXT("Navigation Relevant");
+
+    case EWanaWITEnvironmentCandidateType::Unknown:
+    default:
+        return TEXT("Unknown");
+    }
+}
+
+FString MakeSafeWanaWITReportAssetName(const FWanaWITEnvironmentScanResult& ScanResult)
+{
+    FString RawName = ScanResult.WorldLabel.IsEmpty()
+        ? FString(TEXT("Environment"))
+        : ScanResult.WorldLabel;
+
+    RawName.RemoveFromStart(TEXT("UEDPIE_0_"));
+    RawName.RemoveFromStart(TEXT("UEDPIE_1_"));
+
+    FString SafeName;
+    SafeName.Reserve(RawName.Len());
+
+    for (int32 Index = 0; Index < RawName.Len(); ++Index)
+    {
+        const TCHAR Character = RawName[Index];
+        SafeName.AppendChar(FChar::IsAlnum(Character) ? Character : static_cast<TCHAR>('_'));
+    }
+
+    while (SafeName.Contains(TEXT("__")))
+    {
+        SafeName = SafeName.Replace(TEXT("__"), TEXT("_"));
+    }
+
+    SafeName.RemoveFromStart(TEXT("_"));
+    SafeName.RemoveFromEnd(TEXT("_"));
+
+    if (SafeName.IsEmpty())
+    {
+        SafeName = TEXT("Environment");
+    }
+
+    return FString::Printf(TEXT("WW_WITReport_%s"), *SafeName);
+}
+
+FString BuildWanaWITReportOutputPath(const FWanaWITEnvironmentScanResult& ScanResult)
+{
+    return FString::Printf(TEXT("%s/%s"), WanaWITEnvironmentReportRootPath, *MakeSafeWanaWITReportAssetName(ScanResult));
+}
+
+FString BuildWanaWITReportObjectPath(const FString& PackagePath)
+{
+    FString AssetName = FPackageName::GetLongPackageAssetName(PackagePath);
+    if (AssetName.IsEmpty())
+    {
+        int32 LastSlashIndex = INDEX_NONE;
+        PackagePath.FindLastChar(TEXT('/'), LastSlashIndex);
+        AssetName = LastSlashIndex == INDEX_NONE ? PackagePath : PackagePath.RightChop(LastSlashIndex + 1);
+    }
+
+    return FString::Printf(TEXT("%s.%s"), *PackagePath, *AssetName);
+}
+
+UWanaWITEnvironmentReportAsset* LoadWanaWITEnvironmentReportAsset(const FString& PackagePath)
+{
+    if (PackagePath.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    return Cast<UWanaWITEnvironmentReportAsset>(
+        StaticLoadObject(
+            UWanaWITEnvironmentReportAsset::StaticClass(),
+            nullptr,
+            *BuildWanaWITReportObjectPath(PackagePath)));
+}
+
+FString FindExistingWanaWITEnvironmentReportPath(const FWanaWITEnvironmentScanResult& ScanResult)
+{
+    const FString PrimaryPath = BuildWanaWITReportOutputPath(ScanResult);
+    if (LoadWanaWITEnvironmentReportAsset(PrimaryPath))
+    {
+        return PrimaryPath;
+    }
+
+    const FString BaseAssetName = MakeSafeWanaWITReportAssetName(ScanResult);
+    for (int32 DuplicateSuffix = 1; DuplicateSuffix < 99; ++DuplicateSuffix)
+    {
+        const FString CandidatePath = FString::Printf(
+            TEXT("%s/%s_%02d"),
+            WanaWITEnvironmentReportRootPath,
+            *BaseAssetName,
+            DuplicateSuffix);
+
+        if (LoadWanaWITEnvironmentReportAsset(CandidatePath))
+        {
+            return CandidatePath;
+        }
+    }
+
+    return FString();
+}
+
+FString BuildWITReportCandidateSummary(const FWanaWITEnvironmentScanResult& ScanResult)
+{
+    TArray<FString> CandidateLines;
+    const int32 CandidateLineCount = FMath::Min(ScanResult.CandidateDetails.Num(), 20);
+    for (int32 Index = 0; Index < CandidateLineCount; ++Index)
+    {
+        const FWanaWITEnvironmentReportCandidate& Candidate = ScanResult.CandidateDetails[Index];
+        CandidateLines.Add(FString::Printf(
+            TEXT("%s: %s (%.0f%%) - %s"),
+            *GetWITCandidateTypeLabel(Candidate.CandidateType),
+            Candidate.ActorName.IsEmpty() ? TEXT("(unnamed actor)") : *Candidate.ActorName,
+            Candidate.Confidence * 100.0f,
+            Candidate.Reason.IsEmpty() ? TEXT("No candidate reason recorded.") : *Candidate.Reason));
+    }
+
+    if (CandidateLines.Num() <= 0)
+    {
+        return TEXT("No candidate details were stored.");
+    }
+
+    if (ScanResult.CandidateDetails.Num() > CandidateLineCount || ScanResult.bCandidateDetailsTruncated)
+    {
+        CandidateLines.Add(TEXT("Candidate list abbreviated in full report text; inspect CandidateDetails for stored capped entries."));
+    }
+
+    return FString::Join(CandidateLines, TEXT("\n"));
+}
+
+FWanaPersistentWITEnvironmentReportResult SavePersistentWITEnvironmentReportAsset(
+    const FWanaWITEnvironmentScanResult& ScanResult,
+    const FString& WorkspaceLabel)
+{
+    FWanaPersistentWITEnvironmentReportResult Result;
+
+    if (!ScanResult.bHasWorldContext)
+    {
+        Result.StatusLabel = TEXT("Report Not Generated");
+        Result.Detail = TEXT("WIT report not generated: no valid editor world context was available.");
+        return Result;
+    }
+
+    FString DesiredPackagePath = BuildWanaWITReportOutputPath(ScanResult);
+    FString FinalPackagePath = DesiredPackagePath;
+    FString AssetName = FPackageName::GetLongPackageAssetName(FinalPackagePath);
+    if (AssetName.IsEmpty())
+    {
+        Result.StatusLabel = TEXT("Report Not Generated");
+        Result.Detail = TEXT("WIT report not generated: WanaWorks could not create a valid report asset name.");
+        return Result;
+    }
+
+    UWanaWITEnvironmentReportAsset* ReportAsset = LoadWanaWITEnvironmentReportAsset(FinalPackagePath);
+    UObject* ExistingObject = ReportAsset
+        ? static_cast<UObject*>(ReportAsset)
+        : StaticLoadObject(UObject::StaticClass(), nullptr, *BuildWanaWITReportObjectPath(FinalPackagePath));
+
+    int32 DuplicateSuffix = 1;
+    while (ExistingObject && !ExistingObject->IsA<UWanaWITEnvironmentReportAsset>())
+    {
+        const FString CandidateName = FString::Printf(TEXT("%s_%02d"), *MakeSafeWanaWITReportAssetName(ScanResult), DuplicateSuffix++);
+        FinalPackagePath = FString::Printf(TEXT("%s/%s"), WanaWITEnvironmentReportRootPath, *CandidateName);
+        AssetName = CandidateName;
+        ReportAsset = LoadWanaWITEnvironmentReportAsset(FinalPackagePath);
+        ExistingObject = ReportAsset
+            ? static_cast<UObject*>(ReportAsset)
+            : StaticLoadObject(UObject::StaticClass(), nullptr, *BuildWanaWITReportObjectPath(FinalPackagePath));
+
+        if (DuplicateSuffix > 99)
+        {
+            Result.StatusLabel = TEXT("Report Not Generated");
+            Result.Detail = TEXT("WIT report not generated: WanaWorks could not find a safe unique report asset name.");
+            return Result;
+        }
+    }
+
+    UPackage* Package = ReportAsset ? ReportAsset->GetOutermost() : CreatePackage(*FinalPackagePath);
+    if (!Package)
+    {
+        Result.StatusLabel = TEXT("Report Not Generated");
+        Result.Detail = TEXT("WIT report not generated: WanaWorks could not create the report package.");
+        return Result;
+    }
+
+    const bool bCreatedNewAsset = ReportAsset == nullptr;
+    if (!ReportAsset)
+    {
+        ReportAsset = NewObject<UWanaWITEnvironmentReportAsset>(
+            Package,
+            UWanaWITEnvironmentReportAsset::StaticClass(),
+            *AssetName,
+            RF_Public | RF_Standalone | RF_Transactional);
+    }
+
+    if (!ReportAsset)
+    {
+        Result.StatusLabel = TEXT("Report Not Generated");
+        Result.Detail = TEXT("WIT report not generated: WanaWorks could not create the report object.");
+        return Result;
+    }
+
+    ReportAsset->Modify();
+
+    const FString ObjectPath = BuildWanaWITReportObjectPath(FinalPackagePath);
+    const FString ScanMode = !ScanResult.bHasWorldContext
+        ? FString(TEXT("No Context"))
+        : (ScanResult.bUsedSelection ? FString(TEXT("Selected Actors")) : FString(TEXT("World Sample")));
+    const bool bGeneratedWithLimitations =
+        ScanResult.ScannedActorCount <= 0
+        || ScanResult.bActorScanCapped
+        || ScanResult.bCandidateDetailsTruncated
+        || ScanResult.Confidence < 0.70f;
+
+    ReportAsset->ReportVersion = TEXT("WIT Environment Report V1");
+    ReportAsset->GeneratedLabel = AssetName;
+    ReportAsset->GeneratedAtUtc = FDateTime::UtcNow().ToString(TEXT("%Y-%m-%dT%H:%M:%SZ"));
+    ReportAsset->WorkspaceLabel = WorkspaceLabel.IsEmpty() ? TEXT("Level Design") : WorkspaceLabel;
+    ReportAsset->SourceWorldName = ScanResult.WorldLabel.IsEmpty() ? TEXT("(unknown world)") : ScanResult.WorldLabel;
+    ReportAsset->SourceWorldPath = ScanResult.WorldPackagePath.IsEmpty() ? TEXT("(not detected)") : ScanResult.WorldPackagePath;
+    ReportAsset->ScanMode = ScanMode;
+    ReportAsset->ScanStatus = ScanResult.ScanStatus;
+    ReportAsset->ReadinessStatus = ScanResult.ReadinessStatus;
+    ReportAsset->SelectedActorCount = ScanResult.SelectedActorCount;
+    ReportAsset->ScannedActorCount = ScanResult.ScannedActorCount;
+    ReportAsset->StaticMeshActorCount = ScanResult.StaticMeshActorCount;
+    ReportAsset->SkeletalMeshActorCount = ScanResult.SkeletalMeshActorCount;
+    ReportAsset->PrimitiveComponentCount = ScanResult.PrimitiveComponentCount;
+    ReportAsset->CollisionCandidateCount = ScanResult.CollisionCandidateCount;
+    ReportAsset->CoverCandidateCount = ScanResult.CoverCandidateCount;
+    ReportAsset->ObstacleCandidateCount = ScanResult.ObstacleCandidateCount;
+    ReportAsset->MovementSpaceCandidateCount = ScanResult.MovementSpaceCandidateCount;
+    ReportAsset->BoundaryCandidateCount = ScanResult.BoundaryCandidateCount;
+    ReportAsset->NavigationRelevantCandidateCount = ScanResult.NavigationRelevantCandidateCount;
+    ReportAsset->Confidence = ScanResult.Confidence;
+    ReportAsset->NavigationContextStatus = ScanResult.NavigationContextStatus;
+    ReportAsset->SemanticSummary = ScanResult.SemanticSummary;
+    ReportAsset->SceneInterpretation = ScanResult.SceneInterpretation;
+    ReportAsset->Limitations = ScanResult.Limitations;
+    ReportAsset->RecommendedNextAction = ScanResult.RecommendedNextAction;
+    ReportAsset->CandidateDetailCap = WanaWITEnvironmentReportCandidateCap;
+    ReportAsset->bCandidateDetailsTruncated = ScanResult.bCandidateDetailsTruncated;
+    ReportAsset->CandidateDetails = ScanResult.CandidateDetails;
+    ReportAsset->ReportPackagePath = FinalPackagePath;
+    ReportAsset->ReportObjectPath = ObjectPath;
+    ReportAsset->bLevelGeometryModified = false;
+    ReportAsset->bLevelActorsSpawned = false;
+    ReportAsset->bCollisionSettingsChanged = false;
+    ReportAsset->bNavMeshModified = false;
+    ReportAsset->FullReportText = FString::Printf(
+        TEXT("Persistent WIT Environment Report\nGenerated: %s\nWorkspace: %s\nReport Package: %s\nReport Object: %s\nSource World: %s\nSource World Path: %s\nScan Mode: %s\nScan Status: %s\nReadiness: %s\nSelected Actors: %d\nScanned Actors: %d\nStatic Mesh Actors: %d\nSkeletal Mesh Actors: %d\nPrimitive Components: %d\nCollision Candidates: %d\nCover Candidates: %d\nObstacle Candidates: %d\nMovement-Space Candidates: %d\nBoundary Candidates: %d\nNavigation-Relevant Candidates: %d\nConfidence: %.0f%%\nNavigation Context: %s\nSemantic Summary: %s\nScene Interpretation: %s\nCandidate Details Stored: %d / cap %d\nCandidate Details Truncated: %s\nCandidate Summary:\n%s\nOriginal Level Geometry Modified: No\nActors Spawned: No\nCollision Settings Changed: No\nNavMesh Modified: No\nLimitations: %s\nRecommended Next Action: %s"),
+        *ReportAsset->GeneratedAtUtc,
+        *ReportAsset->WorkspaceLabel,
+        *FinalPackagePath,
+        *ObjectPath,
+        *ReportAsset->SourceWorldName,
+        *ReportAsset->SourceWorldPath,
+        *ScanMode,
+        *ReportAsset->ScanStatus,
+        *ReportAsset->ReadinessStatus,
+        ReportAsset->SelectedActorCount,
+        ReportAsset->ScannedActorCount,
+        ReportAsset->StaticMeshActorCount,
+        ReportAsset->SkeletalMeshActorCount,
+        ReportAsset->PrimitiveComponentCount,
+        ReportAsset->CollisionCandidateCount,
+        ReportAsset->CoverCandidateCount,
+        ReportAsset->ObstacleCandidateCount,
+        ReportAsset->MovementSpaceCandidateCount,
+        ReportAsset->BoundaryCandidateCount,
+        ReportAsset->NavigationRelevantCandidateCount,
+        ReportAsset->Confidence * 100.0f,
+        *ReportAsset->NavigationContextStatus,
+        *ReportAsset->SemanticSummary,
+        *ReportAsset->SceneInterpretation,
+        ReportAsset->CandidateDetails.Num(),
+        ReportAsset->CandidateDetailCap,
+        ReportAsset->bCandidateDetailsTruncated ? TEXT("Yes") : TEXT("No"),
+        *BuildWITReportCandidateSummary(ScanResult),
+        *ReportAsset->Limitations,
+        *ReportAsset->RecommendedNextAction);
+
+    if (bCreatedNewAsset)
+    {
+        FAssetRegistryModule::AssetCreated(ReportAsset);
+    }
+
+    Package->MarkPackageDirty();
+
+    const FString PackageFilename = FPackageName::LongPackageNameToFilename(
+        FinalPackagePath,
+        FPackageName::GetAssetPackageExtension());
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(PackageFilename), true);
+
+    FSavePackageArgs SaveArgs;
+    SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+    SaveArgs.SaveFlags = SAVE_NoError;
+
+    const bool bSaved = UPackage::SavePackage(Package, ReportAsset, *PackageFilename, SaveArgs);
+    if (!bSaved)
+    {
+        Result.StatusLabel = TEXT("Report Not Generated");
+        Result.PackagePath = FinalPackagePath;
+        Result.ObjectPath = ObjectPath;
+        Result.Detail = FString::Printf(
+            TEXT("WIT report not generated: WanaWorks could not save the report package at %s."),
+            *FinalPackagePath);
+        return Result;
+    }
+
+    Result.bSucceeded = true;
+    Result.StatusLabel = bGeneratedWithLimitations ? TEXT("Report Generated With Limitations") : TEXT("Report Generated");
+    Result.PackagePath = FinalPackagePath;
+    Result.ObjectPath = ObjectPath;
+    Result.Detail = bGeneratedWithLimitations
+        ? FString::Printf(TEXT("Persistent WIT environment report generated with limitations at %s. Original level geometry, collision, actors, and NavMesh were preserved."), *FinalPackagePath)
+        : FString::Printf(TEXT("Persistent WIT environment report generated at %s. Scene context is ready for future AI environment awareness."), *FinalPackagePath);
+    return Result;
+}
+
 struct FWanaAnalysisItem
 {
     FString Category;
@@ -1380,6 +2301,87 @@ void AddAnalysisItem(TArray<FWanaAnalysisItem>& Items, FWanaAnalysisResult& Resu
 {
     Items.Add({Category, Status, Detail});
     TrackAnalysisStatus(Result, Status);
+}
+
+void AddWITEnvironmentScanItems(
+    TArray<FWanaAnalysisItem>& Items,
+    FWanaAnalysisResult& Result,
+    const FWanaWITEnvironmentScanResult& ScanResult,
+    bool bIncludeExamples)
+{
+    AddAnalysisItem(
+        Items,
+        Result,
+        TEXT("WIT Scan Status"),
+        ScanResult.ReadinessStatus,
+        FString::Printf(TEXT("%s. %s"), *ScanResult.ScanStatus, *ScanResult.SemanticSummary));
+    AddAnalysisItem(
+        Items,
+        Result,
+        TEXT("Scanned Actors"),
+        ScanResult.ScannedActorCount > 0 ? TEXT("Ready") : TEXT("Limited"),
+        FString::Printf(
+            TEXT("%d actor(s) scanned. Static Mesh Actors: %d. Skeletal Mesh Actors: %d. Primitive Components: %d. Collision Candidates: %d. %s"),
+            ScanResult.ScannedActorCount,
+            ScanResult.StaticMeshActorCount,
+            ScanResult.SkeletalMeshActorCount,
+            ScanResult.PrimitiveComponentCount,
+            ScanResult.CollisionCandidateCount,
+            *ScanResult.SelectionContextLabel));
+    AddAnalysisItem(
+        Items,
+        Result,
+        TEXT("Cover Candidates"),
+        ScanResult.CoverCandidateCount > 0 ? TEXT("Ready") : TEXT("Limited"),
+        bIncludeExamples
+            ? BuildWITCountDetail(ScanResult.CoverCandidateCount, TEXT("cover candidate(s) detected"), ScanResult.CoverExamples)
+            : FString::Printf(TEXT("%d cover candidate(s) detected."), ScanResult.CoverCandidateCount));
+    AddAnalysisItem(
+        Items,
+        Result,
+        TEXT("Obstacle Candidates"),
+        ScanResult.ObstacleCandidateCount > 0 ? TEXT("Ready") : TEXT("Limited"),
+        bIncludeExamples
+            ? BuildWITCountDetail(ScanResult.ObstacleCandidateCount, TEXT("obstacle candidate(s) detected"), ScanResult.ObstacleExamples)
+            : FString::Printf(TEXT("%d obstacle candidate(s) detected."), ScanResult.ObstacleCandidateCount));
+    AddAnalysisItem(
+        Items,
+        Result,
+        TEXT("Movement Space"),
+        ScanResult.MovementSpaceCandidateCount > 0 ? TEXT("Ready") : TEXT("Limited"),
+        bIncludeExamples
+            ? BuildWITCountDetail(ScanResult.MovementSpaceCandidateCount, TEXT("movement-space surface(s) detected"), ScanResult.MovementSpaceExamples)
+            : FString::Printf(TEXT("%d movement-space surface(s) detected."), ScanResult.MovementSpaceCandidateCount));
+    AddAnalysisItem(
+        Items,
+        Result,
+        TEXT("Boundary Candidates"),
+        ScanResult.BoundaryCandidateCount > 0 ? TEXT("Ready") : TEXT("Limited"),
+        bIncludeExamples
+            ? BuildWITCountDetail(ScanResult.BoundaryCandidateCount, TEXT("boundary candidate(s) detected"), ScanResult.BoundaryExamples)
+            : FString::Printf(TEXT("%d boundary candidate(s) detected."), ScanResult.BoundaryCandidateCount));
+    AddAnalysisItem(
+        Items,
+        Result,
+        TEXT("Navigation Context"),
+        ScanResult.NavigationRelevantCandidateCount > 0 ? TEXT("Limited") : TEXT("Needs NavMesh"),
+        ScanResult.NavigationContextDetail);
+    AddAnalysisItem(
+        Items,
+        Result,
+        TEXT("Scan Confidence"),
+        ScanResult.Confidence >= 0.70f ? TEXT("Ready") : TEXT("Limited"),
+        FString::Printf(TEXT("%.0f%% confidence. %s"), ScanResult.Confidence * 100.0f, *ScanResult.Limitations));
+    AddAnalysisItem(
+        Items,
+        Result,
+        TEXT("Candidate Detail Cap"),
+        ScanResult.bCandidateDetailsTruncated ? TEXT("Limited") : TEXT("Ready"),
+        FString::Printf(
+            TEXT("%d candidate detail row(s) stored for reporting. Cap: %d. Truncated: %s."),
+            ScanResult.CandidateDetails.Num(),
+            WanaWITEnvironmentReportCandidateCap,
+            ScanResult.bCandidateDetailsTruncated ? TEXT("Yes") : TEXT("No")));
 }
 
 FString BuildAnalysisCardText(const FString& Heading, const TArray<FWanaAnalysisItem>& Items, const FString& RecommendedAction)
@@ -1695,6 +2697,19 @@ struct FWanaVisibleReactionTestResult
     FVector ImpactDirection = FVector::ZeroVector;
 };
 
+struct FWanaEmbodiedReactionProfile
+{
+    FString ProfileLabel = TEXT("Stable Ready");
+    FString ReasonDetail;
+    FString ContextSummary;
+    EWAYBehaviorPreset BehaviorPreset = EWAYBehaviorPreset::None;
+    float ImpactStrength = 0.18f;
+    bool bUseBracing = false;
+    bool bAutoStartRecovery = false;
+    bool bMovementLimited = false;
+    bool bTargetAvailable = false;
+};
+
 bool IsWanaWorksWorkingOrFinalActor(const AActor* Actor)
 {
     if (!Actor)
@@ -1720,6 +2735,154 @@ FVector ResolveVisibleReactionImpactDirection(const AActor* ObserverActor, const
     }
 
     return ObserverActor ? -ObserverActor->GetActorForwardVector().GetSafeNormal() : FVector::ForwardVector;
+}
+
+bool ContainsSignalInsensitive(const FString& SourceText, std::initializer_list<const TCHAR*> Signals)
+{
+    for (const TCHAR* Signal : Signals)
+    {
+        if (Signal && SourceText.Contains(Signal, ESearchCase::IgnoreCase))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+FString GetEmbodiedReactionReadinessStatus(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Not Supported");
+    }
+
+    if (!Snapshot.bHasWAYComponent || !Snapshot.bHasPhysicalStateComponent || !Snapshot.bHasRuntimeAnimationAdapterComponent)
+    {
+        return TEXT("Needs Enhance");
+    }
+
+    return TEXT("Ready");
+}
+
+FString BuildEmbodiedReactionReadinessDetail(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
+{
+    if (!Snapshot.bHasSkeletalMeshComponent)
+    {
+        return TEXT("Embodied reaction profile generation is not supported because no skeletal character stack was detected.");
+    }
+
+    return FString::Printf(
+        TEXT("Embodied profile inputs: WAY %s, physical state %s, runtime adapter %s, animation hook %s, movement state %s. WanaWorks uses these to choose a readable reaction profile without editing Anim BP assets."),
+        Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Needs Enhance"),
+        Snapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Needs Enhance"),
+        Snapshot.bHasRuntimeAnimationAdapterComponent ? TEXT("Ready") : TEXT("Needs Enhance"),
+        Snapshot.bAnimationHookStateReadable ? TEXT("Ready") : TEXT("Limited"),
+        Snapshot.bPhysicalCanCommitToMovement ? TEXT("Ready") : TEXT("Limited"));
+}
+
+FWanaEmbodiedReactionProfile SelectEmbodiedReactionProfile(
+    const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
+    const FWanaBehaviorResultsSnapshot& BehaviorSnapshot,
+    const FString& IdentityRoleLabel,
+    const FString& RelationshipControlLabel)
+{
+    FWanaEmbodiedReactionProfile Profile;
+    Profile.BehaviorPreset = BehaviorSnapshot.RecommendedBehavior != EWAYBehaviorPreset::None
+        ? BehaviorSnapshot.RecommendedBehavior
+        : BehaviorSnapshot.LastAppliedHook;
+    Profile.bTargetAvailable = BehaviorSnapshot.bHasTargetActor;
+    Profile.bMovementLimited =
+        BehaviorSnapshot.ExecutionMode == EWAYBehaviorExecutionMode::FallbackActive
+        || BehaviorSnapshot.ExecutionMode == EWAYBehaviorExecutionMode::FacingOnly
+        || !BehaviorSnapshot.MovementReadiness.bCanAttemptMovement
+        || BehaviorSnapshot.bAnimationMovementLimitedFallbackHint
+        || !Snapshot.bPhysicalCanCommitToMovement;
+
+    const FString IdentityText = IdentityRoleLabel.IsEmpty()
+        ? Snapshot.AnimationIdentityRoleHint
+        : IdentityRoleLabel;
+    const FString RelationshipText = FString::Printf(
+        TEXT("%s %s"),
+        RelationshipControlLabel.IsEmpty() ? TEXT("") : *RelationshipControlLabel,
+        UIFmt::GetRelationshipStateLabel(BehaviorSnapshot.RelationshipState));
+    const bool bGuardIdentity = ContainsSignalInsensitive(IdentityText, { TEXT("guard"), TEXT("protector"), TEXT("sentinel"), TEXT("security") });
+    const bool bCompanionIdentity = ContainsSignalInsensitive(IdentityText, { TEXT("companion"), TEXT("ally"), TEXT("friend"), TEXT("escort"), TEXT("support") });
+    const bool bHostileIdentity = ContainsSignalInsensitive(IdentityText, { TEXT("hostile"), TEXT("enemy"), TEXT("aggressive"), TEXT("combat"), TEXT("raider") });
+    const bool bSuspiciousContext = ContainsSignalInsensitive(RelationshipText, { TEXT("suspicious"), TEXT("unknown"), TEXT("acquaintance"), TEXT("cautious") });
+    const bool bFriendlyRelationship = BehaviorSnapshot.RelationshipState == EWAYRelationshipState::Friend
+        || BehaviorSnapshot.RelationshipState == EWAYRelationshipState::Partner
+        || ContainsSignalInsensitive(RelationshipText, { TEXT("friend"), TEXT("ally"), TEXT("partner") });
+    const bool bHostileRelationship = BehaviorSnapshot.RelationshipState == EWAYRelationshipState::Enemy
+        || ContainsSignalInsensitive(RelationshipText, { TEXT("enemy"), TEXT("hostile"), TEXT("target") });
+    const bool bPhysicalRecoveryActive = Snapshot.bPhysicalNeedsRecovery || Snapshot.PhysicalRecoveryProgress < 1.0f - KINDA_SMALL_NUMBER;
+    const bool bPhysicalDisrupted = Snapshot.PhysicalState == EWanaPhysicalState::Staggered
+        || Snapshot.PhysicalState == EWanaPhysicalState::OffBalance
+        || Snapshot.PhysicalState == EWanaPhysicalState::Panicked
+        || Snapshot.PhysicalInstabilityAlpha >= 0.55f;
+
+    if (bPhysicalDisrupted)
+    {
+        Profile.ProfileLabel = TEXT("Disrupted Recovery");
+        Profile.ImpactStrength = 0.62f;
+        Profile.bAutoStartRecovery = true;
+    }
+    else if (bPhysicalRecoveryActive || Snapshot.bPhysicalBracing || Snapshot.PhysicalState == EWanaPhysicalState::Bracing)
+    {
+        Profile.ProfileLabel = TEXT("Braced Recovery");
+        Profile.ImpactStrength = 0.32f;
+        Profile.bUseBracing = true;
+    }
+    else if ((Profile.BehaviorPreset == EWAYBehaviorPreset::GuardTarget || bGuardIdentity) && bFriendlyRelationship)
+    {
+        Profile.ProfileLabel = TEXT("Protective Guard");
+        Profile.ImpactStrength = Profile.bMovementLimited ? 0.36f : 0.24f;
+        Profile.bUseBracing = true;
+    }
+    else if (Profile.BehaviorPreset == EWAYBehaviorPreset::ApproachHostile || bHostileRelationship || bHostileIdentity)
+    {
+        Profile.ProfileLabel = TEXT("Hostile Pressure");
+        Profile.ImpactStrength = Profile.bMovementLimited ? 0.68f : 0.54f;
+        Profile.bAutoStartRecovery = true;
+    }
+    else if ((Profile.BehaviorPreset == EWAYBehaviorPreset::FollowTarget || bCompanionIdentity) && bFriendlyRelationship && !Profile.bMovementLimited)
+    {
+        Profile.ProfileLabel = TEXT("Cooperative Follow");
+        Profile.ImpactStrength = 0.18f;
+    }
+    else if (bSuspiciousContext || BehaviorSnapshot.ReactionState == EWAYReactionState::Cautious)
+    {
+        Profile.ProfileLabel = TEXT("Suspicious Observe");
+        Profile.ImpactStrength = Profile.bMovementLimited ? 0.34f : 0.22f;
+    }
+    else if (Profile.bMovementLimited)
+    {
+        Profile.ProfileLabel = TEXT("Movement-Limited Attention");
+        Profile.ImpactStrength = 0.48f;
+        Profile.bAutoStartRecovery = true;
+    }
+    else
+    {
+        Profile.ProfileLabel = TEXT("Stable Ready");
+        Profile.ImpactStrength = 0.18f;
+    }
+
+    const FString TrimmedRelationshipText = RelationshipText.TrimStartAndEnd();
+    Profile.ContextSummary = FString::Printf(
+        TEXT("identity=%s, relationship=%s, behavior=%s, movement=%s, physical=%s, adapter=%s, target=%s"),
+        IdentityText.IsEmpty() ? TEXT("Neutral") : *IdentityText,
+        TrimmedRelationshipText.IsEmpty() ? TEXT("Unknown") : *TrimmedRelationshipText,
+        *UIFmt::GetBehaviorPresetSummaryLabel(Profile.BehaviorPreset),
+        Profile.bMovementLimited ? TEXT("limited") : TEXT("ready"),
+        *GetWanaPhysicalStateDisplayLabel(Snapshot.PhysicalState),
+        Snapshot.RuntimeAnimationAdapterReadiness.IsEmpty() ? TEXT("Limited") : *Snapshot.RuntimeAnimationAdapterReadiness,
+        Profile.bTargetAvailable ? TEXT("valid") : TEXT("missing"));
+    Profile.ReasonDetail = FString::Printf(
+        TEXT("%s selected because %s. WanaWorks will %s and keep the response non-destructive."),
+        *Profile.ProfileLabel,
+        *Profile.ContextSummary,
+        Profile.bMovementLimited ? TEXT("prefer facing/hold body language over forced locomotion") : TEXT("allow posture and physical readiness to stay coherent"));
+    return Profile;
 }
 
 FString BuildVisibleReactionSupportDetail(const FWanaSelectedCharacterEnhancementSnapshot& Snapshot)
@@ -1751,6 +2914,7 @@ FWanaVisibleReactionTestResult ApplyVisibleCharacterReactionTest(
     AActor* ObserverActor,
     AActor* TargetActor,
     const FWanaBehaviorResultsSnapshot& BehaviorSnapshot,
+    const FWanaEmbodiedReactionProfile& ReactionProfile,
     bool bAllowRuntimeStateMutation)
 {
     FWanaVisibleReactionTestResult Result;
@@ -1808,52 +2972,48 @@ FWanaVisibleReactionTestResult ApplyVisibleCharacterReactionTest(
         Result.ImpactStrength = PhysicalStateComponent->LastImpactStrength;
         Result.ImpactDirection = PhysicalStateComponent->LastImpactDirection;
         Result.StatusLabel = TEXT("Limited");
-        Result.Detail = TEXT("Visible reaction ran in readiness-only mode because the subject is not a WanaWorks working/finalized actor. Run Enhance first to test the safe working subject.");
+        Result.ScenarioLabel = ReactionProfile.ProfileLabel;
+        Result.Detail = FString::Printf(
+            TEXT("%s. Visible reaction ran in readiness-only mode because the subject is not a WanaWorks working/finalized actor. Run Enhance first to test the safe working subject."),
+            ReactionProfile.ReasonDetail.IsEmpty() ? TEXT("Embodied reaction profile is selected but not applied") : *ReactionProfile.ReasonDetail);
         return Result;
     }
 
-    const EWAYBehaviorPreset BehaviorPreset = BehaviorSnapshot.RecommendedBehavior != EWAYBehaviorPreset::None
-        ? BehaviorSnapshot.RecommendedBehavior
-        : BehaviorSnapshot.LastAppliedHook;
-    const bool bFriendlyRelationship = BehaviorSnapshot.RelationshipState == EWAYRelationshipState::Friend
-        || BehaviorSnapshot.RelationshipState == EWAYRelationshipState::Partner;
-    const bool bHostileRelationship = BehaviorSnapshot.RelationshipState == EWAYRelationshipState::Enemy;
-    const bool bMovementLimited =
-        BehaviorSnapshot.ExecutionMode == EWAYBehaviorExecutionMode::FallbackActive
-        || BehaviorSnapshot.ExecutionMode == EWAYBehaviorExecutionMode::FacingOnly
-        || !BehaviorSnapshot.MovementReadiness.bCanAttemptMovement
-        || BehaviorSnapshot.bAnimationMovementLimitedFallbackHint;
     const FVector ImpactDirection = ResolveVisibleReactionImpactDirection(ObserverActor, TargetActor);
+    const EWAYBehaviorPreset BehaviorPreset = ReactionProfile.BehaviorPreset != EWAYBehaviorPreset::None
+        ? ReactionProfile.BehaviorPreset
+        : (BehaviorSnapshot.RecommendedBehavior != EWAYBehaviorPreset::None
+            ? BehaviorSnapshot.RecommendedBehavior
+            : BehaviorSnapshot.LastAppliedHook);
+    Result.ScenarioLabel = ReactionProfile.ProfileLabel;
 
-    if (BehaviorPreset == EWAYBehaviorPreset::GuardTarget && bFriendlyRelationship)
+    if (ReactionProfile.ProfileLabel.Equals(TEXT("Protective Guard"), ESearchCase::IgnoreCase)
+        || ReactionProfile.ProfileLabel.Equals(TEXT("Braced Recovery"), ESearchCase::IgnoreCase))
     {
-        Result.ScenarioLabel = TEXT("Protective Bracing");
         PhysicalStateComponent->SetBracing(true, 0.24f);
-        PhysicalStateComponent->ApplyImpactHint(ImpactDirection, bMovementLimited ? 0.34f : 0.24f, false);
+        PhysicalStateComponent->ApplyImpactHint(ImpactDirection, ReactionProfile.ImpactStrength, ReactionProfile.bAutoStartRecovery);
     }
-    else if (BehaviorPreset == EWAYBehaviorPreset::ApproachHostile || bHostileRelationship)
+    else if (ReactionProfile.ProfileLabel.Equals(TEXT("Hostile Pressure"), ESearchCase::IgnoreCase)
+        || ReactionProfile.ProfileLabel.Equals(TEXT("Disrupted Recovery"), ESearchCase::IgnoreCase)
+        || ReactionProfile.ProfileLabel.Equals(TEXT("Movement-Limited Attention"), ESearchCase::IgnoreCase))
     {
-        Result.ScenarioLabel = TEXT("Tense Impact Recovery");
         PhysicalStateComponent->SetBracing(false);
-        PhysicalStateComponent->ApplyImpactHint(ImpactDirection, bMovementLimited ? 0.68f : 0.54f, true);
+        PhysicalStateComponent->ApplyImpactHint(ImpactDirection, ReactionProfile.ImpactStrength, true);
     }
-    else if (bMovementLimited)
+    else if (ReactionProfile.ProfileLabel.Equals(TEXT("Suspicious Observe"), ESearchCase::IgnoreCase))
     {
-        Result.ScenarioLabel = TEXT("Movement-Limited Facing Fallback");
-        PhysicalStateComponent->SetBracing(false);
-        PhysicalStateComponent->ApplyImpactHint(ImpactDirection, 0.48f, true);
-    }
-    else if (BehaviorPreset == EWAYBehaviorPreset::ObserveTarget || BehaviorPreset == EWAYBehaviorPreset::None)
-    {
-        Result.ScenarioLabel = TEXT("Cautious Observation");
         PhysicalStateComponent->EnterAlertState(0.32f);
-        PhysicalStateComponent->ApplyImpactHint(ImpactDirection, 0.20f, false);
+        PhysicalStateComponent->ApplyImpactHint(ImpactDirection, ReactionProfile.ImpactStrength, false);
+    }
+    else if (ReactionProfile.ProfileLabel.Equals(TEXT("Cooperative Follow"), ESearchCase::IgnoreCase))
+    {
+        PhysicalStateComponent->SetBracing(false);
+        PhysicalStateComponent->EnterAlertState(0.22f);
     }
     else
     {
-        Result.ScenarioLabel = TEXT("Cooperative Attentive Readiness");
         PhysicalStateComponent->SetBracing(false);
-        PhysicalStateComponent->EnterAlertState(0.22f);
+        PhysicalStateComponent->EnterAlertState(0.18f);
     }
 
     PhysicalStateComponent->RefreshPhysicalReadiness();
@@ -1892,8 +3052,9 @@ FWanaVisibleReactionTestResult ApplyVisibleCharacterReactionTest(
     Result.ImpactStrength = PhysicalStateComponent->LastImpactStrength;
     Result.ImpactDirection = PhysicalStateComponent->LastImpactDirection;
     Result.Detail = FString::Printf(
-        TEXT("%s simulated safely on the WanaWorks working subject. Body state %s, stability %.2f, instability %.2f, recovery %d%%, impact %.2f. %s"),
+        TEXT("%s simulated safely on the WanaWorks working subject. %s Body state %s, stability %.2f, instability %.2f, recovery %d%%, impact %.2f. %s"),
         *Result.ScenarioLabel,
+        ReactionProfile.ReasonDetail.IsEmpty() ? TEXT("") : *ReactionProfile.ReasonDetail,
         *Result.BodyStateLabel,
         Result.StabilityScore,
         Result.InstabilityAlpha,
@@ -1944,12 +3105,21 @@ FString BuildAIWanaAnimationStageSummary(
     TArray<FString> StateLabels;
     StateLabels.Add(GetAIAnimationStageCategoryLabel(AnimationPostureCategory, AnimationPostureHint));
 
+    if (BehaviorSnapshot.bAnimationPhysicalReactionStateAvailable
+        && BehaviorSnapshot.AnimationPhysicalState != EWanaPhysicalState::Stable
+        && BehaviorSnapshot.AnimationPhysicalState != EWanaPhysicalState::Alert)
+    {
+        StateLabels.AddUnique(GetWanaPhysicalStateDisplayLabel(BehaviorSnapshot.AnimationPhysicalState));
+    }
+
     if (BehaviorSnapshot.AnimationPhysicalState == EWanaPhysicalState::Bracing)
     {
         StateLabels.AddUnique(TEXT("Braced"));
     }
 
-    if (BehaviorSnapshot.AnimationPhysicalState == EWanaPhysicalState::Recovering)
+    if (BehaviorSnapshot.AnimationPhysicalState == EWanaPhysicalState::Recovering
+        || (BehaviorSnapshot.bAnimationPhysicalReactionStateAvailable
+            && BehaviorSnapshot.AnimationPhysicalRecoveryProgress < 1.0f - KINDA_SMALL_NUMBER))
     {
         StateLabels.AddUnique(TEXT("Recovering"));
     }
@@ -4463,9 +5633,13 @@ void FWanaWorksUIModule::EnhanceActiveWorkspace()
 
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
     {
-        const FString WorldLabel = GetEditorWorldLabel();
-        const int32 SelectedActorCount = GetEditorSelectedActorCount();
-        const FString SceneSelectionLabel = FString::Printf(TEXT("%d actor(s) captured as optional scene context."), SelectedActorCount);
+        const FWanaWITEnvironmentScanResult WITScan = RunWITEnvironmentScan();
+        const FString WorldLabel = WITScan.WorldLabel;
+        const int32 SelectedActorCount = WITScan.SelectedActorCount;
+        const FString SceneSelectionLabel = WITScan.SelectionContextLabel;
+        const FString ExistingWITReportPath = FindExistingWanaWITEnvironmentReportPath(WITScan);
+        const FString ExpectedWITReportPath = BuildWanaWITReportOutputPath(WITScan);
+        const FString WITReportPath = ExistingWITReportPath.IsEmpty() ? ExpectedWITReportPath : ExistingWITReportPath;
         const FString WorldContextLabel = WorldLabel.IsEmpty() ? TEXT("No editor world available yet.") : WorldLabel;
         AActor* ObserverActor = nullptr;
         AActor* TargetActor = nullptr;
@@ -4482,38 +5656,52 @@ void FWanaWorksUIModule::EnhanceActiveWorkspace()
             EnvironmentSnapshot);
         const bool bHasWITPair = HasLevelDesignWITPair(EnvironmentSnapshot);
         const FString CoverStatus = GetLevelDesignCoverMeaningStatus(EnvironmentSnapshot, SelectedActorCount);
-        const FString ObstacleStatus = GetLevelDesignObstacleMeaningStatus(EnvironmentSnapshot);
-        const FString MovementSpaceStatus = GetLevelDesignMovementSpaceStatus(EnvironmentSnapshot);
-        const FString BoundaryStatus = GetLevelDesignBoundaryMeaningStatus(EnvironmentSnapshot);
 
         bWorkspaceAnalysisInitialized = true;
         LastAnalysisWorkspaceLabel = WorkspaceLabel;
-        LastAnalysisStatusSummary = bHasWITPair
-            ? TEXT("Level Design prepared with WIT semantic world context.")
-            : TEXT("Level Design prepared; assign observer-target context for richer WIT readings.");
+        LastAnalysisStatusSummary = WITScan.bHasReadableActorContext
+            ? FString::Printf(TEXT("Level Design prepared with read-only WIT scan context: %s."), *WITScan.ScanStatus)
+            : TEXT("Level Design prepared with limitations; no readable scene actors were available for WIT scanning.");
         LastAnalysisPrimarySummary = FString::Printf(
-            TEXT("Semantic World Preparation\nWorld Context: %s\nScene Selection: %s\nScene Pair: %s\nOriginal Level: Preserved\nGenerated Assets: None\nWorkspace Mode: WIT semantic environment understanding is ready for scan-based analysis."),
+            TEXT("Semantic World Preparation\nWorld Context: %s\nScene Selection: %s\nScene Pair: %s\nWIT Scan Status: %s\nScanned Actors: %d\nSemantic Summary: %s\nPersistent Report: %s\nReport Path: %s\nOriginal Level: Preserved\nGenerated Assets: None\nWorkspace Mode: WIT semantic environment understanding is ready for scan-based analysis."),
             *WorldContextLabel,
             *SceneSelectionLabel,
-            *BuildLevelDesignPairSummary(EnvironmentSnapshot));
+            *BuildLevelDesignPairSummary(EnvironmentSnapshot),
+            *WITScan.ScanStatus,
+            WITScan.ScannedActorCount,
+            *WITScan.SemanticSummary,
+            ExistingWITReportPath.IsEmpty() ? TEXT("Prepared for Build") : TEXT("Existing Report Found"),
+            *WITReportPath);
         LastAnalysisWITSummary = FString::Printf(
-            TEXT("WIT Preparation\nEnvironment Scan Readiness: %s - %s\nCover Meaning: %s - %s\nObstacle Meaning: %s - %s\nMovement Space: %s - %s\nBoundary / Navigation Context: %s - %s\nScene Context: %s\nRecommended Next Step: Run Analyze to refresh the semantic world reading, then Test before Build."),
-            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            TEXT("WIT Preparation\nEnvironment Scan Readiness: %s - %s\nSelected Scene Context: %s\nCover Candidates: %d - %s\nObstacle Candidates: %d - %s\nMovement Space: %d - %s\nBoundary Candidates: %d - %s\nNavigation Context: %s - %s\nPersistent Report: %s\nReport Path: %s\nObserver / Target Pair: %s\nLegacy Pair Cover Meaning: %s - %s\nLimitations: %s\nRecommended Next Step: %s"),
+            *WITScan.ReadinessStatus,
+            *WITScan.ScanStatus,
+            *SceneSelectionLabel,
+            WITScan.CoverCandidateCount,
+            *BuildWITExampleListText(WITScan.CoverExamples),
+            WITScan.ObstacleCandidateCount,
+            *BuildWITExampleListText(WITScan.ObstacleExamples),
+            WITScan.MovementSpaceCandidateCount,
+            *BuildWITExampleListText(WITScan.MovementSpaceExamples),
+            WITScan.BoundaryCandidateCount,
+            *BuildWITExampleListText(WITScan.BoundaryExamples),
+            *WITScan.NavigationContextStatus,
+            *WITScan.NavigationContextDetail,
+            ExistingWITReportPath.IsEmpty() ? TEXT("Build will generate") : TEXT("Found"),
+            *WITReportPath,
             *BuildLevelDesignPairSummary(EnvironmentSnapshot),
             *CoverStatus,
             *GetLevelDesignCoverMeaningDetail(EnvironmentSnapshot, SelectedActorCount),
-            *ObstacleStatus,
-            *GetLevelDesignObstacleMeaningDetail(EnvironmentSnapshot),
-            *MovementSpaceStatus,
-            *GetLevelDesignMovementSpaceDetail(EnvironmentSnapshot),
-            *BoundaryStatus,
-            *GetLevelDesignBoundaryMeaningDetail(EnvironmentSnapshot),
-            *SceneSelectionLabel);
+            *WITScan.Limitations,
+            *WITScan.RecommendedNextAction);
         LastAnalysisBehaviorSummary = LastAnalysisWITSummary;
         LastAnalysisAnimationSummary = LastAnalysisWITSummary;
         LastAnalysisPhysicalSummary = LastAnalysisWITSummary;
-        LastAnalysisSuggestedSummary = TEXT("Level Design Enhancement Result\nPrepared Systems: WIT semantic world context, scene pair, cover demand, obstacle pressure, movement-space meaning, boundary/navigation hints\nApplied Changes: None\nOriginal Level: Preserved\nRecommended Next Step: Analyze the scene, then use Build for an in-app semantic-world output summary.");
-        StatusMessage = TEXT("Status: Level Design WIT context prepared. Original level preserved.");
+        LastAnalysisSuggestedSummary = FString::Printf(
+            TEXT("Level Design Enhancement Result\nPrepared Systems: WIT read-only environment scan, semantic classification state, scene pair, cover candidates, obstacle candidates, movement-space candidates, boundary/navigation hints, persistent report path\nApplied Changes: None\nPersistent Report: %s\nOriginal Level: Preserved\nRecommended Next Step: %s"),
+            ExistingWITReportPath.IsEmpty() ? TEXT("Prepared for Build; no asset saved during Enhance.") : *WITReportPath,
+            *WITScan.RecommendedNextAction);
+        StatusMessage = FString::Printf(TEXT("Status: Level Design WIT scan context prepared (%s). Original level preserved."), *WITScan.ScanStatus);
         RefreshReactiveUI(true);
         return;
     }
@@ -4597,8 +5785,12 @@ void FWanaWorksUIModule::TestActiveWorkspace()
 
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
     {
-        const FString WorldLabel = GetEditorWorldLabel();
-        const int32 SelectedActorCount = GetEditorSelectedActorCount();
+        const FWanaWITEnvironmentScanResult WITScan = RunWITEnvironmentScan();
+        const FString WorldLabel = WITScan.WorldLabel;
+        const int32 SelectedActorCount = WITScan.SelectedActorCount;
+        const FString ExistingWITReportPath = FindExistingWanaWITEnvironmentReportPath(WITScan);
+        const FString ExpectedWITReportPath = BuildWanaWITReportOutputPath(WITScan);
+        const FString WITReportPath = ExistingWITReportPath.IsEmpty() ? ExpectedWITReportPath : ExistingWITReportPath;
         AActor* ObserverActor = nullptr;
         AActor* TargetActor = nullptr;
         FString PairSourceLabel;
@@ -4628,7 +5820,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             Result,
             TEXT("Selected Scene Context"),
             SelectedActorCount > 0 ? TEXT("Ready") : TEXT("Limited"),
-            FString::Printf(TEXT("%d actor(s) selected. Selection is optional for this safe Level Design test."), SelectedActorCount));
+            WITScan.SelectionContextLabel);
         AddAnalysisItem(
             PrimaryItems,
             Result,
@@ -4638,40 +5830,37 @@ void FWanaWorksUIModule::TestActiveWorkspace()
         AddAnalysisItem(
             PrimaryItems,
             Result,
+            TEXT("WIT Scan Result"),
+            WITScan.ReadinessStatus,
+            WITScan.SemanticSummary);
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("Persistent WIT Report"),
+            ExistingWITReportPath.IsEmpty() ? TEXT("Needs Build") : TEXT("Ready"),
+            ExistingWITReportPath.IsEmpty()
+                ? FString::Printf(TEXT("Build will save the WanaWorks-owned WIT report to %s."), *WITReportPath)
+                : FString::Printf(TEXT("Existing WIT environment report is available at %s."), *WITReportPath));
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
             TEXT("Level Modification"),
             TEXT("Ready"),
             TEXT("Test V1 is read-only: no modular assets are spawned and the current level is preserved."));
 
+        AddWITEnvironmentScanItems(WITItems, Result, WITScan, true);
         AddAnalysisItem(
             WITItems,
             Result,
-            TEXT("WIT Scan Readiness"),
+            TEXT("Observer / Target Pair"),
             bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
-            bHasWITPair ? TEXT("Observer-target context is available for semantic world testing.") : TEXT("WIT scan context is not assigned yet; prepare or select scene actors for richer semantic testing."));
+            bHasWITPair ? BuildLevelDesignPairSummary(EnvironmentSnapshot) : TEXT("Optional observer-target context is limited; scan results are actor/world based."));
         AddAnalysisItem(
             WITItems,
             Result,
-            TEXT("Navigation Context"),
+            TEXT("Movement Pair Context"),
             bHasMovementContext ? TEXT("Ready") : TEXT("Limited"),
-            bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Navigation remains unknown until a WIT movement context is available."));
-        AddAnalysisItem(
-            WITItems,
-            Result,
-            TEXT("Cover Meaning"),
-            GetLevelDesignCoverMeaningStatus(EnvironmentSnapshot, SelectedActorCount),
-            GetLevelDesignCoverMeaningDetail(EnvironmentSnapshot, SelectedActorCount));
-        AddAnalysisItem(
-            WITItems,
-            Result,
-            TEXT("Obstacle Meaning"),
-            GetLevelDesignObstacleMeaningStatus(EnvironmentSnapshot),
-            GetLevelDesignObstacleMeaningDetail(EnvironmentSnapshot));
-        AddAnalysisItem(
-            WITItems,
-            Result,
-            TEXT("Movement Space"),
-            GetLevelDesignMovementSpaceStatus(EnvironmentSnapshot),
-            GetLevelDesignMovementSpaceDetail(EnvironmentSnapshot));
+            bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Navigation remains heuristic until a WIT movement pair is available."));
         AddAnalysisItem(
             WITItems,
             Result,
@@ -4679,16 +5868,18 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             TEXT("Not Supported"),
             TEXT("Prompt-based level generation is intentionally outside this Test V1 phase."));
 
-        RecommendedAction = bHasWITPair
-            ? TEXT("Build can prepare an in-app semantic-world summary; future WIT passes can persist cover and obstacle classification as assets.")
-            : TEXT("Prepare or select scene context, then run Analyze before future WIT scan work.");
+        RecommendedAction = WITScan.RecommendedNextAction;
+        const FString LowerWITScanStatus = WITScan.ScanStatus.ToLower();
         ResultLabel = !bHasWorldContext
             ? TEXT("world context is missing")
-            : (bHasWITPair ? TEXT("WIT semantic world context is readable") : TEXT("world context is available but WIT scan context is limited"));
+            : FString::Printf(TEXT("%s; %s"), *LowerWITScanStatus, *WITScan.SceneInterpretation);
         AddAnalysisItem(SuggestedItems, Result, TEXT("Next Step"), TEXT("Recommended"), RecommendedAction);
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Original Level"), TEXT("Ready"), TEXT("Preserved. Test did not spawn, move, or mutate level actors."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Report Output"), ExistingWITReportPath.IsEmpty() ? TEXT("Needs Build") : TEXT("Ready"), ExistingWITReportPath.IsEmpty() ? TEXT("Persistent WIT report is prepared by Build, not Test.") : FString::Printf(TEXT("Persistent WIT report path: %s."), *WITReportPath));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Confidence / Limits"), WITScan.Confidence >= 0.70f ? TEXT("Ready") : TEXT("Limited"), WITScan.Limitations);
 
         Result.PrimarySummary = BuildAnalysisCardText(TEXT("Semantic World Test Result"), PrimaryItems, RecommendedAction);
-        Result.WITSummary = BuildAnalysisCardText(TEXT("WIT Readiness Test"), WITItems, RecommendedAction);
+        Result.WITSummary = BuildAnalysisCardText(TEXT("WIT Environment Scan Test"), WITItems, RecommendedAction);
         Result.AnimationSummary = Result.WITSummary;
         Result.PhysicalSummary = Result.WITSummary;
         Result.BehaviorSummary = Result.WITSummary;
@@ -4885,6 +6076,11 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                 bTargetFallsBackToObserver,
                 PairSourceLabel,
                 PreReactionBehaviorSnapshot);
+            const FWanaEmbodiedReactionProfile EmbodiedReactionProfile = SelectEmbodiedReactionProfile(
+                Snapshot,
+                PreReactionBehaviorSnapshot,
+                SelectedCharacterIntelligenceIdentityRoleLabel,
+                SelectedCharacterIntelligenceRelationshipLabel);
 
             const bool bAllowVisibleReactionMutation = ObserverActor
                 && (IsWanaWorksWorkingOrFinalActor(ObserverActor)
@@ -4893,6 +6089,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                 ObserverActor,
                 TargetActor,
                 PreReactionBehaviorSnapshot,
+                EmbodiedReactionProfile,
                 bAllowVisibleReactionMutation);
 
             if (ObserverActor)
@@ -4996,6 +6193,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             AddAnalysisItem(PrimaryItems, Result, TEXT("Working / Enhanced Subject"), bWorkingSubjectReady ? TEXT("Ready") : TEXT("Limited"), bWorkingSubjectReady ? FString::Printf(TEXT("%s is available as the WanaWorks working subject."), *LastEnhancementResultsActorLabel) : TEXT("Enhancement has not prepared a working subject in this session; testing selected subject readiness instead."));
             AddAnalysisItem(PrimaryItems, Result, TEXT("Preview Stage"), bPreviewReady ? TEXT("Ready") : TEXT("Limited"), bPreviewReady ? FString::Printf(TEXT("Stage can show %s. %s"), *PreviewModeLabel, *AnimationStageSummary) : FString::Printf(TEXT("Preview subject is not available yet. %s"), *AnimationStageSummary));
             AddAnalysisItem(PrimaryItems, Result, TEXT("WanaAnimation Stage"), bAnimationHookDriven ? TEXT("Applied") : TEXT("Limited"), AnimationStageSummary);
+            AddAnalysisItem(PrimaryItems, Result, TEXT("Embodied Reaction Profile"), VisibleReactionResult.bApplied ? TEXT("Applied") : EmbodiedReactionProfile.bTargetAvailable ? TEXT("Ready") : TEXT("Limited"), EmbodiedReactionProfile.ReasonDetail);
             AddAnalysisItem(PrimaryItems, Result, TEXT("Visible Reaction"), VisibleReactionResult.bApplied ? TEXT("Applied") : VisibleReactionResult.StatusLabel, VisibleReactionResult.Detail.IsEmpty() ? TEXT("Visible body-state reaction has not been driven yet.") : VisibleReactionResult.Detail);
             AddAnalysisItem(PrimaryItems, Result, TEXT("Shared Character BP"), SharedStackStatus, SharedStackSummary);
 
@@ -5006,6 +6204,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             AddAnalysisItem(BehaviorItems, Result, TEXT("Relationship Target"), TargetActor ? TEXT("Ready") : TEXT("Limited"), TargetActor ? TargetActor->GetActorNameOrLabel() : TEXT("No relationship target selected."));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Selected Relationship"), TargetActor && ObserverActor && ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>() ? TEXT("Ready") : TEXT("Limited"), FString::Printf(TEXT("%s maps to runtime state %s."), SelectedCharacterIntelligenceRelationshipLabel.IsEmpty() ? TEXT("Unknown") : *SelectedCharacterIntelligenceRelationshipLabel, UIFmt::GetRelationshipStateLabel(SelectedRelationshipState)));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Behavior Results"), BehaviorSnapshot.bHasWAYComponent && BehaviorSnapshot.bHasRelationshipProfile ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.bHasWAYComponent ? TEXT("Behavior result data is readable.") : TEXT("Behavior result is limited until WAY-lite has usable relationship data."));
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Reaction Reasoning"), EmbodiedReactionProfile.bTargetAvailable ? TEXT("Ready") : TEXT("Limited"), EmbodiedReactionProfile.ContextSummary);
             AddAnalysisItem(BehaviorItems, Result, TEXT("Requested Behavior"), BehaviorSnapshot.RecommendedBehavior != EWAYBehaviorPreset::None ? TEXT("Ready") : TEXT("Limited"), UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Visible Behavior"), !BehaviorSnapshot.VisibleBehaviorLabel.IsEmpty() ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.VisibleBehaviorLabel.IsEmpty() ? TEXT("No visible starter behavior was applied.") : BehaviorSnapshot.VisibleBehaviorLabel);
             AddAnalysisItem(BehaviorItems, Result, TEXT("Execution Mode"), bBehaviorExecutionSucceeded ? TEXT("Ready") : TEXT("Limited"), UIFmt::GetBehaviorExecutionModeSummaryLabel(BehaviorSnapshot.ExecutionMode));
@@ -5051,6 +6250,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
 
             AddAnalysisItem(SuggestedItems, Result, TEXT("Ready for Build"), bReadyForBuild ? TEXT("Ready") : TEXT("Limited"), bReadyForBuild ? TEXT("AI subject has the core readable systems expected for this V1 workflow.") : TEXT("Run Enhance or resolve limited systems before treating the subject as build-ready."));
             AddAnalysisItem(SuggestedItems, Result, TEXT("Animation Body Language"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), bAnimationHookDriven ? FString::Printf(TEXT("Test requested %s posture with %s."), *AnimationPostureHint, *AnimationLocomotionHint) : TEXT("Run Enhance/Test with a valid observer-target pair to drive WanaAnimation posture hints."));
+            AddAnalysisItem(SuggestedItems, Result, TEXT("Embodied AI Next Step"), VisibleReactionResult.bApplied ? TEXT("Ready") : TEXT("Recommended"), VisibleReactionResult.bApplied ? FString::Printf(TEXT("%s is active; visually confirm body state, posture, and fallback feel coherent for this relationship."), *EmbodiedReactionProfile.ProfileLabel) : TEXT("Run Enhance on the selected subject so WanaWorks can safely apply the embodied profile to a working actor."));
             AddAnalysisItem(SuggestedItems, Result, TEXT("Visible Reaction Next Step"), VisibleReactionResult.bApplied ? TEXT("Ready") : TEXT("Recommended"), VisibleReactionResult.bApplied ? TEXT("Review the stage/body-state labels and confirm the subject reads as braced, disrupted, recovering, or observant without forced locomotion.") : TEXT("Run Enhance first so WanaWorks can test the visible reaction on a safe working subject."));
             AddAnalysisItem(SuggestedItems, Result, TEXT("Animation Adapter Next Step"), AdapterStatus, RecommendedAdapterStrategy.Equals(TEXT("Needs Enhance"), ESearchCase::IgnoreCase) ? TEXT("Run Enhance to prepare WanaAnimation hook providers before adapter generation.") : TEXT("Build can save a persistent WanaWorks-owned adapter report without changing the original Animation Blueprint."));
 
@@ -5059,7 +6259,8 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                 : TEXT("Run Enhance to prepare missing WanaWorks layers, then Test again before Build.");
             ResultLabel = bBehaviorExecutionSucceeded
                 ? FString::Printf(
-                    TEXT("%s active via %s. Body: %s, instability %.2f. WanaAnimation: %s posture, facing hook %s, %s. Adapter: %s"),
+                    TEXT("%s: %s via %s. Body: %s, instability %.2f. WanaAnimation: %s posture, facing hook %s, %s. Adapter: %s"),
+                    *EmbodiedReactionProfile.ProfileLabel,
                     BehaviorSnapshot.AnimationVisibleBehaviorLabel.IsEmpty() ? *UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior) : *BehaviorSnapshot.AnimationVisibleBehaviorLabel,
                     *UIFmt::GetBehaviorExecutionModeSummaryLabel(BehaviorSnapshot.ExecutionMode),
                     VisibleReactionResult.BodyStateLabel.IsEmpty() ? TEXT("Readable") : *VisibleReactionResult.BodyStateLabel,
@@ -5436,8 +6637,12 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
 
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
     {
-        const FString WorldLabel = GetEditorWorldLabel();
-        const int32 SelectedActorCount = GetEditorSelectedActorCount();
+        const FWanaWITEnvironmentScanResult WITScan = RunWITEnvironmentScan();
+        const FString WorldLabel = WITScan.WorldLabel;
+        const int32 SelectedActorCount = WITScan.SelectedActorCount;
+        const FString ExistingWITReportPath = FindExistingWanaWITEnvironmentReportPath(WITScan);
+        const FString ExpectedWITReportPath = BuildWanaWITReportOutputPath(WITScan);
+        const FString WITReportPath = ExistingWITReportPath.IsEmpty() ? ExpectedWITReportPath : ExistingWITReportPath;
 
         AddAnalysisItem(
             PrimaryItems,
@@ -5450,7 +6655,7 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
             Result,
             TEXT("Selected Actors"),
             SelectedActorCount > 0 ? TEXT("Ready") : TEXT("Limited"),
-            FString::Printf(TEXT("%d actor(s) selected as optional scene context."), SelectedActorCount));
+            WITScan.SelectionContextLabel);
 
         AActor* ObserverActor = nullptr;
         AActor* TargetActor = nullptr;
@@ -5474,41 +6679,33 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
             bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
             BuildLevelDesignPairSummary(EnvironmentSnapshot));
         AddAnalysisItem(
-            WITItems,
+            PrimaryItems,
             Result,
             TEXT("WIT Environment Scan"),
-            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
-            bHasWITPair ? TEXT("Observer-target context is available for semantic world analysis.") : TEXT("Assign an observer and target to turn selected scene context into richer WIT meaning."));
+            WITScan.ReadinessStatus,
+            FString::Printf(TEXT("%s. %s"), *WITScan.ScanStatus, *WITScan.SceneInterpretation));
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
+            TEXT("Persistent WIT Report"),
+            ExistingWITReportPath.IsEmpty() ? TEXT("Needs Build") : TEXT("Ready"),
+            ExistingWITReportPath.IsEmpty()
+                ? FString::Printf(TEXT("Report generation is available; Build will save the WanaWorks-owned WIT report to %s."), *WITReportPath)
+                : FString::Printf(TEXT("Prior WIT environment report found at %s."), *WITReportPath));
+
+        AddWITEnvironmentScanItems(WITItems, Result, WITScan, true);
         AddAnalysisItem(
             WITItems,
             Result,
-            TEXT("Navigation Context"),
+            TEXT("Observer / Target Pair"),
+            bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
+            bHasWITPair ? BuildLevelDesignPairSummary(EnvironmentSnapshot) : TEXT("Actor/world scan is available; assign an observer-target pair later for richer movement pressure readings."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Movement Pair Context"),
             bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext ? TEXT("Ready") : TEXT("Limited"),
             bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Unknown until WIT has an active observer-target context."));
-        AddAnalysisItem(
-            WITItems,
-            Result,
-            TEXT("Cover Meaning"),
-            GetLevelDesignCoverMeaningStatus(EnvironmentSnapshot, SelectedActorCount),
-            GetLevelDesignCoverMeaningDetail(EnvironmentSnapshot, SelectedActorCount));
-        AddAnalysisItem(
-            WITItems,
-            Result,
-            TEXT("Obstacle Meaning"),
-            GetLevelDesignObstacleMeaningStatus(EnvironmentSnapshot),
-            GetLevelDesignObstacleMeaningDetail(EnvironmentSnapshot));
-        AddAnalysisItem(
-            WITItems,
-            Result,
-            TEXT("Movement Space"),
-            GetLevelDesignMovementSpaceStatus(EnvironmentSnapshot),
-            GetLevelDesignMovementSpaceDetail(EnvironmentSnapshot));
-        AddAnalysisItem(
-            WITItems,
-            Result,
-            TEXT("Boundary / Navigation"),
-            GetLevelDesignBoundaryMeaningStatus(EnvironmentSnapshot),
-            GetLevelDesignBoundaryMeaningDetail(EnvironmentSnapshot));
         AddAnalysisItem(
             WITItems,
             Result,
@@ -5522,10 +6719,11 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
             TEXT("Not Supported"),
             TEXT("Atmosphere analysis is reserved for a later Level Design pass."));
 
-        RecommendedAction = bHasWITPair
-            ? TEXT("Use Test to validate this semantic world reading, then Build an in-app WIT output summary before future generation work.")
-            : TEXT("Assign or select an observer-target scene context, then Analyze again to classify cover, obstacles, boundaries, and movement space.");
+        RecommendedAction = WITScan.RecommendedNextAction;
         AddAnalysisItem(SuggestedItems, Result, TEXT("Next Improvement"), TEXT("Recommended"), RecommendedAction);
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Read-Only Safety"), TEXT("Ready"), TEXT("Analyze inspected editor-world context only; no level geometry, collision, navmesh, or assets were modified."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Report Output"), ExistingWITReportPath.IsEmpty() ? TEXT("Needs Build") : TEXT("Ready"), ExistingWITReportPath.IsEmpty() ? FString::Printf(TEXT("Persistent WIT environment report will be generated under %s during Build."), WanaWITEnvironmentReportRootPath) : FString::Printf(TEXT("Existing persistent report: %s."), *WITReportPath));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Scan Limitation"), WITScan.Confidence >= 0.70f ? TEXT("Ready") : TEXT("Limited"), WITScan.Limitations);
 
         Result.PrimarySummary = BuildAnalysisCardText(TEXT("Semantic World Context"), PrimaryItems, FString());
         Result.WITSummary = BuildAnalysisCardText(TEXT("WIT / What Is This? Diagnosis"), WITItems, RecommendedAction);
@@ -5829,6 +7027,12 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
                 TEXT("WAY-lite Relationship"),
                 Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Missing"),
                 Snapshot.bHasWAYComponent ? TEXT("Relationship profile component is available.") : TEXT("Relationship/adaptation layer is not attached yet."));
+            AddAnalysisItem(
+                BehaviorItems,
+                Result,
+                TEXT("Embodied Reaction Profile"),
+                GetEmbodiedReactionReadinessStatus(Snapshot),
+                BuildEmbodiedReactionReadinessDetail(Snapshot));
 
             AddAnalysisItem(
                 AnimationItems,
@@ -6154,8 +7358,9 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
 
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
     {
-        const FString WorldLabel = GetEditorWorldLabel();
-        const int32 SelectedActorCount = GetEditorSelectedActorCount();
+        const FWanaWITEnvironmentScanResult WITScan = RunWITEnvironmentScan();
+        const FString WorldLabel = WITScan.WorldLabel;
+        const int32 SelectedActorCount = WITScan.SelectedActorCount;
         AActor* ObserverActor = nullptr;
         AActor* TargetActor = nullptr;
         FString PairSourceLabel;
@@ -6173,10 +7378,19 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         const bool bHasWorldContext = !WorldLabel.IsEmpty();
         const bool bHasWITPair = HasLevelDesignWITPair(EnvironmentSnapshot);
         const bool bHasMovementContext = bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext;
-        const FString ReportPath = TEXT("/Game/WanaWorks/Builds");
-        const FString BuildState = bHasWorldContext ? TEXT("Built with Limitations") : TEXT("Blocked");
+        const FWanaPersistentWITEnvironmentReportResult WITReportResult = bHasWorldContext
+            ? SavePersistentWITEnvironmentReportAsset(WITScan, DisplayWorkspaceLabel)
+            : FWanaPersistentWITEnvironmentReportResult();
+        const FString ReportPath = WITReportResult.PackagePath.IsEmpty()
+            ? BuildWanaWITReportOutputPath(WITScan)
+            : WITReportResult.PackagePath;
+        const FString BuildState = !bHasWorldContext
+            ? FString(TEXT("Blocked"))
+            : (WITReportResult.bSucceeded && WITReportResult.StatusLabel.Equals(TEXT("Report Generated"), ESearchCase::IgnoreCase)
+                ? FString(TEXT("Built"))
+                : FString(TEXT("Built with Limitations")));
         const FString RecommendedAction = bHasWorldContext
-            ? TEXT("Use this semantic-world build summary as the V1 output, then run a later WIT pass for persisted cover, obstacle, and movement-space assets.")
+            ? WITScan.RecommendedNextAction
             : TEXT("Open a valid editor world before preparing a Level Design build summary.");
 
         AddAnalysisItem(
@@ -6190,7 +7404,7 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
             Result,
             TEXT("Selected Actors"),
             SelectedActorCount > 0 ? TEXT("Ready") : TEXT("Limited"),
-            FString::Printf(TEXT("%d actor(s) captured as optional scene context."), SelectedActorCount));
+            WITScan.SelectionContextLabel);
         AddAnalysisItem(
             PrimaryItems,
             Result,
@@ -6200,46 +7414,45 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         AddAnalysisItem(
             PrimaryItems,
             Result,
+            TEXT("Semantic World Summary"),
+            WITScan.ReadinessStatus,
+            WITScan.SemanticSummary);
+        AddAnalysisItem(
+            PrimaryItems,
+            Result,
             TEXT("Output / Report"),
-            bHasWorldContext ? TEXT("Built with Limitations") : TEXT("Blocked"),
-            bHasWorldContext ? TEXT("In-app WIT semantic-world summary prepared. No level assets were generated in Build V1.") : TEXT("No report was prepared because world context is missing."));
+            bHasWorldContext ? WITReportResult.StatusLabel : TEXT("Blocked"),
+            bHasWorldContext
+                ? WITReportResult.Detail
+                : TEXT("No report was prepared because world context is missing."));
         AddAnalysisItem(
             PrimaryItems,
             Result,
             TEXT("Output Location"),
-            TEXT("Limited"),
-            FString::Printf(TEXT("%s is reserved for future persisted WIT report assets; this phase reports in-app only."), *ReportPath));
+            WITReportResult.bSucceeded ? TEXT("Ready") : TEXT("Limited"),
+            WITReportResult.bSucceeded
+                ? FString::Printf(TEXT("Persistent WIT environment report saved to %s."), *ReportPath)
+                : FString::Printf(TEXT("%s is the WanaWorks-owned preferred WIT report path; report save was limited."), *ReportPath));
 
+        AddWITEnvironmentScanItems(WITItems, Result, WITScan, true);
         AddAnalysisItem(
             WITItems,
             Result,
-            TEXT("WIT Preparation"),
+            TEXT("Persistent WIT Report"),
+            bHasWorldContext ? WITReportResult.StatusLabel : TEXT("Blocked"),
+            bHasWorldContext ? WITReportResult.Detail : TEXT("Persistent report was not generated because no editor world was available."));
+        AddAnalysisItem(
+            WITItems,
+            Result,
+            TEXT("Observer / Target Pair"),
             bHasWITPair ? TEXT("Ready") : TEXT("Limited"),
-            bHasWITPair ? TEXT("Semantic scan context is available for WIT world understanding.") : TEXT("WIT scan context is limited; no cover/obstacle report asset was generated."));
+            bHasWITPair ? BuildLevelDesignPairSummary(EnvironmentSnapshot) : TEXT("Build used the read-only actor/world scan; observer-target movement pressure remains optional context."));
         AddAnalysisItem(
             WITItems,
             Result,
-            TEXT("Navigation Context"),
+            TEXT("Movement Pair Context"),
             bHasMovementContext ? TEXT("Ready") : TEXT("Limited"),
-            bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Navigation context remains unknown until a WIT movement pair is available."));
-        AddAnalysisItem(
-            WITItems,
-            Result,
-            TEXT("Cover Meaning"),
-            GetLevelDesignCoverMeaningStatus(EnvironmentSnapshot, SelectedActorCount),
-            GetLevelDesignCoverMeaningDetail(EnvironmentSnapshot, SelectedActorCount));
-        AddAnalysisItem(
-            WITItems,
-            Result,
-            TEXT("Obstacle Meaning"),
-            GetLevelDesignObstacleMeaningStatus(EnvironmentSnapshot),
-            GetLevelDesignObstacleMeaningDetail(EnvironmentSnapshot));
-        AddAnalysisItem(
-            WITItems,
-            Result,
-            TEXT("Movement Space"),
-            GetLevelDesignMovementSpaceStatus(EnvironmentSnapshot),
-            GetLevelDesignMovementSpaceDetail(EnvironmentSnapshot));
+            bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Navigation context remains heuristic until a WIT movement pair is available."));
         AddAnalysisItem(
             WITItems,
             Result,
@@ -6247,17 +7460,19 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
             TEXT("Not Supported"),
             TEXT("Prompt-based modular level generation is not implemented in Build V1."));
 
-        AddAnalysisItem(SuggestedItems, Result, TEXT("Build State"), BuildState, bHasWorldContext ? TEXT("Semantic world output summary is ready in WanaWorks.") : TEXT("Build is blocked until an editor world is available."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Build State"), BuildState, WITReportResult.bSucceeded ? TEXT("Persistent WIT environment report is ready for future Level Design and Character Intelligence use.") : (bHasWorldContext ? TEXT("Build completed with limitations; persistent WIT report was not saved.") : TEXT("Build is blocked until an editor world is available.")));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Original Level"), TEXT("Ready"), TEXT("Preserved. Build V1 did not spawn or move level actors."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Report Path"), WITReportResult.bSucceeded ? TEXT("Ready") : (bHasWorldContext ? TEXT("Limited") : TEXT("Blocked")), bHasWorldContext ? FString::Printf(TEXT("WIT report path: %s."), *ReportPath) : TEXT("No WanaWorks report path was prepared because world context is missing."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Scan Limitations"), WITScan.Confidence >= 0.70f ? TEXT("Ready") : TEXT("Limited"), WITScan.Limitations);
         AddAnalysisItem(SuggestedItems, Result, TEXT("Recommended Next Step"), TEXT("Recommended"), RecommendedAction);
 
         Result.PrimarySummary = BuildAnalysisCardText(TEXT("Semantic World Build Summary"), PrimaryItems, RecommendedAction);
-        Result.WITSummary = BuildAnalysisCardText(TEXT("WIT Output Readiness"), WITItems, RecommendedAction);
+        Result.WITSummary = BuildAnalysisCardText(TEXT("WIT Scan Output Readiness"), WITItems, RecommendedAction);
         Result.AnimationSummary = Result.WITSummary;
         Result.PhysicalSummary = Result.WITSummary;
         Result.BehaviorSummary = Result.WITSummary;
         Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Level Design Build Result"), SuggestedItems, RecommendedAction);
-        Result.StatusSummary = BuildWorkspaceBuildStatusText(DisplayWorkspaceLabel, BuildState, bHasWorldContext ? TEXT("in-app WIT summary prepared") : FString());
+        Result.StatusSummary = BuildWorkspaceBuildStatusText(DisplayWorkspaceLabel, BuildState, WITReportResult.bSucceeded ? ReportPath : FString());
         bWorkspaceAnalysisInitialized = true;
         LastAnalysisWorkspaceLabel = Result.WorkspaceLabel;
         LastAnalysisStatusSummary = Result.StatusSummary;
@@ -6410,6 +7625,10 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
     if (BuildResponse.bSucceeded && bHasEffectiveSnapshot)
     {
         BuildResponse.OutputLines.Add(FString::Printf(
+            TEXT("Embodied Reaction Profile: %s - %s"),
+            *GetEmbodiedReactionReadinessStatus(EffectiveSnapshot),
+            *BuildEmbodiedReactionReadinessDetail(EffectiveSnapshot)));
+        BuildResponse.OutputLines.Add(FString::Printf(
             TEXT("Visible Reaction Support: %s"),
             *BuildVisibleReactionSupportDetail(EffectiveSnapshot)));
     }
@@ -6548,12 +7767,14 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         AddAnalysisItem(BehaviorItems, Result, TEXT("WAI / WAMI"), EffectiveSnapshot.bHasWAIComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.bHasWAIComponent ? TEXT("Identity, memory, emotion, and role layer is present.") : TEXT("WAI/WAMI was not detected."));
         AddAnalysisItem(BehaviorItems, Result, TEXT("WAY-lite"), EffectiveSnapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.bHasWAYComponent ? TEXT("Relationship/adaptation layer is present.") : TEXT("WAY-lite was not detected."));
         AddAnalysisItem(BehaviorItems, Result, TEXT("Behavior Results"), BehaviorSnapshot.bHasWAYComponent && BehaviorSnapshot.bHasRelationshipProfile ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.bHasWAYComponent ? TEXT("Relationship-aware behavior data is readable.") : TEXT("Behavior result is limited until WAY-lite data is available."));
+        AddAnalysisItem(BehaviorItems, Result, TEXT("Embodied Reaction Profile"), GetEmbodiedReactionReadinessStatus(EffectiveSnapshot), BuildEmbodiedReactionReadinessDetail(EffectiveSnapshot));
 
         AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), EffectiveSnapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : EffectiveSnapshot.LinkedAnimationBlueprintLabel);
         AddAnalysisItem(AnimationItems, Result, TEXT("WanaAnimation"), bAnimationReady ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.AnimationAutomaticIntegrationDetail.IsEmpty() ? TEXT("Animation integration is limited or not prepared.") : EffectiveSnapshot.AnimationAutomaticIntegrationDetail);
         AddAnalysisItem(AnimationItems, Result, TEXT("Anim BP Wiring Readiness"), AnimBPWiringReadiness, AdapterReadinessDetail);
         AddAnalysisItem(AnimationItems, Result, TEXT("Generated WanaAnimation Adapter"), AdapterStatus, FString::Printf(TEXT("Output: %s. Direct Graph Edit Safety: %s. Recommended Strategy: %s."), *AdapterRecordPath, *DirectGraphEditSafety, *RecommendedAdapterStrategy));
         AddAnalysisItem(PhysicalItems, Result, TEXT("Physical State"), EffectiveSnapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.bHasPhysicalStateComponent ? TEXT("Readable body-state layer is available.") : TEXT("Physical state layer was not detected."));
+        AddAnalysisItem(PhysicalItems, Result, TEXT("Visible Reaction Support"), !EffectiveSnapshot.bHasSkeletalMeshComponent ? TEXT("Not Supported") : ((EffectiveSnapshot.bHasPhysicalStateComponent && EffectiveSnapshot.bHasRuntimeAnimationAdapterComponent && EffectiveSnapshot.bHasWAYComponent) ? TEXT("Ready") : TEXT("Limited")), BuildVisibleReactionSupportDetail(EffectiveSnapshot));
         AddAnalysisItem(PhysicalItems, Result, TEXT("WanaCombat-lite"), EffectiveSnapshot.bHasPhysicalStateComponent && EffectiveSnapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), TEXT("Combat-lite readiness stays additive and does not replace AI logic."));
 
         AddAnalysisItem(WITItems, Result, TEXT("WIT Awareness"), bHasWITPair ? TEXT("Ready") : TEXT("Limited"), bHasWITPair ? UIFmt::GetEnvironmentShapingSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("WIT observer-target context is not assigned yet."));
@@ -6562,6 +7783,7 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         AddAnalysisItem(SuggestedItems, Result, TEXT("Build Status"), BuildState, BuildResponse.bSucceeded ? TEXT("Character Intelligence output completed without touching the original.") : TEXT("Character Intelligence build did not complete."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Output Path"), BuildResponse.bSucceeded ? TEXT("Built") : TEXT("Blocked"), OutputPath.IsEmpty() ? TEXT("/Game/WanaWorks/Builds") : OutputPath);
         AddAnalysisItem(SuggestedItems, Result, TEXT("Validation"), bTestWasAvailable ? TEXT("Ready") : TEXT("Limited"), bTestWasAvailable ? TEXT("Test readiness was available before Build.") : TEXT("Build used lightweight readiness because Test had not been run yet."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("Visible Reaction"), (EffectiveSnapshot.bHasPhysicalStateComponent && EffectiveSnapshot.bHasRuntimeAnimationAdapterComponent) ? TEXT("Ready") : TEXT("Limited"), (EffectiveSnapshot.bHasPhysicalStateComponent && EffectiveSnapshot.bHasRuntimeAnimationAdapterComponent) ? TEXT("Test can drive a readable body-state reaction on the WanaWorks working subject without touching animation assets.") : TEXT("Visible reaction support remains limited until Enhance prepares physical state and the runtime adapter."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("WanaAnimation Adapter"), AdapterStatus, bAdapterRecordGenerated ? FString::Printf(TEXT("WanaWorks saved or found a persistent adapter report at %s without modifying the original Anim BP."), *AdapterRecordPath) : TEXT("Adapter output is limited until the subject has mesh, Anim BP, and hook readiness."));
 
         Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Intelligence Build Output"), PrimaryItems, RecommendedAction);
