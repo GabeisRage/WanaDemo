@@ -737,9 +737,6 @@ FString BuildWanaAnimationAdapterReadinessDetail(
     const FString RuntimeAdapterStatus = Snapshot.bHasRuntimeAnimationAdapterComponent
         ? (Snapshot.RuntimeAnimationAdapterReadiness.IsEmpty() ? TEXT("Limited") : Snapshot.RuntimeAnimationAdapterReadiness)
         : TEXT("Needs Enhance");
-    const FString RuntimeAdapterStrategy = Snapshot.RuntimeAnimationAdapterRecommendedStrategy.IsEmpty()
-        ? RecommendedStrategy
-        : Snapshot.RuntimeAnimationAdapterRecommendedStrategy;
     const FString PostureInputs = Snapshot.AnimationPostureHint.IsEmpty()
         ? TEXT("posture/reaction inputs pending hook drive")
         : FString::Printf(
@@ -747,30 +744,41 @@ FString BuildWanaAnimationAdapterReadinessDetail(
             *Snapshot.AnimationPostureHint,
             Snapshot.AnimationPostureCategory.IsEmpty() ? TEXT("Observe") : *Snapshot.AnimationPostureCategory,
             *UIFmt::GetReactionStateSummaryLabel(Snapshot.AnimationReactionState));
+    const FString RuntimeAdapterInputs = Snapshot.bHasRuntimeAnimationAdapterComponent
+        ? FString::Printf(
+            TEXT("%s/%s posture, %s behavior, %s execution, %s body, stability %.2f, instability %.2f, recovery %d%%, impact %.2f, bracing %s"),
+            Snapshot.RuntimeAnimationAdapterPostureHint.IsEmpty() ? TEXT("observant") : *Snapshot.RuntimeAnimationAdapterPostureHint,
+            Snapshot.RuntimeAnimationAdapterPostureCategory.IsEmpty() ? TEXT("Observe") : *Snapshot.RuntimeAnimationAdapterPostureCategory,
+            Snapshot.RuntimeAnimationAdapterVisibleBehaviorLabel.IsEmpty() ? TEXT("(pending)") : *Snapshot.RuntimeAnimationAdapterVisibleBehaviorLabel,
+            *UIFmt::GetBehaviorExecutionModeSummaryLabel(Snapshot.RuntimeAnimationAdapterExecutionMode),
+            *UEnum::GetValueAsString(Snapshot.RuntimeAnimationAdapterPhysicalState),
+            Snapshot.RuntimeAnimationAdapterStabilityScore,
+            Snapshot.RuntimeAnimationAdapterInstabilityAlpha,
+            FMath::RoundToInt(Snapshot.RuntimeAnimationAdapterRecoveryProgress * 100.0f),
+            Snapshot.RuntimeAnimationAdapterImpactStrength,
+            Snapshot.bRuntimeAnimationAdapterBracing ? TEXT("yes") : TEXT("no"))
+        : FString(TEXT("runtime adapter values unavailable until Enhance prepares the WanaWorks adapter component"));
 
     return FString::Printf(
-        TEXT("Adapter Status: %s. Runtime Adapter: %s. Runtime Hook: %s. Persistent Report: %s. Output: %s. Shared Anim BP: %s. Direct Graph Edit Safety: %s. Recommended Strategy: %s. Runtime Strategy: %s. Source=%s, Mesh=%s, Skeleton=%s, Anim Class=%s, Generated Class=%s, Parent=%s, Hook Provider=%s, Hook Readable=%s, Physical Provider=%s, Auto-Wire Fields=%d supported/%d applied, Inputs=%s. Runtime Detail: %s Original Anim BP is not edited or reassigned."),
+        TEXT("Adapter: %s. Runtime Bridge: %s. Hook: %s. Report: %s. Strategy: %s. Runtime Values: %s. Stack: %s, mesh %s, skeleton %s, anim %s. Shared Anim BP: %s. Direct Graph Edit Safety: %s. Providers: hook %s, physical %s. Auto-wire: %d supported / %d applied. Hook Inputs: %s. Output: %s. Detail: %s Preserved: original Anim BP is not edited or reassigned."),
         *AdapterStatus,
         *RuntimeAdapterStatus,
         Snapshot.bRuntimeAnimationAdapterHookReadable ? TEXT("Ready") : TEXT("Needs Enhance"),
         Snapshot.bRuntimeAnimationAdapterReportReadable ? TEXT("Readable") : (bAdapterRecordGenerated ? TEXT("Ready after Build refresh") : TEXT("Not Found")),
-        *OutputPath,
-        *SharedAnimBPStatus,
-        *DirectGraphEditSafety,
         *RecommendedStrategy,
-        *RuntimeAdapterStrategy,
+        *RuntimeAdapterInputs,
         Snapshot.SelectedActorLabel.IsEmpty() ? TEXT("(none)") : *Snapshot.SelectedActorLabel,
         Snapshot.SkeletalMeshLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.SkeletalMeshLabel,
         Snapshot.SkeletonLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.SkeletonLabel,
         Snapshot.AnimationAssignedClassLabel.IsEmpty() ? (Snapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("(not detected)") : *Snapshot.LinkedAnimationBlueprintLabel) : *Snapshot.AnimationAssignedClassLabel,
-        Snapshot.AnimationGeneratedClassLabel.IsEmpty() ? TEXT("(not detected)") : *Snapshot.AnimationGeneratedClassLabel,
-        Snapshot.AnimationParentInstanceClassLabel.IsEmpty() ? TEXT("(not detected)") : *Snapshot.AnimationParentInstanceClassLabel,
+        *SharedAnimBPStatus,
+        *DirectGraphEditSafety,
         Snapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Needs Enhance"),
-        Snapshot.bAnimationHookStateReadable ? TEXT("Ready") : TEXT("Needs Enhance"),
         Snapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited"),
         Snapshot.AnimationSupportedAutoWireFieldCount,
         Snapshot.AnimationLastAppliedAutoWireFieldCount,
         *PostureInputs,
+        *OutputPath,
         Snapshot.RuntimeAnimationAdapterDetail.IsEmpty() ? TEXT("Runtime adapter has not been prepared on this subject yet.") : *Snapshot.RuntimeAnimationAdapterDetail);
 }
 
@@ -2237,6 +2245,204 @@ FWanaPersistentWITEnvironmentReportResult SavePersistentWITEnvironmentReportAsse
     return Result;
 }
 
+struct FWanaWITCharacterInfluenceContext
+{
+    bool bHasWorldContext = false;
+    bool bReportFound = false;
+    bool bReportReadable = false;
+    bool bReportMatchesWorld = false;
+    bool bCandidateDetailsTruncated = false;
+    FString StatusLabel = TEXT("WIT Context Missing");
+    FString InfluenceStatusLabel = TEXT("Environment Influence Disabled");
+    FString WorldLabel;
+    FString WorldPackagePath;
+    FString ReportPath;
+    FString ReportObjectPath;
+    FString ScanMode;
+    FString NavigationContextStatus = TEXT("Unknown");
+    FString SemanticSummary;
+    FString SceneInterpretation;
+    FString Limitations;
+    FString RecommendedNextAction;
+    int32 CoverCandidateCount = 0;
+    int32 ObstacleCandidateCount = 0;
+    int32 MovementSpaceCandidateCount = 0;
+    int32 BoundaryCandidateCount = 0;
+    int32 NavigationRelevantCandidateCount = 0;
+    int32 CandidateDetailCount = 0;
+    float Confidence = 0.0f;
+};
+
+FWanaWITEnvironmentScanResult BuildWITReportLookupScanResultForCurrentWorld()
+{
+    FWanaWITEnvironmentScanResult LookupResult;
+    UWorld* EditorWorld = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    LookupResult.WorldLabel = BuildWITWorldLabel(EditorWorld);
+    LookupResult.WorldPackagePath = EditorWorld && EditorWorld->GetOutermost()
+        ? EditorWorld->GetOutermost()->GetName()
+        : FString();
+    LookupResult.bHasWorldContext = EditorWorld != nullptr;
+    LookupResult.bWorldContextIsEditorWorld = EditorWorld && EditorWorld->WorldType == EWorldType::Editor;
+    return LookupResult;
+}
+
+bool DoesWITReportMatchCurrentWorld(
+    const UWanaWITEnvironmentReportAsset* ReportAsset,
+    const FString& WorldLabel,
+    const FString& WorldPackagePath)
+{
+    if (!ReportAsset)
+    {
+        return false;
+    }
+
+    const bool bNameMatches =
+        !WorldLabel.IsEmpty()
+        && ReportAsset->SourceWorldName.Equals(WorldLabel, ESearchCase::IgnoreCase);
+    const bool bPathMatches =
+        !WorldPackagePath.IsEmpty()
+        && ReportAsset->SourceWorldPath.Equals(WorldPackagePath, ESearchCase::IgnoreCase);
+
+    return bNameMatches || bPathMatches;
+}
+
+FString BuildWITCharacterInfluenceEnvironmentSummary(const FWanaWITCharacterInfluenceContext& Context)
+{
+    if (!Context.bHasWorldContext)
+    {
+        return TEXT("No editor world is available, so Character Intelligence cannot read environment intelligence yet.");
+    }
+
+    if (!Context.bReportReadable)
+    {
+        return TEXT("WIT report missing; run Level Design Build to generate world intelligence for this map.");
+    }
+
+    return FString::Printf(
+        TEXT("%s Cover=%d, Obstacles=%d, Movement Space=%d, Boundaries=%d, Nav=%s, Confidence=%d%%."),
+        Context.SemanticSummary.IsEmpty() ? TEXT("WIT report is readable.") : *Context.SemanticSummary,
+        Context.CoverCandidateCount,
+        Context.ObstacleCandidateCount,
+        Context.MovementSpaceCandidateCount,
+        Context.BoundaryCandidateCount,
+        Context.NavigationContextStatus.IsEmpty() ? TEXT("Unknown") : *Context.NavigationContextStatus,
+        FMath::RoundToInt(Context.Confidence * 100.0f));
+}
+
+FWanaWITCharacterInfluenceContext ResolveWITCharacterInfluenceContext()
+{
+    FWanaWITCharacterInfluenceContext Context;
+    const FWanaWITEnvironmentScanResult LookupResult = BuildWITReportLookupScanResultForCurrentWorld();
+    Context.bHasWorldContext = LookupResult.bHasWorldContext;
+    Context.WorldLabel = LookupResult.WorldLabel;
+    Context.WorldPackagePath = LookupResult.WorldPackagePath;
+
+    if (!Context.bHasWorldContext)
+    {
+        Context.StatusLabel = TEXT("WIT Context Missing");
+        Context.InfluenceStatusLabel = TEXT("Environment Influence Disabled");
+        Context.RecommendedNextAction = TEXT("Open a valid editor level, then run Level Design Build to generate WIT world intelligence.");
+        Context.Limitations = TEXT("Character Intelligence cannot discover a WIT report without a valid editor world.");
+        return Context;
+    }
+
+    Context.ReportPath = FindExistingWanaWITEnvironmentReportPath(LookupResult);
+    if (Context.ReportPath.IsEmpty())
+    {
+        Context.ReportPath = BuildWanaWITReportOutputPath(LookupResult);
+        Context.StatusLabel = TEXT("Needs Level Design Build");
+        Context.InfluenceStatusLabel = TEXT("Environment Influence Disabled");
+        Context.RecommendedNextAction = TEXT("Run Level Design Build to generate a persistent WIT report for environment-aware behavior readiness.");
+        Context.Limitations = TEXT("No persistent WIT report was found for the current map.");
+        return Context;
+    }
+
+    const UWanaWITEnvironmentReportAsset* ReportAsset = LoadWanaWITEnvironmentReportAsset(Context.ReportPath);
+    if (!ReportAsset)
+    {
+        Context.StatusLabel = TEXT("WIT Context Limited");
+        Context.InfluenceStatusLabel = TEXT("Environment Influence Disabled");
+        Context.RecommendedNextAction = TEXT("Rebuild the Level Design WIT report; the report path exists but could not be loaded safely.");
+        Context.Limitations = TEXT("WIT report asset path could not be loaded as UWanaWITEnvironmentReportAsset.");
+        return Context;
+    }
+
+    Context.bReportFound = true;
+    Context.bReportReadable = true;
+    Context.bReportMatchesWorld = DoesWITReportMatchCurrentWorld(ReportAsset, Context.WorldLabel, Context.WorldPackagePath);
+    Context.ReportObjectPath = ReportAsset->ReportObjectPath.IsEmpty()
+        ? BuildWanaWITReportObjectPath(Context.ReportPath)
+        : ReportAsset->ReportObjectPath;
+    Context.ScanMode = ReportAsset->ScanMode;
+    Context.NavigationContextStatus = ReportAsset->NavigationContextStatus;
+    Context.SemanticSummary = ReportAsset->SemanticSummary;
+    Context.SceneInterpretation = ReportAsset->SceneInterpretation;
+    Context.Limitations = ReportAsset->Limitations;
+    Context.RecommendedNextAction = ReportAsset->RecommendedNextAction;
+    Context.CoverCandidateCount = ReportAsset->CoverCandidateCount;
+    Context.ObstacleCandidateCount = ReportAsset->ObstacleCandidateCount;
+    Context.MovementSpaceCandidateCount = ReportAsset->MovementSpaceCandidateCount;
+    Context.BoundaryCandidateCount = ReportAsset->BoundaryCandidateCount;
+    Context.NavigationRelevantCandidateCount = ReportAsset->NavigationRelevantCandidateCount;
+    Context.CandidateDetailCount = ReportAsset->CandidateDetails.Num();
+    Context.bCandidateDetailsTruncated = ReportAsset->bCandidateDetailsTruncated;
+    Context.Confidence = FMath::Clamp(ReportAsset->Confidence, 0.0f, 1.0f);
+
+    if (!Context.bReportMatchesWorld)
+    {
+        Context.StatusLabel = TEXT("WIT Context Limited");
+        Context.InfluenceStatusLabel = TEXT("Environment Influence Applied With Limitations");
+        Context.Limitations = Context.Limitations.IsEmpty()
+            ? TEXT("WIT report was found, but its source world does not clearly match the current editor map.")
+            : FString::Printf(TEXT("%s WIT report source world does not clearly match the current editor map."), *Context.Limitations);
+        return Context;
+    }
+
+    if (Context.Confidence < 0.35f || Context.CoverCandidateCount + Context.ObstacleCandidateCount + Context.MovementSpaceCandidateCount + Context.BoundaryCandidateCount <= 0)
+    {
+        Context.StatusLabel = TEXT("WIT Context Limited");
+        Context.InfluenceStatusLabel = TEXT("Environment Influence Applied With Limitations");
+    }
+    else
+    {
+        Context.StatusLabel = TEXT("Ready");
+        Context.InfluenceStatusLabel = TEXT("Environment Influence Ready");
+    }
+
+    if (Context.RecommendedNextAction.IsEmpty())
+    {
+        Context.RecommendedNextAction = TEXT("Use Character Intelligence Test to evaluate the AI subject inside this scene context.");
+    }
+
+    return Context;
+}
+
+bool WITContextHasWeakNavigation(const FWanaWITCharacterInfluenceContext& Context)
+{
+    return !Context.bReportReadable
+        || Context.NavigationRelevantCandidateCount <= 0
+        || Context.NavigationContextStatus.Contains(TEXT("Needs"), ESearchCase::IgnoreCase)
+        || Context.NavigationContextStatus.Contains(TEXT("Missing"), ESearchCase::IgnoreCase);
+}
+
+bool WITContextIsObstacleHeavy(const FWanaWITCharacterInfluenceContext& Context)
+{
+    return Context.ObstacleCandidateCount >= 3
+        && Context.ObstacleCandidateCount >= FMath::Max(1, Context.MovementSpaceCandidateCount);
+}
+
+bool WITContextHasLimitedMovementSpace(const FWanaWITCharacterInfluenceContext& Context)
+{
+    return Context.MovementSpaceCandidateCount <= 0
+        || Context.ObstacleCandidateCount >= Context.MovementSpaceCandidateCount * 2 + 2
+        || Context.BoundaryCandidateCount >= 4;
+}
+
+bool WITContextHasCoverSignals(const FWanaWITCharacterInfluenceContext& Context)
+{
+    return Context.CoverCandidateCount > 0;
+}
+
 struct FWanaAnalysisItem
 {
     FString Category;
@@ -2260,6 +2466,21 @@ struct FWanaAnalysisResult
     int32 LimitedCount = 0;
     int32 NotSupportedCount = 0;
     int32 RecommendedCount = 0;
+};
+
+struct FWanaWorkflowActionPlanItem
+{
+    FString ActionTitle;
+    FString ActionCategory;
+    FString Priority;
+    FString Reason;
+    FString SourceWorkspace;
+    FString RecommendedWorkflowStep;
+    FString ReadinessState;
+    FString RiskLevel;
+    bool bExecutableNow = false;
+    bool bInformationalOnly = false;
+    FString RelatedPath;
 };
 
 void TrackAnalysisStatus(FWanaAnalysisResult& Result, const FString& Status)
@@ -2291,6 +2512,14 @@ void TrackAnalysisStatus(FWanaAnalysisResult& Result, const FString& Status)
     {
         ++Result.RecommendedCount;
     }
+    else if (Status.Equals(TEXT("Critical"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("High"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("Medium"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("Low"), ESearchCase::IgnoreCase)
+        || Status.Equals(TEXT("Informational"), ESearchCase::IgnoreCase))
+    {
+        ++Result.RecommendedCount;
+    }
     else
     {
         ++Result.LimitedCount;
@@ -2301,6 +2530,190 @@ void AddAnalysisItem(TArray<FWanaAnalysisItem>& Items, FWanaAnalysisResult& Resu
 {
     Items.Add({Category, Status, Detail});
     TrackAnalysisStatus(Result, Status);
+}
+
+int32 GetWorkflowActionPriorityRank(const FString& Priority)
+{
+    if (Priority.Equals(TEXT("Critical"), ESearchCase::IgnoreCase))
+    {
+        return 0;
+    }
+    if (Priority.Equals(TEXT("High"), ESearchCase::IgnoreCase))
+    {
+        return 1;
+    }
+    if (Priority.Equals(TEXT("Medium"), ESearchCase::IgnoreCase))
+    {
+        return 2;
+    }
+    if (Priority.Equals(TEXT("Low"), ESearchCase::IgnoreCase))
+    {
+        return 3;
+    }
+    return 4;
+}
+
+void SortWorkflowActionPlan(TArray<FWanaWorkflowActionPlanItem>& ActionPlan)
+{
+    ActionPlan.Sort([](const FWanaWorkflowActionPlanItem& Left, const FWanaWorkflowActionPlanItem& Right)
+    {
+        const int32 LeftRank = GetWorkflowActionPriorityRank(Left.Priority);
+        const int32 RightRank = GetWorkflowActionPriorityRank(Right.Priority);
+
+        if (LeftRank != RightRank)
+        {
+            return LeftRank < RightRank;
+        }
+
+        if (Left.bExecutableNow != Right.bExecutableNow)
+        {
+            return Left.bExecutableNow && !Right.bExecutableNow;
+        }
+
+        return Left.ActionTitle < Right.ActionTitle;
+    });
+}
+
+void AddWorkflowActionPlanItem(
+    TArray<FWanaWorkflowActionPlanItem>& ActionPlan,
+    const FString& ActionTitle,
+    const FString& ActionCategory,
+    const FString& Priority,
+    const FString& Reason,
+    const FString& SourceWorkspace,
+    const FString& RecommendedWorkflowStep,
+    const FString& ReadinessState,
+    const FString& RiskLevel,
+    bool bExecutableNow,
+    bool bInformationalOnly,
+    const FString& RelatedPath = FString())
+{
+    FWanaWorkflowActionPlanItem Item;
+    Item.ActionTitle = ActionTitle;
+    Item.ActionCategory = ActionCategory;
+    Item.Priority = Priority.IsEmpty() ? TEXT("Medium") : Priority;
+    Item.Reason = Reason;
+    Item.SourceWorkspace = SourceWorkspace;
+    Item.RecommendedWorkflowStep = RecommendedWorkflowStep.IsEmpty() ? TEXT("Analyze") : RecommendedWorkflowStep;
+    Item.ReadinessState = ReadinessState.IsEmpty() ? TEXT("Limited") : ReadinessState;
+    Item.RiskLevel = RiskLevel.IsEmpty() ? TEXT("Low") : RiskLevel;
+    Item.bExecutableNow = bExecutableNow;
+    Item.bInformationalOnly = bInformationalOnly;
+    Item.RelatedPath = RelatedPath;
+    ActionPlan.Add(Item);
+}
+
+FString BuildWorkflowActionPlanAvailabilityLabel(const FWanaWorkflowActionPlanItem& Item)
+{
+    if (Item.bInformationalOnly)
+    {
+        return TEXT("Info");
+    }
+
+    return Item.bExecutableNow ? TEXT("Now") : TEXT("Manual or future automation");
+}
+
+FString FormatWorkflowActionPlanItem(const FWanaWorkflowActionPlanItem& Item)
+{
+    FString Detail = FString::Printf(
+        TEXT("%s. Why: %s Step: %s. Available: %s. State: %s. Risk: %s."),
+        Item.ActionTitle.IsEmpty() ? TEXT("Recommended Action") : *Item.ActionTitle,
+        Item.Reason.IsEmpty() ? TEXT("WanaWorks recommends this next to keep the workflow moving safely.") : *Item.Reason,
+        Item.RecommendedWorkflowStep.IsEmpty() ? TEXT("Analyze") : *Item.RecommendedWorkflowStep,
+        *BuildWorkflowActionPlanAvailabilityLabel(Item),
+        Item.ReadinessState.IsEmpty() ? TEXT("Limited") : *Item.ReadinessState,
+        Item.RiskLevel.IsEmpty() ? TEXT("Low") : *Item.RiskLevel);
+
+    if (!Item.SourceWorkspace.IsEmpty())
+    {
+        Detail += FString::Printf(TEXT(" Source: %s."), *Item.SourceWorkspace);
+    }
+
+    if (!Item.RelatedPath.IsEmpty())
+    {
+        Detail += FString::Printf(TEXT(" Related output: %s."), *Item.RelatedPath);
+    }
+
+    return Detail;
+}
+
+FString FormatWorkflowActionPlanCompactLine(const FWanaWorkflowActionPlanItem& Item)
+{
+    FString Line = FString::Printf(
+        TEXT("%s: %s [%s] - %s"),
+        Item.Priority.IsEmpty() ? TEXT("Medium") : *Item.Priority,
+        Item.ActionTitle.IsEmpty() ? TEXT("Recommended Action") : *Item.ActionTitle,
+        Item.RecommendedWorkflowStep.IsEmpty() ? TEXT("Analyze") : *Item.RecommendedWorkflowStep,
+        Item.Reason.IsEmpty() ? TEXT("WanaWorks recommends this next to keep the production path clear.") : *Item.Reason);
+
+    if (!Item.RelatedPath.IsEmpty())
+    {
+        Line += FString::Printf(TEXT(" Related: %s."), *Item.RelatedPath);
+    }
+
+    return Line;
+}
+
+FString GetWorkflowActionPlanRecommendedAction(TArray<FWanaWorkflowActionPlanItem> ActionPlan)
+{
+    SortWorkflowActionPlan(ActionPlan);
+
+    for (const FWanaWorkflowActionPlanItem& Item : ActionPlan)
+    {
+        if (!Item.bInformationalOnly)
+        {
+            return FString::Printf(
+                TEXT("%s: %s"),
+                Item.ActionTitle.IsEmpty() ? TEXT("Review next action") : *Item.ActionTitle,
+                Item.Reason.IsEmpty() ? TEXT("WanaWorks recommends this next to keep the production workflow moving.") : *Item.Reason);
+        }
+    }
+
+    return ActionPlan.Num() > 0
+        ? FString::Printf(TEXT("%s: %s"), *ActionPlan[0].ActionTitle, *ActionPlan[0].Reason)
+        : FString();
+}
+
+void AddWorkflowActionPlanItemsToAnalysis(
+    TArray<FWanaAnalysisItem>& Items,
+    FWanaAnalysisResult& Result,
+    TArray<FWanaWorkflowActionPlanItem> ActionPlan,
+    int32 MaxItems = 5)
+{
+    SortWorkflowActionPlan(ActionPlan);
+
+    const int32 Count = FMath::Min(MaxItems, ActionPlan.Num());
+    for (int32 Index = 0; Index < Count; ++Index)
+    {
+        const FWanaWorkflowActionPlanItem& Item = ActionPlan[Index];
+        AddAnalysisItem(
+            Items,
+            Result,
+            FString::Printf(TEXT("Next Action %d"), Index + 1),
+            Item.Priority.IsEmpty() ? TEXT("Medium") : Item.Priority,
+            FormatWorkflowActionPlanItem(Item));
+    }
+}
+
+FString BuildWorkflowActionPlanSummary(TArray<FWanaWorkflowActionPlanItem> ActionPlan, int32 MaxItems = 5)
+{
+    SortWorkflowActionPlan(ActionPlan);
+
+    TArray<FString> Lines;
+    Lines.Add(TEXT("Workflow Action Plan"));
+
+    const int32 Count = FMath::Min(MaxItems, ActionPlan.Num());
+    if (Count <= 0)
+    {
+        Lines.Add(TEXT("No priority actions are available yet. Run Analyze after selecting a workspace subject so WanaWorks can build a production path."));
+    }
+
+    for (int32 Index = 0; Index < Count; ++Index)
+    {
+        Lines.Add(FString::Printf(TEXT("%d. %s"), Index + 1, *FormatWorkflowActionPlanCompactLine(ActionPlan[Index])));
+    }
+
+    return FString::Join(Lines, TEXT("\n"));
 }
 
 void AddWITEnvironmentScanItems(
@@ -2382,6 +2795,641 @@ void AddWITEnvironmentScanItems(
             ScanResult.CandidateDetails.Num(),
             WanaWITEnvironmentReportCandidateCap,
             ScanResult.bCandidateDetailsTruncated ? TEXT("Yes") : TEXT("No")));
+}
+
+void AddWITCharacterInfluenceItems(
+    TArray<FWanaAnalysisItem>& Items,
+    FWanaAnalysisResult& Result,
+    const FWanaWITCharacterInfluenceContext& Context,
+    bool bIncludeReasoning)
+{
+    AddAnalysisItem(
+        Items,
+        Result,
+        TEXT("Persistent WIT Report"),
+        Context.bReportReadable ? Context.StatusLabel : TEXT("Needs Level Design Build"),
+        Context.bReportReadable
+            ? FString::Printf(TEXT("Report: %s. %s"), *Context.ReportPath, *BuildWITCharacterInfluenceEnvironmentSummary(Context))
+            : FString::Printf(TEXT("WIT report missing for %s. Expected path: %s."), Context.WorldLabel.IsEmpty() ? TEXT("(no world)") : *Context.WorldLabel, Context.ReportPath.IsEmpty() ? TEXT("/Game/WanaWorks/WITReports") : *Context.ReportPath));
+    AddAnalysisItem(
+        Items,
+        Result,
+        TEXT("Environment Influence"),
+        Context.bReportReadable ? Context.InfluenceStatusLabel : TEXT("Environment Influence Disabled"),
+        bIncludeReasoning
+            ? BuildWITCharacterInfluenceEnvironmentSummary(Context)
+            : FString::Printf(TEXT("Scene context influence is %s."), Context.bReportReadable ? *Context.InfluenceStatusLabel : TEXT("disabled until Level Design Build generates a WIT report.")));
+    AddAnalysisItem(
+        Items,
+        Result,
+        TEXT("Cover / Obstacle / Movement"),
+        Context.bReportReadable ? (Context.Confidence >= 0.60f ? TEXT("Ready") : TEXT("Limited")) : TEXT("Needs Build"),
+        FString::Printf(
+            TEXT("Cover %d, obstacles %d, movement-space %d, boundaries %d. Candidate details stored: %d%s."),
+            Context.CoverCandidateCount,
+            Context.ObstacleCandidateCount,
+            Context.MovementSpaceCandidateCount,
+            Context.BoundaryCandidateCount,
+            Context.CandidateDetailCount,
+            Context.bCandidateDetailsTruncated ? TEXT(" (truncated)") : TEXT("")));
+    AddAnalysisItem(
+        Items,
+        Result,
+        TEXT("Navigation / Confidence"),
+        Context.bReportReadable && !WITContextHasWeakNavigation(Context) ? TEXT("Ready") : TEXT("Limited"),
+        FString::Printf(
+            TEXT("Navigation context: %s. Confidence: %d%%. %s"),
+            Context.NavigationContextStatus.IsEmpty() ? TEXT("Unknown") : *Context.NavigationContextStatus,
+            FMath::RoundToInt(Context.Confidence * 100.0f),
+            Context.Limitations.IsEmpty() ? TEXT("No extra WIT limitation text was stored.") : *Context.Limitations));
+}
+
+void BuildLevelDesignWorkflowActionPlan(
+    TArray<FWanaWorkflowActionPlanItem>& ActionPlan,
+    const FWanaWITEnvironmentScanResult& WITScan,
+    const FString& ExistingWITReportPath,
+    const FString& WITReportPath,
+    bool bHasWorldContext,
+    bool bHasWITPair,
+    bool bHasMovementContext)
+{
+    if (!bHasWorldContext)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Open a valid editor world"),
+            TEXT("Missing Context"),
+            TEXT("Critical"),
+            TEXT("WanaWorks cannot produce reliable WIT world intelligence until an editor world is available."),
+            TEXT("Level Design"),
+            TEXT("Manual Unreal Step"),
+            TEXT("Blocked"),
+            TEXT("Low"),
+            false,
+            false);
+        return;
+    }
+
+    if (ExistingWITReportPath.IsEmpty())
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Run Level Design Build"),
+            TEXT("WIT / Level Design"),
+            TEXT("High"),
+            TEXT("A persistent WIT report is missing, so Character Intelligence cannot reuse this map context yet."),
+            TEXT("Level Design"),
+            TEXT("Build"),
+            TEXT("Needs Build"),
+            TEXT("Low"),
+            true,
+            false,
+            WITReportPath);
+    }
+    else
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Test Character Intelligence with WIT influence"),
+            TEXT("Character Intelligence"),
+            TEXT("Informational"),
+            TEXT("A persistent WIT report is available and can now guide environment-aware reaction testing."),
+            TEXT("Level Design"),
+            TEXT("Test"),
+            TEXT("Ready"),
+            TEXT("Low"),
+            true,
+            true,
+            ExistingWITReportPath);
+    }
+
+    if (WITScan.SelectedActorCount <= 0)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Select representative scene actors"),
+            TEXT("WIT / Level Design"),
+            TEXT("Medium"),
+            TEXT("Selecting floor, wall, prop, boundary, or cover actors improves scan confidence for larger maps."),
+            TEXT("Level Design"),
+            TEXT("Analyze"),
+            TEXT("Limited"),
+            TEXT("Low"),
+            true,
+            false);
+    }
+
+    const bool bWeakNavigation = !bHasMovementContext
+        || WITScan.NavigationContextStatus.Contains(TEXT("Limited"), ESearchCase::IgnoreCase)
+        || WITScan.NavigationContextStatus.Contains(TEXT("Unknown"), ESearchCase::IgnoreCase)
+        || WITScan.NavigationRelevantCandidateCount <= 0;
+    if (bWeakNavigation)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Validate NavMesh and movement context"),
+            TEXT("Engine Compatibility"),
+            TEXT("Medium"),
+            TEXT("WIT navigation context is limited; movement confidence should not be treated as proven until Unreal navigation is checked."),
+            TEXT("Level Design"),
+            TEXT("Manual Unreal Step"),
+            TEXT("Limited"),
+            TEXT("Medium"),
+            false,
+            false);
+    }
+
+    const bool bObstacleHeavy = WITScan.ObstacleCandidateCount >= 3
+        && WITScan.ObstacleCandidateCount >= FMath::Max(1, WITScan.MovementSpaceCandidateCount);
+    if (bObstacleHeavy)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Review movement-space constraints"),
+            TEXT("WIT / Level Design"),
+            TEXT("Medium"),
+            TEXT("WIT detected obstacle pressure; AI movement tests should favor safe facing or hold behavior until routes are validated."),
+            TEXT("Level Design"),
+            TEXT("Test"),
+            TEXT("Limited"),
+            TEXT("Medium"),
+            true,
+            false);
+    }
+
+    if (WITScan.CoverCandidateCount > 0)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Preserve cover-aware context for future tactical behavior"),
+            TEXT("WIT / Level Design"),
+            TEXT("Informational"),
+            TEXT("Cover candidates were found; future tactical behavior can use this report without changing level geometry."),
+            TEXT("Level Design"),
+            TEXT("Future Automation"),
+            TEXT("Ready"),
+            TEXT("Low"),
+            false,
+            true,
+            ExistingWITReportPath.IsEmpty() ? WITReportPath : ExistingWITReportPath);
+    }
+
+    if (WITScan.bCandidateDetailsTruncated)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Review large maps in focused sections"),
+            TEXT("Project Health"),
+            TEXT("Low"),
+            TEXT("The candidate list was truncated, so focused actor selections will produce clearer WIT reports."),
+            TEXT("Level Design"),
+            TEXT("Analyze"),
+            TEXT("Limited"),
+            TEXT("Low"),
+            true,
+            false);
+    }
+
+    if (!bHasWITPair)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Assign observer and target context when testing movement pressure"),
+            TEXT("WIT / Level Design"),
+            TEXT("Low"),
+            TEXT("World scanning works without an AI pair, but observer-target context makes navigation pressure more believable."),
+            TEXT("Level Design"),
+            TEXT("Test"),
+            TEXT("Limited"),
+            TEXT("Low"),
+            true,
+            false);
+    }
+}
+
+void BuildCharacterBuildingWorkflowActionPlan(
+    TArray<FWanaWorkflowActionPlanItem>& ActionPlan,
+    bool bHasSubject,
+    const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
+    const FString& ProfileLabel,
+    bool bProfileAssigned,
+    bool bHasMovementSignal,
+    bool bHasCameraOrControlSignal,
+    const FString& SharedStackSummary,
+    const FString& AdapterStatus,
+    const FString& DirectGraphEditSafety,
+    const FString& RecommendedAdapterStrategy,
+    const FString& AdapterRecordPath)
+{
+    if (!bHasSubject)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Select a character subject"),
+            TEXT("Missing Context"),
+            TEXT("Critical"),
+            TEXT("Character Building needs a Character Blueprint, Pawn, or skeletal character actor before playability can be planned."),
+            TEXT("Character Building"),
+            TEXT("Analyze"),
+            TEXT("Missing"),
+            TEXT("Low"),
+            true,
+            false);
+        return;
+    }
+
+    if (!Snapshot.bHasSkeletalMeshComponent)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Assign or select a valid skeletal mesh"),
+            TEXT("Character Building"),
+            TEXT("High"),
+            TEXT("A character body cannot be proven without a readable skeletal mesh."),
+            TEXT("Character Building"),
+            TEXT("Manual Unreal Step"),
+            TEXT("Missing"),
+            TEXT("Medium"),
+            false,
+            false);
+    }
+
+    if (!Snapshot.bHasAnimBlueprint)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Add or select an Animation Blueprint"),
+            TEXT("Animation Integration"),
+            TEXT("High"),
+            TEXT("Animation readiness cannot be proven until the selected character stack exposes an Anim BP or assigned Anim Class."),
+            TEXT("Character Building"),
+            TEXT("Manual Unreal Step"),
+            TEXT("Limited"),
+            TEXT("Medium"),
+            false,
+            false);
+    }
+
+    if (!bProfileAssigned)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Assign a Character Building profile"),
+            TEXT("Character Building"),
+            TEXT("Medium"),
+            TEXT("A character-facing profile improves playable/readiness classification without changing WAI/WAMI AI identity."),
+            TEXT("Character Building"),
+            TEXT("Analyze"),
+            TEXT("Limited"),
+            TEXT("Low"),
+            true,
+            false);
+    }
+
+    if (!Snapshot.bHasPlayerControllerSignal)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Validate playable controller and possession setup"),
+            TEXT("Character Building"),
+            TEXT("Medium"),
+            TEXT("Player Controller readiness is limited; confirm possession, GameMode, or controller class before claiming playable readiness."),
+            TEXT("Character Building"),
+            TEXT("Manual Unreal Step"),
+            TEXT("Limited"),
+            TEXT("Medium"),
+            false,
+            false);
+    }
+
+    if (!bHasMovementSignal)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Validate movement component readiness"),
+            TEXT("Character Building"),
+            TEXT("Medium"),
+            TEXT("Movement/playability confidence is reduced because no pawn movement component was detected."),
+            TEXT("Character Building"),
+            TEXT("Manual Unreal Step"),
+            TEXT("Limited"),
+            TEXT("Medium"),
+            false,
+            false);
+    }
+
+    if (!bHasCameraOrControlSignal)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Review camera and input-facing setup"),
+            TEXT("Character Building"),
+            TEXT("Low"),
+            TEXT("Camera, spring arm, or input-style signals are limited; playable presentation may still depend on project runtime setup."),
+            TEXT("Character Building"),
+            TEXT("Manual Unreal Step"),
+            TEXT("Limited"),
+            TEXT("Low"),
+            false,
+            false);
+    }
+
+    if (DirectGraphEditSafety.Equals(TEXT("Unsafe"), ESearchCase::IgnoreCase)
+        || SharedStackSummary.Contains(TEXT("Shared Animation Blueprint: Yes"), ESearchCase::IgnoreCase))
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Use the WanaAnimation adapter path"),
+            TEXT("Safety / Non-Destructive"),
+            TEXT("High"),
+            TEXT("Shared Anim BP risk is detected, so WanaWorks recommends an adapter/report strategy before any graph-level integration."),
+            TEXT("Character Building"),
+            TEXT("Build"),
+            TEXT("Adapter Recommended"),
+            TEXT("High"),
+            true,
+            false,
+            AdapterRecordPath);
+    }
+    else if (AdapterStatus.Contains(TEXT("Recommended"), ESearchCase::IgnoreCase)
+        || RecommendedAdapterStrategy.Contains(TEXT("Adapter"), ESearchCase::IgnoreCase))
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Generate or refresh the WanaAnimation adapter report"),
+            TEXT("Animation Integration"),
+            TEXT("Medium"),
+            TEXT("A WanaWorks-owned adapter report keeps future animation integration inspectable without editing the original Anim BP."),
+            TEXT("Character Building"),
+            TEXT("Build"),
+            TEXT("Adapter Recommended"),
+            TEXT("Low"),
+            true,
+            false,
+            AdapterRecordPath);
+    }
+
+    if (Snapshot.bHasSkeletalMeshComponent && Snapshot.bHasAnimBlueprint && bProfileAssigned)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Run Build for character output"),
+            TEXT("Build Output"),
+            TEXT("Informational"),
+            TEXT("The selected character has enough body/profile context for WanaWorks-owned output reporting."),
+            TEXT("Character Building"),
+            TEXT("Build"),
+            TEXT("Ready"),
+            TEXT("Low"),
+            true,
+            true,
+            AdapterRecordPath);
+    }
+
+    if (ActionPlan.Num() <= 0)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Run Test to prove playable readiness"),
+            TEXT("Project Health"),
+            TEXT("Informational"),
+            TEXT("Character Building looks prepared; Test should prove playability, rig, animation, and shared-stack readiness before Build."),
+            TEXT("Character Building"),
+            TEXT("Test"),
+            TEXT("Ready"),
+            TEXT("Low"),
+            true,
+            true);
+    }
+}
+
+void BuildCharacterIntelligenceWorkflowActionPlan(
+    TArray<FWanaWorkflowActionPlanItem>& ActionPlan,
+    bool bHasSubject,
+    const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
+    bool bHasTarget,
+    bool bHasWITPair,
+    bool bHasMovementContext,
+    const FWanaWITCharacterInfluenceContext& WITContext,
+    const FString& AdapterStatus,
+    const FString& DirectGraphEditSafety,
+    const FString& RecommendedAdapterStrategy,
+    const FString& AdapterRecordPath)
+{
+    if (!bHasSubject)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Select an AI or NPC subject"),
+            TEXT("Missing Context"),
+            TEXT("Critical"),
+            TEXT("Character Intelligence needs a compatible AI/NPC subject before behavior, WIT, or animation readiness can be planned."),
+            TEXT("Character Intelligence"),
+            TEXT("Analyze"),
+            TEXT("Missing"),
+            TEXT("Low"),
+            true,
+            false);
+        return;
+    }
+
+    if (!bHasTarget)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Select a relationship target"),
+            TEXT("Character Intelligence"),
+            TEXT("High"),
+            TEXT("Relationship-aware behavior cannot be proven until WanaWorks has a target to observe, guard, follow, or approach."),
+            TEXT("Character Intelligence"),
+            TEXT("Test"),
+            TEXT("Limited"),
+            TEXT("Low"),
+            true,
+            false);
+    }
+
+    if (!Snapshot.bHasWAIComponent || !Snapshot.bHasWAYComponent)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Run Enhance to prepare WAI/WAY behavior context"),
+            TEXT("Character Intelligence"),
+            TEXT("High"),
+            TEXT("WanaWorks recommends this next because identity and relationship layers unlock believable behavior selection."),
+            TEXT("Character Intelligence"),
+            TEXT("Enhance"),
+            TEXT("Needs Enhance"),
+            TEXT("Low"),
+            true,
+            false);
+    }
+
+    if (!Snapshot.bHasPhysicalStateComponent)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Run Enhance to prepare physical state"),
+            TEXT("Character Intelligence"),
+            TEXT("High"),
+            TEXT("Physical state is missing, so visible body-language and disruption testing are limited."),
+            TEXT("Character Intelligence"),
+            TEXT("Enhance"),
+            TEXT("Needs Enhance"),
+            TEXT("Low"),
+            true,
+            false);
+    }
+
+    if (!Snapshot.bHasRuntimeAnimationAdapterComponent)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Run Enhance to prepare the runtime WanaAnimation adapter"),
+            TEXT("Animation Integration"),
+            TEXT("High"),
+            TEXT("Runtime adapter consumption is missing; animation-aware reaction testing can only report hook data until the bridge is prepared."),
+            TEXT("Character Intelligence"),
+            TEXT("Enhance"),
+            TEXT("Needs Enhance"),
+            TEXT("Low"),
+            true,
+            false,
+            AdapterRecordPath);
+    }
+
+    if (!WITContext.bReportReadable)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Run Level Design Build"),
+            TEXT("WIT / Level Design"),
+            TEXT("High"),
+            TEXT("WIT report is missing, so Character Intelligence cannot use persistent world context yet."),
+            TEXT("Character Intelligence"),
+            TEXT("Build"),
+            TEXT("Needs Level Design Build"),
+            TEXT("Low"),
+            true,
+            false,
+            WITContext.ReportPath);
+    }
+    else
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Run Test to prove environment-aware reaction profile"),
+            TEXT("Character Intelligence"),
+            TEXT("Informational"),
+            TEXT("Persistent WIT context is available; Test can prove whether the current reaction profile respects the scene."),
+            TEXT("Character Intelligence"),
+            TEXT("Test"),
+            TEXT("Ready"),
+            TEXT("Low"),
+            true,
+            true,
+            WITContext.ReportPath);
+    }
+
+    if (WITContext.bReportReadable && (WITContextHasWeakNavigation(WITContext) || !bHasMovementContext))
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Validate NavMesh before claiming pursuit behavior"),
+            TEXT("Engine Compatibility"),
+            TEXT("Medium"),
+            TEXT("WIT reports weak navigation context; movement-heavy behavior should degrade to facing/hold until navigation is proven."),
+            TEXT("Character Intelligence"),
+            TEXT("Manual Unreal Step"),
+            TEXT("Limited"),
+            TEXT("Medium"),
+            false,
+            false,
+            WITContext.ReportPath);
+    }
+
+    if (WITContext.bReportReadable && WITContextHasLimitedMovementSpace(WITContext))
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Favor facing fallback during behavior tests"),
+            TEXT("Character Intelligence"),
+            TEXT("Medium"),
+            TEXT("WIT detected constrained movement space; WanaWorks should prove attention and posture before promising safe locomotion."),
+            TEXT("Character Intelligence"),
+            TEXT("Test"),
+            TEXT("Limited"),
+            TEXT("Medium"),
+            true,
+            false,
+            WITContext.ReportPath);
+    }
+
+    if (DirectGraphEditSafety.Equals(TEXT("Unsafe"), ESearchCase::IgnoreCase))
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Use adapter strategy before Anim BP graph work"),
+            TEXT("Safety / Non-Destructive"),
+            TEXT("High"),
+            TEXT("Shared Anim BP risk is detected; WanaWorks should keep using owned adapter/report outputs instead of direct graph edits."),
+            TEXT("Character Intelligence"),
+            TEXT("Build"),
+            TEXT("Unsafe Shared Stack"),
+            TEXT("High"),
+            true,
+            false,
+            AdapterRecordPath);
+    }
+    else if (AdapterStatus.Contains(TEXT("Recommended"), ESearchCase::IgnoreCase)
+        || RecommendedAdapterStrategy.Contains(TEXT("Adapter"), ESearchCase::IgnoreCase))
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Generate or refresh WanaAnimation adapter output"),
+            TEXT("Animation Integration"),
+            TEXT("Medium"),
+            TEXT("The WanaWorks-owned adapter report is the safe bridge between readable hook state and future animation consumption."),
+            TEXT("Character Intelligence"),
+            TEXT("Build"),
+            TEXT("Adapter Recommended"),
+            TEXT("Low"),
+            true,
+            false,
+            AdapterRecordPath);
+    }
+
+    if (!bHasWITPair)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Assign observer and target pair"),
+            TEXT("Missing Context"),
+            TEXT("Medium"),
+            TEXT("WIT and behavior tests can still report safely, but a real observer-target pair makes the recommendation believable."),
+            TEXT("Character Intelligence"),
+            TEXT("Test"),
+            TEXT("Limited"),
+            TEXT("Low"),
+            true,
+            false);
+    }
+
+    if (ActionPlan.Num() <= 0)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Run Test to prove current behavior profile"),
+            TEXT("Project Health"),
+            TEXT("Informational"),
+            TEXT("Core readiness signals are present; WanaWorks recommends proving behavior, body language, and WIT influence together."),
+            TEXT("Character Intelligence"),
+            TEXT("Test"),
+            TEXT("Ready"),
+            TEXT("Low"),
+            true,
+            true);
+    }
 }
 
 FString BuildAnalysisCardText(const FString& Heading, const TArray<FWanaAnalysisItem>& Items, const FString& RecommendedAction)
@@ -2785,7 +3833,8 @@ FWanaEmbodiedReactionProfile SelectEmbodiedReactionProfile(
     const FWanaSelectedCharacterEnhancementSnapshot& Snapshot,
     const FWanaBehaviorResultsSnapshot& BehaviorSnapshot,
     const FString& IdentityRoleLabel,
-    const FString& RelationshipControlLabel)
+    const FString& RelationshipControlLabel,
+    const FWanaWITCharacterInfluenceContext* WITContext)
 {
     FWanaEmbodiedReactionProfile Profile;
     Profile.BehaviorPreset = BehaviorSnapshot.RecommendedBehavior != EWAYBehaviorPreset::None
@@ -2820,6 +3869,17 @@ FWanaEmbodiedReactionProfile SelectEmbodiedReactionProfile(
         || Snapshot.PhysicalState == EWanaPhysicalState::OffBalance
         || Snapshot.PhysicalState == EWanaPhysicalState::Panicked
         || Snapshot.PhysicalInstabilityAlpha >= 0.55f;
+    const bool bHasWITInfluence = WITContext && WITContext->bReportReadable;
+    const bool bWITMovementLimited = bHasWITInfluence && WITContextHasLimitedMovementSpace(*WITContext);
+    const bool bWITObstacleHeavy = bHasWITInfluence && WITContextIsObstacleHeavy(*WITContext);
+    const bool bWITCoverAware = bHasWITInfluence && WITContextHasCoverSignals(*WITContext);
+    const bool bWITWeakNavigation = bHasWITInfluence && WITContextHasWeakNavigation(*WITContext);
+    const bool bWITBoundaryRisk = bHasWITInfluence && WITContext->BoundaryCandidateCount >= 2;
+    const bool bWITOpenMovement = bHasWITInfluence
+        && !bWITWeakNavigation
+        && WITContext->MovementSpaceCandidateCount >= 2
+        && WITContext->MovementSpaceCandidateCount >= WITContext->ObstacleCandidateCount;
+    FString WITInfluenceReason = TEXT("WIT report missing; Character Intelligence used subject, relationship, movement, physical-state, and adapter readiness only.");
 
     if (bPhysicalDisrupted)
     {
@@ -2867,20 +3927,94 @@ FWanaEmbodiedReactionProfile SelectEmbodiedReactionProfile(
         Profile.ImpactStrength = 0.18f;
     }
 
+    if (bHasWITInfluence)
+    {
+        const FString EnvironmentCounts = FString::Printf(
+            TEXT("WIT cover=%d, obstacles=%d, movement-space=%d, boundaries=%d, nav=%s, confidence=%d%%"),
+            WITContext->CoverCandidateCount,
+            WITContext->ObstacleCandidateCount,
+            WITContext->MovementSpaceCandidateCount,
+            WITContext->BoundaryCandidateCount,
+            WITContext->NavigationContextStatus.IsEmpty() ? TEXT("Unknown") : *WITContext->NavigationContextStatus,
+            FMath::RoundToInt(WITContext->Confidence * 100.0f));
+
+        if (bPhysicalDisrupted || bPhysicalRecoveryActive || Snapshot.bPhysicalBracing || Snapshot.PhysicalState == EWanaPhysicalState::Bracing)
+        {
+            WITInfluenceReason = FString::Printf(
+                TEXT("Scene context was readable (%s), but physical reaction safety kept the recovery-focused profile."),
+                *EnvironmentCounts);
+        }
+        else if ((Profile.BehaviorPreset == EWAYBehaviorPreset::GuardTarget || bGuardIdentity) && bFriendlyRelationship && bWITCoverAware)
+        {
+            Profile.ProfileLabel = TEXT("Protective Guard");
+            Profile.ImpactStrength = bWITWeakNavigation ? 0.34f : 0.24f;
+            Profile.bUseBracing = true;
+            WITInfluenceReason = FString::Printf(
+                TEXT("Protective Guard selected because identity is guard-like, relationship is ally/friend, and %s. WanaWorks marked cover-aware defensive posture available while preserving locomotion safety."),
+                *EnvironmentCounts);
+        }
+        else if ((Profile.BehaviorPreset == EWAYBehaviorPreset::ApproachHostile || bHostileRelationship || bHostileIdentity)
+            && (bWITCoverAware || bWITBoundaryRisk || bWITObstacleHeavy))
+        {
+            Profile.ProfileLabel = TEXT("Hostile Pressure");
+            Profile.ImpactStrength = bWITWeakNavigation || bWITMovementLimited ? 0.64f : 0.54f;
+            Profile.bAutoStartRecovery = true;
+            Profile.bMovementLimited = Profile.bMovementLimited || bWITWeakNavigation || bWITMovementLimited;
+            WITInfluenceReason = FString::Printf(
+                TEXT("Hostile Pressure selected because enemy/hostile context is active and %s. Navigation or movement risk reduces pursuit confidence when limited."),
+                *EnvironmentCounts);
+        }
+        else if ((bSuspiciousContext || BehaviorSnapshot.ReactionState == EWAYReactionState::Cautious) && bWITObstacleHeavy)
+        {
+            Profile.ProfileLabel = TEXT("Suspicious Observe");
+            Profile.ImpactStrength = bWITMovementLimited ? 0.36f : 0.24f;
+            Profile.bMovementLimited = Profile.bMovementLimited || bWITMovementLimited;
+            WITInfluenceReason = FString::Printf(
+                TEXT("Suspicious Observe selected because relationship context is uncertain/cautious and %s. WanaWorks treats the obstacle-heavy scene as assessment-first behavior."),
+                *EnvironmentCounts);
+        }
+        else if (bWITMovementLimited || bWITObstacleHeavy)
+        {
+            Profile.ProfileLabel = TEXT("Movement-Limited Attention");
+            Profile.ImpactStrength = 0.48f;
+            Profile.bAutoStartRecovery = true;
+            Profile.bMovementLimited = true;
+            WITInfluenceReason = FString::Printf(
+                TEXT("Movement-Limited Attention selected because %s. WanaWorks used facing/hold fallback instead of claiming pursuit confidence."),
+                *EnvironmentCounts);
+        }
+        else if ((Profile.BehaviorPreset == EWAYBehaviorPreset::FollowTarget || bCompanionIdentity) && bFriendlyRelationship && bWITOpenMovement)
+        {
+            Profile.ProfileLabel = TEXT("Cooperative Follow");
+            Profile.ImpactStrength = 0.18f;
+            WITInfluenceReason = FString::Printf(
+                TEXT("Cooperative Follow remained available because friendly context is active and %s. Scene context supports stable follow readiness."),
+                *EnvironmentCounts);
+        }
+        else
+        {
+            WITInfluenceReason = FString::Printf(
+                TEXT("Scene context influenced readiness without changing the base profile: %s."),
+                *EnvironmentCounts);
+        }
+    }
+
     const FString TrimmedRelationshipText = RelationshipText.TrimStartAndEnd();
     Profile.ContextSummary = FString::Printf(
-        TEXT("identity=%s, relationship=%s, behavior=%s, movement=%s, physical=%s, adapter=%s, target=%s"),
+        TEXT("identity=%s, relationship=%s, behavior=%s, movement=%s, physical=%s, adapter=%s, target=%s, wit=%s"),
         IdentityText.IsEmpty() ? TEXT("Neutral") : *IdentityText,
         TrimmedRelationshipText.IsEmpty() ? TEXT("Unknown") : *TrimmedRelationshipText,
         *UIFmt::GetBehaviorPresetSummaryLabel(Profile.BehaviorPreset),
         Profile.bMovementLimited ? TEXT("limited") : TEXT("ready"),
         *GetWanaPhysicalStateDisplayLabel(Snapshot.PhysicalState),
         Snapshot.RuntimeAnimationAdapterReadiness.IsEmpty() ? TEXT("Limited") : *Snapshot.RuntimeAnimationAdapterReadiness,
-        Profile.bTargetAvailable ? TEXT("valid") : TEXT("missing"));
+        Profile.bTargetAvailable ? TEXT("valid") : TEXT("missing"),
+        bHasWITInfluence ? *WITContext->InfluenceStatusLabel : TEXT("missing"));
     Profile.ReasonDetail = FString::Printf(
-        TEXT("%s selected because %s. WanaWorks will %s and keep the response non-destructive."),
+        TEXT("%s selected because %s. %s WanaWorks will %s and keep the response non-destructive."),
         *Profile.ProfileLabel,
         *Profile.ContextSummary,
+        *WITInfluenceReason,
         Profile.bMovementLimited ? TEXT("prefer facing/hold body language over forced locomotion") : TEXT("allow posture and physical readiness to stay coherent"));
     return Profile;
 }
@@ -5701,6 +6835,16 @@ void FWanaWorksUIModule::EnhanceActiveWorkspace()
             TEXT("Level Design Enhancement Result\nPrepared Systems: WIT read-only environment scan, semantic classification state, scene pair, cover candidates, obstacle candidates, movement-space candidates, boundary/navigation hints, persistent report path\nApplied Changes: None\nPersistent Report: %s\nOriginal Level: Preserved\nRecommended Next Step: %s"),
             ExistingWITReportPath.IsEmpty() ? TEXT("Prepared for Build; no asset saved during Enhance.") : *WITReportPath,
             *WITScan.RecommendedNextAction);
+        TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+        BuildLevelDesignWorkflowActionPlan(
+            WorkflowActionPlan,
+            WITScan,
+            ExistingWITReportPath,
+            WITReportPath,
+            !WorldLabel.IsEmpty(),
+            bHasWITPair,
+            bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext);
+        LastAnalysisSuggestedSummary += FString::Printf(TEXT("\n%s"), *BuildWorkflowActionPlanSummary(WorkflowActionPlan, 5));
         StatusMessage = FString::Printf(TEXT("Status: Level Design WIT scan context prepared (%s). Original level preserved."), *WITScan.ScanStatus);
         RefreshReactiveUI(true);
         return;
@@ -5738,23 +6882,91 @@ void FWanaWorksUIModule::EnhanceActiveWorkspace()
 
     if (bCharacterBuildingWorkspace)
     {
+        const FString ProfileLabel = SelectedCharacterBuildingProfileLabel.IsEmpty()
+            ? CharacterBuildingDefaultProfileLabel
+            : SelectedCharacterBuildingProfileLabel;
+        const FString SharedStackSummary = GetSharedCharacterStackSummaryText();
+        const bool bAdapterRecordGenerated =
+            bHasActiveSnapshot
+            && (IsGeneratedAnimationAdapterRecordForSnapshot(ActiveSnapshot)
+                || HasPersistentAnimationAdapterReportForSnapshot(ActiveSnapshot));
+        const FString AdapterRecordPath = bHasActiveSnapshot ? ResolveAnimationAdapterReportPathForSnapshot(ActiveSnapshot) : FString();
+        const FString AdapterStatus = bHasActiveSnapshot ? GetWanaAnimationAdapterStatusLabel(ActiveSnapshot, SharedStackSummary, bAdapterRecordGenerated) : FString(TEXT("Needs Enhance"));
+        const FString DirectGraphEditSafety = bHasActiveSnapshot ? GetAnimBPDirectGraphEditSafetyLabel(ActiveSnapshot, SharedStackSummary) : FString(TEXT("Limited"));
+        const FString RecommendedAdapterStrategy = bHasActiveSnapshot ? GetWanaAnimationRecommendedStrategy(ActiveSnapshot, SharedStackSummary) : FString(TEXT("Needs Enhance"));
+        TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+        BuildCharacterBuildingWorkflowActionPlan(
+            WorkflowActionPlan,
+            bHasActiveSnapshot,
+            ActiveSnapshot,
+            ProfileLabel,
+            !ProfileLabel.Equals(CharacterBuildingDefaultProfileLabel, ESearchCase::IgnoreCase),
+            bHasActiveSnapshot && ActiveSnapshot.bHasPawnMovementComponent,
+            bHasActiveSnapshot && (ActiveSnapshot.bHasCameraComponent || ActiveSnapshot.bHasSpringArmComponent),
+            SharedStackSummary,
+            AdapterStatus,
+            DirectGraphEditSafety,
+            RecommendedAdapterStrategy,
+            AdapterRecordPath);
         LastAnalysisSuggestedSummary = FString::Printf(
-            TEXT("Character Build Preparation Result\nOriginal Source: Preserved\nWorking Subject: %s\nCharacter Profile: %s\nRig & Animation: %s\nMovement / Playability: %s\nBuild Readiness: Prepared for clean WanaWorks output\nRecommended Next Step: Test the prepared character, then Build when the preview and readiness cards look correct."),
+            TEXT("Character Build Preparation Result\nOriginal Source: Preserved\nWorking Subject: %s\nCharacter Profile: %s\nRig & Animation: %s\nMovement / Playability: %s\nBuild Readiness: Prepared for clean WanaWorks output\nRecommended Next Step: Test the prepared character, then Build when the preview and readiness cards look correct.\n%s"),
             bHasActiveSnapshot ? *ActiveSnapshot.SelectedActorLabel : TEXT("(working subject)"),
             bHasActiveSnapshot && ActiveSnapshot.bHasIdentityComponent ? TEXT("Ready") : TEXT("Limited"),
             bHasActiveSnapshot ? *UIFmt::GetAutomaticAnimationIntegrationStatusLabel(ActiveSnapshot.AnimationAutomaticIntegrationStatus) : TEXT("Limited"),
-            bHasActiveSnapshot && ActiveSnapshot.bIsPawnActor ? TEXT("Ready") : TEXT("Limited"));
+            bHasActiveSnapshot && ActiveSnapshot.bIsPawnActor ? TEXT("Ready") : TEXT("Limited"),
+            *BuildWorkflowActionPlanSummary(WorkflowActionPlan, 5));
         StatusMessage = TEXT("Status: Character build preparation complete. Original preserved.");
     }
     else
     {
+        const FWanaWITCharacterInfluenceContext WITInfluenceContext = ResolveWITCharacterInfluenceContext();
+        AActor* ObserverActor = nullptr;
+        AActor* TargetActor = nullptr;
+        FString PairSourceLabel;
+        bool bTargetFallsBackToObserver = false;
+        ResolvePreferredWITReadinessPair(ObserverActor, TargetActor, PairSourceLabel, bTargetFallsBackToObserver);
+
+        FWanaEnvironmentReadinessSnapshot EnvironmentSnapshot;
+        WanaWorksUIEditorActions::GetEnvironmentReadinessSnapshotForActorPair(
+            ObserverActor,
+            TargetActor,
+            bTargetFallsBackToObserver,
+            PairSourceLabel,
+            EnvironmentSnapshot);
+        const FString SharedStackSummary = GetSharedCharacterStackSummaryText();
+        const bool bAdapterRecordGenerated =
+            bHasActiveSnapshot
+            && (IsGeneratedAnimationAdapterRecordForSnapshot(ActiveSnapshot)
+                || HasPersistentAnimationAdapterReportForSnapshot(ActiveSnapshot));
+        const FString AdapterRecordPath = bHasActiveSnapshot ? ResolveAnimationAdapterReportPathForSnapshot(ActiveSnapshot) : FString();
+        const FString AdapterStatus = bHasActiveSnapshot ? GetWanaAnimationAdapterStatusLabel(ActiveSnapshot, SharedStackSummary, bAdapterRecordGenerated) : FString(TEXT("Needs Enhance"));
+        const FString DirectGraphEditSafety = bHasActiveSnapshot ? GetAnimBPDirectGraphEditSafetyLabel(ActiveSnapshot, SharedStackSummary) : FString(TEXT("Limited"));
+        const FString RecommendedAdapterStrategy = bHasActiveSnapshot ? GetWanaAnimationRecommendedStrategy(ActiveSnapshot, SharedStackSummary) : FString(TEXT("Needs Enhance"));
+        const bool bHasWITPair = EnvironmentSnapshot.bHasObserverActor && EnvironmentSnapshot.bHasTargetActor;
+        TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+        BuildCharacterIntelligenceWorkflowActionPlan(
+            WorkflowActionPlan,
+            bHasActiveSnapshot,
+            ActiveSnapshot,
+            TargetActor != nullptr && !bTargetFallsBackToObserver,
+            bHasWITPair,
+            bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext,
+            WITInfluenceContext,
+            AdapterStatus,
+            DirectGraphEditSafety,
+            RecommendedAdapterStrategy,
+            AdapterRecordPath);
         LastAnalysisSuggestedSummary = FString::Printf(
-            TEXT("Character Intelligence Enhancement Result\nOriginal Source: Preserved\nWorking Subject: %s\nWAI / WAMI: %s\nWAY-lite: %s\nWanaAnimation: %s\nWanaCombat-lite / Physical State: %s\nWIT Awareness: Prepared for semantic readiness analysis\nRecommended Next Step: Test the enhanced NPC/AI, then Analyze again after behavior or environment context changes."),
+            TEXT("Character Intelligence Enhancement Result\nOriginal Source: Preserved\nWorking Subject: %s\nWAI / WAMI: %s\nWAY-lite: %s\nWanaAnimation: %s\nWanaCombat-lite / Physical State: %s\nWIT Awareness: %s\nWIT Report: %s\nEnvironment Summary: %s\nRecommended Next Step: Test the enhanced NPC/AI, then Analyze again after behavior or environment context changes.\n%s"),
             bHasActiveSnapshot ? *ActiveSnapshot.SelectedActorLabel : TEXT("(working subject)"),
             bHasActiveSnapshot && ActiveSnapshot.bHasWAIComponent ? TEXT("Ready") : TEXT("Limited"),
             bHasActiveSnapshot && ActiveSnapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"),
             bHasActiveSnapshot ? *UIFmt::GetAutomaticAnimationIntegrationStatusLabel(ActiveSnapshot.AnimationAutomaticIntegrationStatus) : TEXT("Limited"),
-            bHasActiveSnapshot && ActiveSnapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited"));
+            bHasActiveSnapshot && ActiveSnapshot.bHasPhysicalStateComponent ? TEXT("Ready") : TEXT("Limited"),
+            WITInfluenceContext.bReportReadable ? *WITInfluenceContext.InfluenceStatusLabel : TEXT("Needs Level Design Build"),
+            WITInfluenceContext.bReportReadable ? *WITInfluenceContext.ReportPath : TEXT("WIT report missing; no WIT asset was created or modified during Enhance."),
+            *BuildWITCharacterInfluenceEnvironmentSummary(WITInfluenceContext),
+            *BuildWorkflowActionPlanSummary(WorkflowActionPlan, 5));
         StatusMessage = TEXT("Status: Character Intelligence enhancement applied. Original preserved.");
     }
 
@@ -5877,6 +7089,21 @@ void FWanaWorksUIModule::TestActiveWorkspace()
         AddAnalysisItem(SuggestedItems, Result, TEXT("Original Level"), TEXT("Ready"), TEXT("Preserved. Test did not spawn, move, or mutate level actors."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Report Output"), ExistingWITReportPath.IsEmpty() ? TEXT("Needs Build") : TEXT("Ready"), ExistingWITReportPath.IsEmpty() ? TEXT("Persistent WIT report is prepared by Build, not Test.") : FString::Printf(TEXT("Persistent WIT report path: %s."), *WITReportPath));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Confidence / Limits"), WITScan.Confidence >= 0.70f ? TEXT("Ready") : TEXT("Limited"), WITScan.Limitations);
+        TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+        BuildLevelDesignWorkflowActionPlan(
+            WorkflowActionPlan,
+            WITScan,
+            ExistingWITReportPath,
+            WITReportPath,
+            bHasWorldContext,
+            bHasWITPair,
+            bHasMovementContext);
+        AddWorkflowActionPlanItemsToAnalysis(SuggestedItems, Result, WorkflowActionPlan, 5);
+        const FString ActionPlanRecommendedAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+        if (!ActionPlanRecommendedAction.IsEmpty())
+        {
+            RecommendedAction = ActionPlanRecommendedAction;
+        }
 
         Result.PrimarySummary = BuildAnalysisCardText(TEXT("Semantic World Test Result"), PrimaryItems, RecommendedAction);
         Result.WITSummary = BuildAnalysisCardText(TEXT("WIT Environment Scan Test"), WITItems, RecommendedAction);
@@ -5920,6 +7147,27 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             RecommendedAction = bCharacterBuildingWorkspace
                 ? TEXT("Select a Character Blueprint or Pawn, then Analyze or Enhance before testing again.")
                 : TEXT("Select an AI Pawn or NPC, then Analyze or Enhance before testing again.");
+            TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+            AddWorkflowActionPlanItem(
+                WorkflowActionPlan,
+                bCharacterBuildingWorkspace ? TEXT("Select a character subject") : TEXT("Select an AI or NPC subject"),
+                TEXT("Missing Context"),
+                TEXT("Critical"),
+                bCharacterBuildingWorkspace
+                    ? TEXT("Character Building cannot prove profile, controller, or animation readiness until a character body is selected.")
+                    : TEXT("Character Intelligence cannot prove behavior, WIT influence, or animation reaction readiness until an AI/NPC subject is selected."),
+                bCharacterBuildingWorkspace ? TEXT("Character Building") : TEXT("Character Intelligence"),
+                TEXT("Analyze"),
+                TEXT("Missing"),
+                TEXT("Low"),
+                true,
+                false);
+            AddWorkflowActionPlanItemsToAnalysis(SuggestedItems, Result, WorkflowActionPlan, 5);
+            const FString ActionPlanRecommendedAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+            if (!ActionPlanRecommendedAction.IsEmpty())
+            {
+                RecommendedAction = ActionPlanRecommendedAction;
+            }
             ResultLabel = TEXT("test blocked because no compatible subject is selected");
             Result.PrimarySummary = BuildAnalysisCardText(bCharacterBuildingWorkspace ? TEXT("Character Test Blocked") : TEXT("AI Test Blocked"), PrimaryItems, RecommendedAction);
             Result.AnimationSummary = Result.PrimarySummary;
@@ -6001,6 +7249,26 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             RecommendedAction = bBuildReady
                 ? TEXT("Build can proceed after any desired character-facing enhancement or visual review.")
                 : TEXT("Run Enhance to prepare profile/readiness state, then fix missing mesh or animation setup before Build.");
+            TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+            BuildCharacterBuildingWorkflowActionPlan(
+                WorkflowActionPlan,
+                bHasSubject,
+                Snapshot,
+                ProfileLabel,
+                bProfileAssigned,
+                Snapshot.bHasPawnMovementComponent || bHasMovementComponent,
+                Snapshot.bHasCameraComponent || Snapshot.bHasSpringArmComponent || bHasCameraOrControlComponent,
+                SharedStackSummary,
+                AdapterStatus,
+                DirectGraphEditSafety,
+                RecommendedAdapterStrategy,
+                AdapterRecordPath);
+            AddWorkflowActionPlanItemsToAnalysis(SuggestedItems, Result, WorkflowActionPlan, 5);
+            const FString ActionPlanRecommendedAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+            if (!ActionPlanRecommendedAction.IsEmpty())
+            {
+                RecommendedAction = ActionPlanRecommendedAction;
+            }
             ResultLabel = bBuildReady
                 ? FString::Printf(TEXT("%s character profile tested; %s, %s"), *ProfileLabel, *PlayableModeStatus, *SharedStackStatus)
                 : TEXT("character test is limited by missing build-readiness signals");
@@ -6043,6 +7311,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                 bTargetFallsBackToObserver,
                 PairSourceLabel,
                 EnvironmentSnapshot);
+            const FWanaWITCharacterInfluenceContext WITInfluenceContext = ResolveWITCharacterInfluenceContext();
 
             FWanaCommandResponse BehaviorExecutionResponse;
             const bool bBehaviorExecutionAttempted = ObserverActor != nullptr && TargetActor != nullptr;
@@ -6080,7 +7349,8 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                 Snapshot,
                 PreReactionBehaviorSnapshot,
                 SelectedCharacterIntelligenceIdentityRoleLabel,
-                SelectedCharacterIntelligenceRelationshipLabel);
+                SelectedCharacterIntelligenceRelationshipLabel,
+                &WITInfluenceContext);
 
             const bool bAllowVisibleReactionMutation = ObserverActor
                 && (IsWanaWorksWorkingOrFinalActor(ObserverActor)
@@ -6205,6 +7475,7 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             AddAnalysisItem(BehaviorItems, Result, TEXT("Selected Relationship"), TargetActor && ObserverActor && ObserverActor->FindComponentByClass<UWAYPlayerProfileComponent>() ? TEXT("Ready") : TEXT("Limited"), FString::Printf(TEXT("%s maps to runtime state %s."), SelectedCharacterIntelligenceRelationshipLabel.IsEmpty() ? TEXT("Unknown") : *SelectedCharacterIntelligenceRelationshipLabel, UIFmt::GetRelationshipStateLabel(SelectedRelationshipState)));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Behavior Results"), BehaviorSnapshot.bHasWAYComponent && BehaviorSnapshot.bHasRelationshipProfile ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.bHasWAYComponent ? TEXT("Behavior result data is readable.") : TEXT("Behavior result is limited until WAY-lite has usable relationship data."));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Reaction Reasoning"), EmbodiedReactionProfile.bTargetAvailable ? TEXT("Ready") : TEXT("Limited"), EmbodiedReactionProfile.ContextSummary);
+            AddAnalysisItem(BehaviorItems, Result, TEXT("Environment-Aware Reaction"), WITInfluenceContext.bReportReadable ? WITInfluenceContext.InfluenceStatusLabel : TEXT("Needs Level Design Build"), EmbodiedReactionProfile.ReasonDetail);
             AddAnalysisItem(BehaviorItems, Result, TEXT("Requested Behavior"), BehaviorSnapshot.RecommendedBehavior != EWAYBehaviorPreset::None ? TEXT("Ready") : TEXT("Limited"), UIFmt::GetBehaviorPresetSummaryLabel(BehaviorSnapshot.RecommendedBehavior));
             AddAnalysisItem(BehaviorItems, Result, TEXT("Visible Behavior"), !BehaviorSnapshot.VisibleBehaviorLabel.IsEmpty() ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.VisibleBehaviorLabel.IsEmpty() ? TEXT("No visible starter behavior was applied.") : BehaviorSnapshot.VisibleBehaviorLabel);
             AddAnalysisItem(BehaviorItems, Result, TEXT("Execution Mode"), bBehaviorExecutionSucceeded ? TEXT("Ready") : TEXT("Limited"), UIFmt::GetBehaviorExecutionModeSummaryLabel(BehaviorSnapshot.ExecutionMode));
@@ -6247,9 +7518,11 @@ void FWanaWorksUIModule::TestActiveWorkspace()
 
             AddAnalysisItem(WITItems, Result, TEXT("WIT Awareness"), bHasWITPair ? TEXT("Ready") : TEXT("Limited"), bHasWITPair ? UIFmt::GetEnvironmentShapingSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("No active WIT observer-target context is assigned yet."));
             AddAnalysisItem(WITItems, Result, TEXT("Navigation Context"), bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext ? TEXT("Ready") : TEXT("Limited"), bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Navigation remains unknown until WIT context is available."));
+            AddWITCharacterInfluenceItems(WITItems, Result, WITInfluenceContext, true);
 
             AddAnalysisItem(SuggestedItems, Result, TEXT("Ready for Build"), bReadyForBuild ? TEXT("Ready") : TEXT("Limited"), bReadyForBuild ? TEXT("AI subject has the core readable systems expected for this V1 workflow.") : TEXT("Run Enhance or resolve limited systems before treating the subject as build-ready."));
             AddAnalysisItem(SuggestedItems, Result, TEXT("Animation Body Language"), bAnimationHookDriven ? TEXT("Ready") : TEXT("Limited"), bAnimationHookDriven ? FString::Printf(TEXT("Test requested %s posture with %s."), *AnimationPostureHint, *AnimationLocomotionHint) : TEXT("Run Enhance/Test with a valid observer-target pair to drive WanaAnimation posture hints."));
+            AddAnalysisItem(SuggestedItems, Result, TEXT("World Intelligence"), WITInfluenceContext.bReportReadable ? WITInfluenceContext.InfluenceStatusLabel : TEXT("Needs Level Design Build"), WITInfluenceContext.bReportReadable ? FString::Printf(TEXT("Scene context influenced reaction profile: %s"), *BuildWITCharacterInfluenceEnvironmentSummary(WITInfluenceContext)) : TEXT("WIT report missing; run Level Design Build to generate world intelligence before expecting environment-aware behavior readiness."));
             AddAnalysisItem(SuggestedItems, Result, TEXT("Embodied AI Next Step"), VisibleReactionResult.bApplied ? TEXT("Ready") : TEXT("Recommended"), VisibleReactionResult.bApplied ? FString::Printf(TEXT("%s is active; visually confirm body state, posture, and fallback feel coherent for this relationship."), *EmbodiedReactionProfile.ProfileLabel) : TEXT("Run Enhance on the selected subject so WanaWorks can safely apply the embodied profile to a working actor."));
             AddAnalysisItem(SuggestedItems, Result, TEXT("Visible Reaction Next Step"), VisibleReactionResult.bApplied ? TEXT("Ready") : TEXT("Recommended"), VisibleReactionResult.bApplied ? TEXT("Review the stage/body-state labels and confirm the subject reads as braced, disrupted, recovering, or observant without forced locomotion.") : TEXT("Run Enhance first so WanaWorks can test the visible reaction on a safe working subject."));
             AddAnalysisItem(SuggestedItems, Result, TEXT("Animation Adapter Next Step"), AdapterStatus, RecommendedAdapterStrategy.Equals(TEXT("Needs Enhance"), ESearchCase::IgnoreCase) ? TEXT("Run Enhance to prepare WanaAnimation hook providers before adapter generation.") : TEXT("Build can save a persistent WanaWorks-owned adapter report without changing the original Animation Blueprint."));
@@ -6257,6 +7530,25 @@ void FWanaWorksUIModule::TestActiveWorkspace()
             RecommendedAction = bReadyForBuild
                 ? TEXT("Use Build after visual review, or Test again after changing behavior/environment context.")
                 : TEXT("Run Enhance to prepare missing WanaWorks layers, then Test again before Build.");
+            TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+            BuildCharacterIntelligenceWorkflowActionPlan(
+                WorkflowActionPlan,
+                bHasSubject,
+                Snapshot,
+                TargetActor != nullptr && !bTargetFallsBackToObserver,
+                bHasWITPair,
+                bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext,
+                WITInfluenceContext,
+                AdapterStatus,
+                DirectGraphEditSafety,
+                RecommendedAdapterStrategy,
+                AdapterRecordPath);
+            AddWorkflowActionPlanItemsToAnalysis(SuggestedItems, Result, WorkflowActionPlan, 5);
+            const FString ActionPlanRecommendedAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+            if (!ActionPlanRecommendedAction.IsEmpty())
+            {
+                RecommendedAction = ActionPlanRecommendedAction;
+            }
             ResultLabel = bBehaviorExecutionSucceeded
                 ? FString::Printf(
                     TEXT("%s: %s via %s. Body: %s, instability %.2f. WanaAnimation: %s posture, facing hook %s, %s. Adapter: %s"),
@@ -6270,6 +7562,10 @@ void FWanaWorksUIModule::TestActiveWorkspace()
                     *AnimationLocomotionHint,
                     *AdapterStatus)
                 : (bReadyForBuild ? TEXT("AI subject is enhanced and ready for build review") : TEXT("AI behavior readiness is limited but safe fallback data is available"));
+            ResultLabel = FString::Printf(
+                TEXT("%s. WIT: %s"),
+                *ResultLabel,
+                WITInfluenceContext.bReportReadable ? *WITInfluenceContext.InfluenceStatusLabel : TEXT("Needs Level Design Build"));
             Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Intelligence Stage Reaction"), PrimaryItems, RecommendedAction);
             Result.AnimationSummary = BuildAnalysisCardText(TEXT("Animation Integration Test"), AnimationItems, RecommendedAction);
             Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Physical / Movement Test"), PhysicalItems, RecommendedAction);
@@ -6724,6 +8020,21 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
         AddAnalysisItem(SuggestedItems, Result, TEXT("Read-Only Safety"), TEXT("Ready"), TEXT("Analyze inspected editor-world context only; no level geometry, collision, navmesh, or assets were modified."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Report Output"), ExistingWITReportPath.IsEmpty() ? TEXT("Needs Build") : TEXT("Ready"), ExistingWITReportPath.IsEmpty() ? FString::Printf(TEXT("Persistent WIT environment report will be generated under %s during Build."), WanaWITEnvironmentReportRootPath) : FString::Printf(TEXT("Existing persistent report: %s."), *WITReportPath));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Scan Limitation"), WITScan.Confidence >= 0.70f ? TEXT("Ready") : TEXT("Limited"), WITScan.Limitations);
+        TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+        BuildLevelDesignWorkflowActionPlan(
+            WorkflowActionPlan,
+            WITScan,
+            ExistingWITReportPath,
+            WITReportPath,
+            !WorldLabel.IsEmpty(),
+            bHasWITPair,
+            bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext);
+        AddWorkflowActionPlanItemsToAnalysis(SuggestedItems, Result, WorkflowActionPlan, 5);
+        const FString ActionPlanRecommendedAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+        if (!ActionPlanRecommendedAction.IsEmpty())
+        {
+            RecommendedAction = ActionPlanRecommendedAction;
+        }
 
         Result.PrimarySummary = BuildAnalysisCardText(TEXT("Semantic World Context"), PrimaryItems, FString());
         Result.WITSummary = BuildAnalysisCardText(TEXT("WIT / What Is This? Diagnosis"), WITItems, RecommendedAction);
@@ -6922,6 +8233,26 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
                     : TEXT("Select both playable and AI contexts if you want WanaWorks to compare shared mesh, skeleton, and Anim BP usage."));
 
             RecommendedAction = TEXT("Apply Character Building enhancement to prepare the character profile, playable-control checks, rig/animation readiness, shared-stack context, and final output path.");
+            TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+            BuildCharacterBuildingWorkflowActionPlan(
+                WorkflowActionPlan,
+                bHasSubject,
+                Snapshot,
+                ProfileLabel,
+                bProfileAssigned,
+                Snapshot.bHasPawnMovementComponent || bHasMovementComponent,
+                Snapshot.bHasCameraComponent || Snapshot.bHasSpringArmComponent || bHasCameraOrControlComponent,
+                SharedStackSummary,
+                AdapterStatus,
+                DirectGraphEditSafety,
+                RecommendedAdapterStrategy,
+                AdapterRecordPath);
+            AddWorkflowActionPlanItemsToAnalysis(SuggestedItems, Result, WorkflowActionPlan, 5);
+            const FString ActionPlanRecommendedAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+            if (!ActionPlanRecommendedAction.IsEmpty())
+            {
+                RecommendedAction = ActionPlanRecommendedAction;
+            }
             Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Asset Diagnosis"), PrimaryItems, RecommendedAction);
             Result.AnimationSummary = BuildAnalysisCardText(TEXT("Rig & Animation Readiness"), AnimationItems, RecommendedAction);
             Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Movement / Playability Diagnosis"), PhysicalItems, RecommendedAction);
@@ -7124,6 +8455,7 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
                 bTargetFallsBackToObserver,
                 PairSourceLabel,
                 BehaviorSnapshot);
+            const FWanaWITCharacterInfluenceContext WITInfluenceContext = ResolveWITCharacterInfluenceContext();
 
             AddAnalysisItem(
                 WITItems,
@@ -7137,12 +8469,21 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
                 TEXT("Navigation Context"),
                 bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext ? TEXT("Ready") : TEXT("Limited"),
                 bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Unknown until WIT context is available."));
+            AddWITCharacterInfluenceItems(WITItems, Result, WITInfluenceContext, true);
             AddAnalysisItem(
                 WITItems,
                 Result,
                 TEXT("Behavior Results"),
                 BehaviorSnapshot.bHasWAYComponent && BehaviorSnapshot.bHasRelationshipProfile ? TEXT("Ready") : TEXT("Limited"),
                 BehaviorSnapshot.bHasWAYComponent ? TEXT("Relationship-aware behavior data is readable.") : TEXT("Behavior result is limited until WAY-lite is attached and evaluated."));
+            AddAnalysisItem(
+                BehaviorItems,
+                Result,
+                TEXT("Environment-Aware Profile Input"),
+                WITInfluenceContext.bReportReadable ? WITInfluenceContext.InfluenceStatusLabel : TEXT("Needs Level Design Build"),
+                WITInfluenceContext.bReportReadable
+                    ? FString::Printf(TEXT("Character Intelligence can use WIT report %s during Test. %s"), *WITInfluenceContext.ReportPath, *BuildWITCharacterInfluenceEnvironmentSummary(WITInfluenceContext))
+                    : TEXT("WIT report missing; Test will continue with existing behavior/profile logic and clearly report missing world intelligence."));
 
             AddAnalysisItem(
                 SuggestedItems,
@@ -7160,8 +8501,35 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
                 RecommendedAdapterStrategy.Equals(TEXT("Needs Enhance"), ESearchCase::IgnoreCase)
                     ? TEXT("Run Enhance to prepare the hook provider before generating adapter output.")
                     : TEXT("Use Build to save a WanaWorks-owned adapter report under /Game/WanaWorks/Adapters without touching the original Anim BP."));
+            AddAnalysisItem(
+                SuggestedItems,
+                Result,
+                TEXT("World Intelligence"),
+                WITInfluenceContext.bReportReadable ? WITInfluenceContext.InfluenceStatusLabel : TEXT("Needs Level Design Build"),
+                WITInfluenceContext.bReportReadable
+                    ? TEXT("Character Intelligence Test can use scene context to adjust reaction-profile reasoning.")
+                    : TEXT("Run Level Design Build to generate a persistent WIT report for environment-aware behavior readiness."));
 
             RecommendedAction = TEXT("Apply Character Intelligence enhancement to attach missing WanaWorks components and prepare behavior, animation, physical-state, and WIT hooks.");
+            TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+            BuildCharacterIntelligenceWorkflowActionPlan(
+                WorkflowActionPlan,
+                bHasSubject,
+                Snapshot,
+                TargetActor != nullptr && !bTargetFallsBackToObserver,
+                bHasWITPair,
+                bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext,
+                WITInfluenceContext,
+                AdapterStatus,
+                DirectGraphEditSafety,
+                RecommendedAdapterStrategy,
+                AdapterRecordPath);
+            AddWorkflowActionPlanItemsToAnalysis(SuggestedItems, Result, WorkflowActionPlan, 5);
+            const FString ActionPlanRecommendedAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+            if (!ActionPlanRecommendedAction.IsEmpty())
+            {
+                RecommendedAction = ActionPlanRecommendedAction;
+            }
             Result.PrimarySummary = BuildAnalysisCardText(TEXT("AI Subject Diagnosis"), PrimaryItems, RecommendedAction);
             Result.AnimationSummary = BuildAnalysisCardText(TEXT("Animation Readiness Diagnosis"), AnimationItems, RecommendedAction);
             Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Physical / Combat-lite Diagnosis"), PhysicalItems, RecommendedAction);
@@ -7465,13 +8833,25 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         AddAnalysisItem(SuggestedItems, Result, TEXT("Report Path"), WITReportResult.bSucceeded ? TEXT("Ready") : (bHasWorldContext ? TEXT("Limited") : TEXT("Blocked")), bHasWorldContext ? FString::Printf(TEXT("WIT report path: %s."), *ReportPath) : TEXT("No WanaWorks report path was prepared because world context is missing."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Scan Limitations"), WITScan.Confidence >= 0.70f ? TEXT("Ready") : TEXT("Limited"), WITScan.Limitations);
         AddAnalysisItem(SuggestedItems, Result, TEXT("Recommended Next Step"), TEXT("Recommended"), RecommendedAction);
+        TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+        BuildLevelDesignWorkflowActionPlan(
+            WorkflowActionPlan,
+            WITScan,
+            WITReportResult.bSucceeded ? ReportPath : FString(),
+            ReportPath,
+            bHasWorldContext,
+            bHasWITPair,
+            bHasMovementContext);
+        AddWorkflowActionPlanItemsToAnalysis(SuggestedItems, Result, WorkflowActionPlan, 5);
+        const FString ActionPlanRecommendedAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+        const FString BuildRecommendedAction = ActionPlanRecommendedAction.IsEmpty() ? RecommendedAction : ActionPlanRecommendedAction;
 
-        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Semantic World Build Summary"), PrimaryItems, RecommendedAction);
-        Result.WITSummary = BuildAnalysisCardText(TEXT("WIT Scan Output Readiness"), WITItems, RecommendedAction);
+        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Semantic World Build Summary"), PrimaryItems, BuildRecommendedAction);
+        Result.WITSummary = BuildAnalysisCardText(TEXT("WIT Scan Output Readiness"), WITItems, BuildRecommendedAction);
         Result.AnimationSummary = Result.WITSummary;
         Result.PhysicalSummary = Result.WITSummary;
         Result.BehaviorSummary = Result.WITSummary;
-        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Level Design Build Result"), SuggestedItems, RecommendedAction);
+        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Level Design Build Result"), SuggestedItems, BuildRecommendedAction);
         Result.StatusSummary = BuildWorkspaceBuildStatusText(DisplayWorkspaceLabel, BuildState, WITReportResult.bSucceeded ? ReportPath : FString());
         bWorkspaceAnalysisInitialized = true;
         LastAnalysisWorkspaceLabel = Result.WorkspaceLabel;
@@ -7526,12 +8906,30 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
 
         AddAnalysisItem(PrimaryItems, Result, TEXT("Build Source"), TEXT("Blocked"), TEXT("No compatible working or selected subject is available."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Recommended Next Step"), TEXT("Recommended"), TEXT("Select a subject, run Enhance or Test, then Build again."));
-        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Build Blocked"), PrimaryItems, TEXT("Select a subject, run Enhance or Test, then Build again."));
+        TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+        AddWorkflowActionPlanItem(
+            WorkflowActionPlan,
+            WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase) ? TEXT("Select and enhance a character subject") : TEXT("Select and enhance an AI/NPC subject"),
+            TEXT("Missing Context"),
+            TEXT("Critical"),
+            TEXT("Build is blocked because WanaWorks has no safe working subject to produce from."),
+            DisplayWorkspaceLabel,
+            TEXT("Enhance"),
+            TEXT("Blocked"),
+            TEXT("Low"),
+            true,
+            false);
+        AddWorkflowActionPlanItemsToAnalysis(SuggestedItems, Result, WorkflowActionPlan, 5);
+        const FString ActionPlanRecommendedAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+        const FString BlockedRecommendedAction = ActionPlanRecommendedAction.IsEmpty()
+            ? FString(TEXT("Select a subject, run Enhance or Test, then Build again."))
+            : ActionPlanRecommendedAction;
+        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Build Blocked"), PrimaryItems, BlockedRecommendedAction);
         Result.AnimationSummary = Result.PrimarySummary;
         Result.PhysicalSummary = Result.PrimarySummary;
         Result.BehaviorSummary = Result.PrimarySummary;
         Result.WITSummary = Result.PrimarySummary;
-        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Build Result"), SuggestedItems, FString());
+        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Build Result"), SuggestedItems, BlockedRecommendedAction);
         Result.StatusSummary = BuildWorkspaceBuildStatusText(DisplayWorkspaceLabel, TEXT("Blocked"), FString());
         bWorkspaceAnalysisInitialized = true;
         LastAnalysisWorkspaceLabel = Result.WorkspaceLabel;
@@ -7710,13 +9108,32 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         AddAnalysisItem(SuggestedItems, Result, TEXT("Validation"), bTestWasAvailable ? TEXT("Ready") : TEXT("Limited"), bTestWasAvailable ? TEXT("Test readiness was available before Build.") : TEXT("Build used lightweight readiness because Test had not been run yet."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Playable Control"), PlayableModeStatus, EffectiveSnapshot.bHasPlayerControllerSignal ? TEXT("Player-control context was visible during Build.") : TEXT("Build preserved existing controller/input setup; direct PlayerController class may be provided by GameMode/runtime."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("WanaAnimation Adapter"), AdapterStatus, bAdapterRecordGenerated ? FString::Printf(TEXT("WanaWorks saved or found a persistent adapter report at %s without modifying the original Anim BP."), *AdapterRecordPath) : TEXT("Adapter output is limited until the subject has mesh, Anim BP, and hook readiness."));
+        const bool bProfileAssigned = !ProfileLabel.Equals(CharacterBuildingDefaultProfileLabel, ESearchCase::IgnoreCase);
+        TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+        BuildCharacterBuildingWorkflowActionPlan(
+            WorkflowActionPlan,
+            bHasEffectiveSnapshot,
+            EffectiveSnapshot,
+            ProfileLabel,
+            bProfileAssigned,
+            EffectiveSnapshot.bHasPawnMovementComponent || bHasMovementComponent,
+            EffectiveSnapshot.bHasCameraComponent || EffectiveSnapshot.bHasSpringArmComponent || bHasCameraOrControlComponent,
+            SharedStackSummary,
+            AdapterStatus,
+            DirectGraphEditSafety,
+            RecommendedAdapterStrategy,
+            AdapterRecordPath);
+        AddWorkflowActionPlanItemsToAnalysis(SuggestedItems, Result, WorkflowActionPlan, 5);
+        const FString ActionPlanRecommendedAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+        const FString BuildRecommendedAction = ActionPlanRecommendedAction.IsEmpty() ? RecommendedAction : ActionPlanRecommendedAction;
+        BuildResponse.OutputLines.Add(FString::Printf(TEXT("Workflow Action Plan: %s"), *BuildWorkflowActionPlanSummary(WorkflowActionPlan, 3).Replace(TEXT("\n"), TEXT(" | "))));
 
-        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Build Output"), PrimaryItems, RecommendedAction);
-        Result.AnimationSummary = BuildAnalysisCardText(TEXT("Rig & Animation Build Readiness"), AnimationItems, RecommendedAction);
-        Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Movement / Playability Build Readiness"), PhysicalItems, RecommendedAction);
-        Result.BehaviorSummary = BuildAnalysisCardText(TEXT("Character Systems Build Readiness"), BehaviorItems, RecommendedAction);
+        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Build Output"), PrimaryItems, BuildRecommendedAction);
+        Result.AnimationSummary = BuildAnalysisCardText(TEXT("Rig & Animation Build Readiness"), AnimationItems, BuildRecommendedAction);
+        Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Movement / Playability Build Readiness"), PhysicalItems, BuildRecommendedAction);
+        Result.BehaviorSummary = BuildAnalysisCardText(TEXT("Character Systems Build Readiness"), BehaviorItems, BuildRecommendedAction);
         Result.WITSummary = Result.BehaviorSummary;
-        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Character Build Result"), SuggestedItems, RecommendedAction);
+        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("Character Build Result"), SuggestedItems, BuildRecommendedAction);
     }
     else
     {
@@ -7756,6 +9173,7 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
             BehaviorSnapshot);
 
         const bool bHasWITPair = EnvironmentSnapshot.bHasObserverActor && EnvironmentSnapshot.bHasTargetActor;
+        const FWanaWITCharacterInfluenceContext WITInfluenceContext = ResolveWITCharacterInfluenceContext();
 
         AddAnalysisItem(PrimaryItems, Result, TEXT("Source AI / NPC"), bHasSourceSnapshot ? TEXT("Ready") : TEXT("Limited"), bHasSourceSnapshot ? SourceSnapshot.SelectedActorLabel : TEXT("Source subject was inferred from the active working subject."));
         AddAnalysisItem(PrimaryItems, Result, TEXT("Working AI Used"), TEXT("Ready"), BuildSourceActor->GetActorNameOrLabel());
@@ -7768,6 +9186,7 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
         AddAnalysisItem(BehaviorItems, Result, TEXT("WAY-lite"), EffectiveSnapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.bHasWAYComponent ? TEXT("Relationship/adaptation layer is present.") : TEXT("WAY-lite was not detected."));
         AddAnalysisItem(BehaviorItems, Result, TEXT("Behavior Results"), BehaviorSnapshot.bHasWAYComponent && BehaviorSnapshot.bHasRelationshipProfile ? TEXT("Ready") : TEXT("Limited"), BehaviorSnapshot.bHasWAYComponent ? TEXT("Relationship-aware behavior data is readable.") : TEXT("Behavior result is limited until WAY-lite data is available."));
         AddAnalysisItem(BehaviorItems, Result, TEXT("Embodied Reaction Profile"), GetEmbodiedReactionReadinessStatus(EffectiveSnapshot), BuildEmbodiedReactionReadinessDetail(EffectiveSnapshot));
+        AddAnalysisItem(BehaviorItems, Result, TEXT("Environment-Aware Behavior"), WITInfluenceContext.bReportReadable ? WITInfluenceContext.InfluenceStatusLabel : TEXT("Needs Level Design Build"), WITInfluenceContext.bReportReadable ? FString::Printf(TEXT("Build recorded WIT report %s for environment-aware behavior readiness. %s"), *WITInfluenceContext.ReportPath, *BuildWITCharacterInfluenceEnvironmentSummary(WITInfluenceContext)) : TEXT("Build preserved AI output, but WIT report is missing; run Level Design Build to generate world intelligence."));
 
         AddAnalysisItem(AnimationItems, Result, TEXT("Animation Blueprint"), EffectiveSnapshot.bHasAnimBlueprint ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.LinkedAnimationBlueprintLabel.IsEmpty() ? TEXT("No linked Animation Blueprint detected.") : EffectiveSnapshot.LinkedAnimationBlueprintLabel);
         AddAnalysisItem(AnimationItems, Result, TEXT("WanaAnimation"), bAnimationReady ? TEXT("Ready") : TEXT("Limited"), EffectiveSnapshot.AnimationAutomaticIntegrationDetail.IsEmpty() ? TEXT("Animation integration is limited or not prepared.") : EffectiveSnapshot.AnimationAutomaticIntegrationDetail);
@@ -7779,19 +9198,47 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
 
         AddAnalysisItem(WITItems, Result, TEXT("WIT Awareness"), bHasWITPair ? TEXT("Ready") : TEXT("Limited"), bHasWITPair ? UIFmt::GetEnvironmentShapingSummaryLabel(EnvironmentSnapshot.MovementReadiness) : TEXT("WIT observer-target context is not assigned yet."));
         AddAnalysisItem(WITItems, Result, TEXT("Navigation Context"), bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext ? TEXT("Ready") : TEXT("Limited"), bHasWITPair ? UIFmt::GetNavigationContextSummaryLabel(EnvironmentSnapshot) : TEXT("Navigation context remains unknown until WIT context is available."));
+        AddWITCharacterInfluenceItems(WITItems, Result, WITInfluenceContext, true);
 
         AddAnalysisItem(SuggestedItems, Result, TEXT("Build Status"), BuildState, BuildResponse.bSucceeded ? TEXT("Character Intelligence output completed without touching the original.") : TEXT("Character Intelligence build did not complete."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Output Path"), BuildResponse.bSucceeded ? TEXT("Built") : TEXT("Blocked"), OutputPath.IsEmpty() ? TEXT("/Game/WanaWorks/Builds") : OutputPath);
         AddAnalysisItem(SuggestedItems, Result, TEXT("Validation"), bTestWasAvailable ? TEXT("Ready") : TEXT("Limited"), bTestWasAvailable ? TEXT("Test readiness was available before Build.") : TEXT("Build used lightweight readiness because Test had not been run yet."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("Visible Reaction"), (EffectiveSnapshot.bHasPhysicalStateComponent && EffectiveSnapshot.bHasRuntimeAnimationAdapterComponent) ? TEXT("Ready") : TEXT("Limited"), (EffectiveSnapshot.bHasPhysicalStateComponent && EffectiveSnapshot.bHasRuntimeAnimationAdapterComponent) ? TEXT("Test can drive a readable body-state reaction on the WanaWorks working subject without touching animation assets.") : TEXT("Visible reaction support remains limited until Enhance prepares physical state and the runtime adapter."));
         AddAnalysisItem(SuggestedItems, Result, TEXT("WanaAnimation Adapter"), AdapterStatus, bAdapterRecordGenerated ? FString::Printf(TEXT("WanaWorks saved or found a persistent adapter report at %s without modifying the original Anim BP."), *AdapterRecordPath) : TEXT("Adapter output is limited until the subject has mesh, Anim BP, and hook readiness."));
+        AddAnalysisItem(SuggestedItems, Result, TEXT("World Intelligence"), WITInfluenceContext.bReportReadable ? WITInfluenceContext.InfluenceStatusLabel : TEXT("Needs Level Design Build"), WITInfluenceContext.bReportReadable ? FString::Printf(TEXT("WIT report included in Character Intelligence build context: %s."), *WITInfluenceContext.ReportPath) : TEXT("Character Intelligence Build does not create WIT reports; run Level Design Build first for persistent world intelligence."));
+        BuildResponse.OutputLines.Add(FString::Printf(
+            TEXT("WIT Environment Influence: %s"),
+            WITInfluenceContext.bReportReadable ? *WITInfluenceContext.InfluenceStatusLabel : TEXT("Needs Level Design Build")));
+        BuildResponse.OutputLines.Add(FString::Printf(
+            TEXT("WIT Report Path: %s"),
+            WITInfluenceContext.bReportReadable ? *WITInfluenceContext.ReportPath : TEXT("(missing; run Level Design Build)")));
+        BuildResponse.OutputLines.Add(FString::Printf(
+            TEXT("WIT Environment Summary: %s"),
+            *BuildWITCharacterInfluenceEnvironmentSummary(WITInfluenceContext)));
+        TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+        BuildCharacterIntelligenceWorkflowActionPlan(
+            WorkflowActionPlan,
+            bHasEffectiveSnapshot,
+            EffectiveSnapshot,
+            TargetActor != nullptr && !bTargetFallsBackToObserver,
+            bHasWITPair,
+            bHasWITPair && EnvironmentSnapshot.MovementReadiness.bHasMovementContext,
+            WITInfluenceContext,
+            AdapterStatus,
+            DirectGraphEditSafety,
+            RecommendedAdapterStrategy,
+            AdapterRecordPath);
+        AddWorkflowActionPlanItemsToAnalysis(SuggestedItems, Result, WorkflowActionPlan, 5);
+        const FString ActionPlanRecommendedAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+        const FString BuildRecommendedAction = ActionPlanRecommendedAction.IsEmpty() ? RecommendedAction : ActionPlanRecommendedAction;
+        BuildResponse.OutputLines.Add(FString::Printf(TEXT("Workflow Action Plan: %s"), *BuildWorkflowActionPlanSummary(WorkflowActionPlan, 3).Replace(TEXT("\n"), TEXT(" | "))));
 
-        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Intelligence Build Output"), PrimaryItems, RecommendedAction);
-        Result.AnimationSummary = BuildAnalysisCardText(TEXT("WanaAnimation Build Readiness"), AnimationItems, RecommendedAction);
-        Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Physical / Combat-lite Build Readiness"), PhysicalItems, RecommendedAction);
-        Result.BehaviorSummary = BuildAnalysisCardText(TEXT("AI Systems Build Readiness"), BehaviorItems, RecommendedAction);
-        Result.WITSummary = BuildAnalysisCardText(TEXT("WIT Build Readiness"), WITItems, RecommendedAction);
-        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("AI Build Result"), SuggestedItems, RecommendedAction);
+        Result.PrimarySummary = BuildAnalysisCardText(TEXT("Character Intelligence Build Output"), PrimaryItems, BuildRecommendedAction);
+        Result.AnimationSummary = BuildAnalysisCardText(TEXT("WanaAnimation Build Readiness"), AnimationItems, BuildRecommendedAction);
+        Result.PhysicalSummary = BuildAnalysisCardText(TEXT("Physical / Combat-lite Build Readiness"), PhysicalItems, BuildRecommendedAction);
+        Result.BehaviorSummary = BuildAnalysisCardText(TEXT("AI Systems Build Readiness"), BehaviorItems, BuildRecommendedAction);
+        Result.WITSummary = BuildAnalysisCardText(TEXT("WIT Build Readiness"), WITItems, BuildRecommendedAction);
+        Result.SuggestedSummary = BuildAnalysisCardText(TEXT("AI Build Result"), SuggestedItems, BuildRecommendedAction);
     }
 
     Result.StatusSummary = BuildWorkspaceBuildStatusText(DisplayWorkspaceLabel, BuildState, OutputPath);

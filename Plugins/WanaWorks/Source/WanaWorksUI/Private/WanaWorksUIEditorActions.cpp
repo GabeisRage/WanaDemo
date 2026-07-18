@@ -1096,6 +1096,26 @@ bool BuildCharacterEnhancementSnapshot(const AActor* Actor, FWanaSelectedCharact
         OutSnapshot.RuntimeAnimationAdapterSharedAnimBPRisk = AutomaticIntegrationComponent->RuntimeAdapterSharedAnimBPRisk;
         OutSnapshot.RuntimeAnimationAdapterReportPath = AutomaticIntegrationComponent->PersistentAdapterReportPath;
         OutSnapshot.RuntimeAnimationAdapterDetail = AutomaticIntegrationComponent->RuntimeAdapterDetail;
+        const FWanaRuntimeAnimationAdapterState RuntimeAdapterState = AutomaticIntegrationComponent->GetWanaAnimationRuntimeAdapterState();
+        OutSnapshot.RuntimeAnimationAdapterBehaviorIntent = RuntimeAdapterState.BehaviorIntent;
+        OutSnapshot.RuntimeAnimationAdapterVisibleBehaviorLabel = RuntimeAdapterState.VisibleBehaviorLabel;
+        OutSnapshot.RuntimeAnimationAdapterPostureHint = RuntimeAdapterState.PostureHint;
+        OutSnapshot.RuntimeAnimationAdapterPostureCategory = RuntimeAdapterState.PostureCategory;
+        OutSnapshot.RuntimeAnimationAdapterFallbackHint = RuntimeAdapterState.FallbackHint;
+        OutSnapshot.RuntimeAnimationAdapterReactionState = RuntimeAdapterState.ReactionState;
+        OutSnapshot.RuntimeAnimationAdapterRelationshipState = RuntimeAdapterState.RelationshipState;
+        OutSnapshot.RuntimeAnimationAdapterRecommendedBehavior = RuntimeAdapterState.RecommendedBehavior;
+        OutSnapshot.RuntimeAnimationAdapterExecutionMode = RuntimeAdapterState.ExecutionMode;
+        OutSnapshot.RuntimeAnimationAdapterPhysicalState = RuntimeAdapterState.PhysicalState;
+        OutSnapshot.RuntimeAnimationAdapterStabilityScore = RuntimeAdapterState.StabilityScore;
+        OutSnapshot.RuntimeAnimationAdapterInstabilityAlpha = RuntimeAdapterState.InstabilityAlpha;
+        OutSnapshot.RuntimeAnimationAdapterRecoveryProgress = RuntimeAdapterState.RecoveryProgress;
+        OutSnapshot.RuntimeAnimationAdapterImpactDirection = RuntimeAdapterState.ImpactDirection;
+        OutSnapshot.RuntimeAnimationAdapterImpactStrength = RuntimeAdapterState.ImpactStrength;
+        OutSnapshot.bRuntimeAnimationAdapterBracing = RuntimeAdapterState.bBracing;
+        OutSnapshot.bRuntimeAnimationAdapterNeedsRecovery = RuntimeAdapterState.bNeedsRecovery;
+        OutSnapshot.bRuntimeAnimationAdapterCanCommitToMovement = RuntimeAdapterState.bCanCommitToMovement;
+        OutSnapshot.bRuntimeAnimationAdapterCanCommitToAttack = RuntimeAdapterState.bCanCommitToAttack;
 
         if (!AutomaticIntegrationComponent->SourceAnimationBlueprintLabel.IsEmpty())
         {

@@ -2,11 +2,126 @@
 
 #include "Components/ActorComponent.h"
 #include "WAYRelationshipTypes.h"
+#include "WanaWorksTypes.h"
 #include "WanaAutoAnimationIntegrationComponent.generated.h"
 
 class UAnimInstance;
 class USkeletalMeshComponent;
 class UWanaAnimationAdapterReportAsset;
+
+USTRUCT(BlueprintType)
+struct FWanaRuntimeAnimationAdapterState
+{
+    GENERATED_BODY()
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bHookReadable = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bReportReadable = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FString ReadinessState = TEXT("Not Supported");
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FString RecommendedStrategy = TEXT("Needs Enhance");
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FString DirectGraphEditSafety = TEXT("Limited");
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FString SharedAnimBPRisk = TEXT("Unknown");
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FString PersistentReportPath;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FString BehaviorIntent;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FString VisibleBehaviorLabel;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FString PostureHint = TEXT("observant");
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FString PostureCategory = TEXT("Observe");
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FString FallbackHint = TEXT("stable observe stance");
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FString IdentityRole = TEXT("neutral");
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    EWAYReactionState ReactionState = EWAYReactionState::Observational;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    EWAYRelationshipState RelationshipState = EWAYRelationshipState::Neutral;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    EWAYBehaviorPreset RecommendedBehavior = EWAYBehaviorPreset::None;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    EWAYBehaviorExecutionMode ExecutionMode = EWAYBehaviorExecutionMode::Unknown;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bFacingHookRequested = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bTurnToTargetRequested = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bOutwardGuardHintRequested = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bLocomotionSafeExecutionHint = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bMovementLimitedFallbackHint = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bPhysicalReactionAvailable = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    EWanaPhysicalState PhysicalState = EWanaPhysicalState::Stable;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    float StabilityScore = 1.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    float InstabilityAlpha = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    float RecoveryProgress = 1.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FVector ImpactDirection = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    float ImpactStrength = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bBracing = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bNeedsRecovery = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bCanCommitToMovement = true;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bCanCommitToAttack = true;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    int32 SupportedFieldCount = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    int32 AppliedFieldCount = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FString Detail;
+};
 
 UCLASS(ClassGroup=(WanaWorks), BlueprintType, Blueprintable, meta=(BlueprintSpawnableComponent))
 class WANAWORKSWAY_API UWanaAutoAnimationIntegrationComponent : public UActorComponent
@@ -70,6 +185,12 @@ public:
     UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get WanaAnimation Posture Hint"))
     FString GetWanaAnimationPostureHint() const { return RuntimeAdapterPostureHint; }
 
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get WanaAnimation Runtime Adapter State"))
+    FWanaRuntimeAnimationAdapterState GetWanaAnimationRuntimeAdapterState() const;
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get WanaAnimation Posture Category"))
+    FString GetWanaAnimationPostureCategory() const { return RuntimeAdapterPostureCategory; }
+
     UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get WanaAnimation Reaction State"))
     EWAYReactionState GetWanaAnimationReactionState() const { return RuntimeAdapterReactionState; }
 
@@ -91,11 +212,17 @@ public:
     UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get WanaAnimation Relationship State"))
     EWAYRelationshipState GetWanaAnimationRelationshipState() const { return RuntimeAdapterRelationshipState; }
 
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get WanaAnimation Execution Mode"))
+    EWAYBehaviorExecutionMode GetWanaAnimationExecutionMode() const { return RuntimeAdapterExecutionMode; }
+
     UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Is WanaAnimation Facing Hook Requested"))
     bool IsWanaAnimationFacingHookRequested() const { return bRuntimeAdapterFacingHookRequested; }
 
     UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Is WanaAnimation Turn To Target Requested"))
     bool IsWanaAnimationTurnToTargetRequested() const { return bRuntimeAdapterTurnToTargetRequested; }
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Is WanaAnimation Outward Guard Hint Requested"))
+    bool IsWanaAnimationOutwardGuardHintRequested() const { return bRuntimeAdapterOutwardGuardHintRequested; }
 
     UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Is WanaAnimation Locomotion Safe Execution Hint Active"))
     bool IsWanaAnimationLocomotionSafeExecutionHintActive() const { return bRuntimeAdapterLocomotionSafeExecutionHint; }
@@ -106,11 +233,32 @@ public:
     UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get WanaAnimation Instability Alpha"))
     float GetWanaAnimationInstabilityAlpha() const { return RuntimeAdapterInstabilityAlpha; }
 
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get WanaAnimation Physical State"))
+    EWanaPhysicalState GetWanaAnimationPhysicalState() const { return RuntimeAdapterPhysicalState; }
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get WanaAnimation Stability Score"))
+    float GetWanaAnimationStabilityScore() const { return RuntimeAdapterStabilityScore; }
+
     UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get WanaAnimation Recovery Progress"))
     float GetWanaAnimationRecoveryProgress() const { return RuntimeAdapterRecoveryProgress; }
 
     UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get WanaAnimation Impact Direction"))
     FVector GetWanaAnimationImpactDirection() const { return RuntimeAdapterImpactDirection; }
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get WanaAnimation Impact Strength"))
+    float GetWanaAnimationImpactStrength() const { return RuntimeAdapterImpactStrength; }
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Is WanaAnimation Bracing"))
+    bool IsWanaAnimationBracing() const { return bRuntimeAdapterBracing; }
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Does WanaAnimation Need Recovery"))
+    bool DoesWanaAnimationNeedRecovery() const { return bRuntimeAdapterNeedsRecovery; }
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Can WanaAnimation Commit To Movement"))
+    bool CanWanaAnimationCommitToMovement() const { return bRuntimeAdapterCanCommitToMovement; }
+
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Can WanaAnimation Commit To Attack"))
+    bool CanWanaAnimationCommitToAttack() const { return bRuntimeAdapterCanCommitToAttack; }
 
     UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get WanaAnimation Adapter Readiness"))
     FString GetWanaAnimationAdapterReadiness() const { return RuntimeAdapterReadinessState; }
@@ -188,6 +336,9 @@ public:
     FString RuntimeAdapterPostureHint;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    FString RuntimeAdapterPostureCategory;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
     FString RuntimeAdapterFallbackHint;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
@@ -201,6 +352,9 @@ public:
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
     EWAYBehaviorPreset RuntimeAdapterRecommendedBehavior = EWAYBehaviorPreset::None;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    EWAYBehaviorExecutionMode RuntimeAdapterExecutionMode = EWAYBehaviorExecutionMode::Unknown;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
     bool bRuntimeAdapterHookReadable = false;
@@ -221,10 +375,22 @@ public:
     bool bRuntimeAdapterTurnToTargetRequested = false;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bRuntimeAdapterOutwardGuardHintRequested = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
     bool bRuntimeAdapterLocomotionSafeExecutionHint = false;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
     bool bRuntimeAdapterMovementLimitedFallbackHint = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bRuntimeAdapterPhysicalReactionAvailable = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    EWanaPhysicalState RuntimeAdapterPhysicalState = EWanaPhysicalState::Stable;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    float RuntimeAdapterStabilityScore = 1.0f;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
     float RuntimeAdapterInstabilityAlpha = 0.0f;
@@ -234,6 +400,21 @@ public:
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
     FVector RuntimeAdapterImpactDirection = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    float RuntimeAdapterImpactStrength = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bRuntimeAdapterBracing = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bRuntimeAdapterNeedsRecovery = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bRuntimeAdapterCanCommitToMovement = true;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
+    bool bRuntimeAdapterCanCommitToAttack = true;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation Adapter")
     FString RuntimeAdapterDetail;

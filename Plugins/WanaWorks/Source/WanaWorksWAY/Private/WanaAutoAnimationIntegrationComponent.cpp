@@ -299,9 +299,15 @@ int32 CountSupportedAutomaticIntegrationFields(const UClass* AnimClass)
     SupportedFieldCount += HasStringPropertyAlias(AnimClass, { TEXT("WanaPostureHint"), TEXT("PostureHint") }) ? 1 : 0;
     SupportedFieldCount += HasStringPropertyAlias(AnimClass, { TEXT("WanaPostureCategory"), TEXT("PostureCategory") }) ? 1 : 0;
     SupportedFieldCount += HasStringPropertyAlias(AnimClass, { TEXT("WanaFallbackHint"), TEXT("FallbackHint") }) ? 1 : 0;
+    SupportedFieldCount += HasStringPropertyAlias(AnimClass, { TEXT("WanaIdentityRole"), TEXT("WanaIdentityRoleHint"), TEXT("IdentityRoleHint") }) ? 1 : 0;
     SupportedFieldCount += HasStringPropertyAlias(AnimClass, { TEXT("WanaAdapterReadinessState"), TEXT("AdapterReadinessState") }) ? 1 : 0;
     SupportedFieldCount += HasStringPropertyAlias(AnimClass, { TEXT("WanaAdapterRecommendedStrategy"), TEXT("AdapterRecommendedStrategy") }) ? 1 : 0;
     SupportedFieldCount += HasBoolPropertyAlias(AnimClass, { TEXT("bWanaLocomotionSafeExecutionHint"), TEXT("bLocomotionSafeExecutionHint") }) ? 1 : 0;
+    SupportedFieldCount += HasBoolPropertyAlias(AnimClass, { TEXT("bWanaMovementLimitedFallbackHint"), TEXT("bMovementLimitedFallbackHint") }) ? 1 : 0;
+    SupportedFieldCount += HasBoolPropertyAlias(AnimClass, { TEXT("bWanaOutwardGuardHintRequested"), TEXT("bOutwardGuardHintRequested") }) ? 1 : 0;
+    SupportedFieldCount += HasBoolPropertyAlias(AnimClass, { TEXT("bWanaPhysicalReactionAvailable"), TEXT("bPhysicalReactionAvailable") }) ? 1 : 0;
+    SupportedFieldCount += HasEnumPropertyAlias(AnimClass, { TEXT("WanaRelationshipState"), TEXT("RelationshipState") }) ? 1 : 0;
+    SupportedFieldCount += HasEnumPropertyAlias(AnimClass, { TEXT("WanaExecutionMode"), TEXT("ExecutionMode") }) ? 1 : 0;
     SupportedFieldCount += HasEnumPropertyAlias(AnimClass, { TEXT("WanaPhysicalState"), TEXT("PhysicalState") }) ? 1 : 0;
     SupportedFieldCount += HasFloatPropertyAlias(AnimClass, { TEXT("WanaStabilityScore"), TEXT("StabilityScore") }) ? 1 : 0;
     SupportedFieldCount += HasFloatPropertyAlias(AnimClass, { TEXT("WanaRecoveryProgress"), TEXT("RecoveryProgress") }) ? 1 : 0;
@@ -353,9 +359,15 @@ int32 ApplyAutomaticIntegrationToAnimInstance(
     AppliedFieldCount += TrySetStringPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaPostureHint"), TEXT("PostureHint") }, HookState.PostureHint) ? 1 : 0;
     AppliedFieldCount += TrySetStringPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaPostureCategory"), TEXT("PostureCategory") }, HookState.PostureCategory) ? 1 : 0;
     AppliedFieldCount += TrySetStringPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaFallbackHint"), TEXT("FallbackHint") }, HookState.FallbackHint) ? 1 : 0;
+    AppliedFieldCount += TrySetStringPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaIdentityRole"), TEXT("WanaIdentityRoleHint"), TEXT("IdentityRoleHint") }, HookState.IdentityRoleHint) ? 1 : 0;
     AppliedFieldCount += TrySetStringPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaAdapterReadinessState"), TEXT("AdapterReadinessState") }, AdapterComponent ? AdapterComponent->RuntimeAdapterReadinessState : FString(TEXT("Limited"))) ? 1 : 0;
     AppliedFieldCount += TrySetStringPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaAdapterRecommendedStrategy"), TEXT("AdapterRecommendedStrategy") }, AdapterComponent ? AdapterComponent->RuntimeAdapterRecommendedStrategy : FString(TEXT("Needs Enhance"))) ? 1 : 0;
     AppliedFieldCount += TrySetBoolPropertyAlias(AnimInstance, AnimClass, { TEXT("bWanaLocomotionSafeExecutionHint"), TEXT("bLocomotionSafeExecutionHint") }, HookState.bLocomotionSafeExecutionHint) ? 1 : 0;
+    AppliedFieldCount += TrySetBoolPropertyAlias(AnimInstance, AnimClass, { TEXT("bWanaMovementLimitedFallbackHint"), TEXT("bMovementLimitedFallbackHint") }, HookState.bMovementLimitedFallbackHint) ? 1 : 0;
+    AppliedFieldCount += TrySetBoolPropertyAlias(AnimInstance, AnimClass, { TEXT("bWanaOutwardGuardHintRequested"), TEXT("bOutwardGuardHintRequested") }, HookState.bOutwardGuardHintRequested) ? 1 : 0;
+    AppliedFieldCount += TrySetBoolPropertyAlias(AnimInstance, AnimClass, { TEXT("bWanaPhysicalReactionAvailable"), TEXT("bPhysicalReactionAvailable") }, HookState.bPhysicalReactionStateAvailable) ? 1 : 0;
+    AppliedFieldCount += TrySetEnumPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaRelationshipState"), TEXT("RelationshipState") }, static_cast<int64>(HookState.RelationshipState)) ? 1 : 0;
+    AppliedFieldCount += TrySetEnumPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaExecutionMode"), TEXT("ExecutionMode") }, static_cast<int64>(HookState.ExecutionMode)) ? 1 : 0;
     AppliedFieldCount += TrySetEnumPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaPhysicalState"), TEXT("PhysicalState") }, static_cast<int64>(PhysicalState)) ? 1 : 0;
     AppliedFieldCount += TrySetFloatPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaStabilityScore"), TEXT("StabilityScore") }, StabilityScore) ? 1 : 0;
     AppliedFieldCount += TrySetFloatPropertyAlias(AnimInstance, AnimClass, { TEXT("WanaRecoveryProgress"), TEXT("RecoveryProgress") }, RecoveryProgress) ? 1 : 0;
@@ -397,6 +409,48 @@ UWanaAutoAnimationIntegrationComponent::UWanaAutoAnimationIntegrationComponent()
 {
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.bStartWithTickEnabled = true;
+}
+
+FWanaRuntimeAnimationAdapterState UWanaAutoAnimationIntegrationComponent::GetWanaAnimationRuntimeAdapterState() const
+{
+    FWanaRuntimeAnimationAdapterState State;
+    State.bHookReadable = bRuntimeAdapterHookReadable;
+    State.bReportReadable = bRuntimeAdapterReportReadable;
+    State.ReadinessState = RuntimeAdapterReadinessState;
+    State.RecommendedStrategy = RuntimeAdapterRecommendedStrategy;
+    State.DirectGraphEditSafety = RuntimeAdapterDirectGraphEditSafety;
+    State.SharedAnimBPRisk = RuntimeAdapterSharedAnimBPRisk;
+    State.PersistentReportPath = PersistentAdapterReportPath;
+    State.BehaviorIntent = RuntimeAdapterBehaviorIntent;
+    State.VisibleBehaviorLabel = RuntimeAdapterVisibleBehaviorLabel;
+    State.PostureHint = RuntimeAdapterPostureHint;
+    State.PostureCategory = RuntimeAdapterPostureCategory;
+    State.FallbackHint = RuntimeAdapterFallbackHint;
+    State.IdentityRole = RuntimeAdapterIdentityRole;
+    State.ReactionState = RuntimeAdapterReactionState;
+    State.RelationshipState = RuntimeAdapterRelationshipState;
+    State.RecommendedBehavior = RuntimeAdapterRecommendedBehavior;
+    State.ExecutionMode = RuntimeAdapterExecutionMode;
+    State.bFacingHookRequested = bRuntimeAdapterFacingHookRequested;
+    State.bTurnToTargetRequested = bRuntimeAdapterTurnToTargetRequested;
+    State.bOutwardGuardHintRequested = bRuntimeAdapterOutwardGuardHintRequested;
+    State.bLocomotionSafeExecutionHint = bRuntimeAdapterLocomotionSafeExecutionHint;
+    State.bMovementLimitedFallbackHint = bRuntimeAdapterMovementLimitedFallbackHint;
+    State.bPhysicalReactionAvailable = bRuntimeAdapterPhysicalReactionAvailable;
+    State.PhysicalState = RuntimeAdapterPhysicalState;
+    State.StabilityScore = RuntimeAdapterStabilityScore;
+    State.InstabilityAlpha = RuntimeAdapterInstabilityAlpha;
+    State.RecoveryProgress = RuntimeAdapterRecoveryProgress;
+    State.ImpactDirection = RuntimeAdapterImpactDirection;
+    State.ImpactStrength = RuntimeAdapterImpactStrength;
+    State.bBracing = bRuntimeAdapterBracing;
+    State.bNeedsRecovery = bRuntimeAdapterNeedsRecovery;
+    State.bCanCommitToMovement = bRuntimeAdapterCanCommitToMovement;
+    State.bCanCommitToAttack = bRuntimeAdapterCanCommitToAttack;
+    State.SupportedFieldCount = SupportedFieldCount;
+    State.AppliedFieldCount = LastAppliedFieldCount;
+    State.Detail = RuntimeAdapterDetail;
+    return State;
 }
 
 FWAYAnimationHookState UWanaAutoAnimationIntegrationComponent::GetAdapterAnimationHookState() const
@@ -545,19 +599,30 @@ void UWanaAutoAnimationIntegrationComponent::RefreshRuntimeAnimationAdapter()
     bRuntimeAdapterDirectGraphEditSafe = false;
     bRuntimeAdapterFacingHookRequested = false;
     bRuntimeAdapterTurnToTargetRequested = false;
+    bRuntimeAdapterOutwardGuardHintRequested = false;
     bRuntimeAdapterLocomotionSafeExecutionHint = false;
     bRuntimeAdapterMovementLimitedFallbackHint = false;
+    bRuntimeAdapterPhysicalReactionAvailable = false;
     RuntimeAdapterBehaviorIntent = FString();
     RuntimeAdapterVisibleBehaviorLabel = FString();
     RuntimeAdapterPostureHint = TEXT("observant");
+    RuntimeAdapterPostureCategory = TEXT("Observe");
     RuntimeAdapterFallbackHint = TEXT("stable observe stance");
     RuntimeAdapterIdentityRole = TEXT("neutral");
     RuntimeAdapterReactionState = EWAYReactionState::Observational;
     RuntimeAdapterRelationshipState = EWAYRelationshipState::Neutral;
     RuntimeAdapterRecommendedBehavior = EWAYBehaviorPreset::None;
+    RuntimeAdapterExecutionMode = EWAYBehaviorExecutionMode::Unknown;
+    RuntimeAdapterPhysicalState = EWanaPhysicalState::Stable;
+    RuntimeAdapterStabilityScore = 1.0f;
     RuntimeAdapterInstabilityAlpha = 0.0f;
     RuntimeAdapterRecoveryProgress = 1.0f;
     RuntimeAdapterImpactDirection = FVector::ZeroVector;
+    RuntimeAdapterImpactStrength = 0.0f;
+    bRuntimeAdapterBracing = false;
+    bRuntimeAdapterNeedsRecovery = false;
+    bRuntimeAdapterCanCommitToMovement = true;
+    bRuntimeAdapterCanCommitToAttack = true;
     RuntimeAdapterDirectGraphEditSafety = TEXT("Limited");
     RuntimeAdapterSharedAnimBPRisk = TEXT("Unknown");
     RuntimeAdapterRecommendedStrategy = TEXT("Needs Enhance");
@@ -584,28 +649,46 @@ void UWanaAutoAnimationIntegrationComponent::RefreshRuntimeAnimationAdapter()
     bRuntimeAdapterHookReadable = WAYComponent != nullptr;
     bRuntimeAdapterFacingHookRequested = HookState.bFacingHookRequested;
     bRuntimeAdapterTurnToTargetRequested = HookState.bTurnToTargetRequested;
+    bRuntimeAdapterOutwardGuardHintRequested = HookState.bOutwardGuardHintRequested;
     bRuntimeAdapterLocomotionSafeExecutionHint = HookState.bLocomotionSafeExecutionHint;
     bRuntimeAdapterMovementLimitedFallbackHint = HookState.bMovementLimitedFallbackHint;
+    bRuntimeAdapterPhysicalReactionAvailable = HookState.bPhysicalReactionStateAvailable || PhysicalStateComponent != nullptr;
     RuntimeAdapterBehaviorIntent = HookState.BehaviorIntent;
     RuntimeAdapterVisibleBehaviorLabel = HookState.VisibleBehaviorLabel;
     RuntimeAdapterPostureHint = HookState.PostureHint.IsEmpty() ? RuntimeAdapterPostureHint : HookState.PostureHint;
+    RuntimeAdapterPostureCategory = HookState.PostureCategory.IsEmpty() ? RuntimeAdapterPostureCategory : HookState.PostureCategory;
     RuntimeAdapterFallbackHint = HookState.FallbackHint.IsEmpty() ? RuntimeAdapterFallbackHint : HookState.FallbackHint;
     RuntimeAdapterIdentityRole = HookState.IdentityRoleHint.IsEmpty() ? RuntimeAdapterIdentityRole : HookState.IdentityRoleHint;
     RuntimeAdapterReactionState = HookState.ReactionState;
     RuntimeAdapterRelationshipState = HookState.RelationshipState;
     RuntimeAdapterRecommendedBehavior = HookState.RecommendedBehavior;
+    RuntimeAdapterExecutionMode = HookState.ExecutionMode;
 
     if (HookState.bPhysicalReactionStateAvailable)
     {
+        RuntimeAdapterPhysicalState = HookState.PhysicalState;
+        RuntimeAdapterStabilityScore = HookState.PhysicalStabilityScore;
         RuntimeAdapterInstabilityAlpha = HookState.PhysicalInstabilityAlpha;
         RuntimeAdapterRecoveryProgress = HookState.PhysicalRecoveryProgress;
         RuntimeAdapterImpactDirection = HookState.PhysicalImpactDirection;
+        RuntimeAdapterImpactStrength = HookState.PhysicalImpactStrength;
     }
     else if (PhysicalStateComponent)
     {
+        RuntimeAdapterPhysicalState = PhysicalStateComponent->PhysicalState;
+        RuntimeAdapterStabilityScore = PhysicalStateComponent->StabilityScore;
         RuntimeAdapterInstabilityAlpha = PhysicalStateComponent->InstabilityAlpha;
         RuntimeAdapterRecoveryProgress = PhysicalStateComponent->RecoveryProgress;
         RuntimeAdapterImpactDirection = PhysicalStateComponent->LastImpactDirection;
+        RuntimeAdapterImpactStrength = PhysicalStateComponent->LastImpactStrength;
+    }
+
+    if (PhysicalStateComponent)
+    {
+        bRuntimeAdapterBracing = PhysicalStateComponent->bBracing;
+        bRuntimeAdapterNeedsRecovery = PhysicalStateComponent->bNeedsRecovery;
+        bRuntimeAdapterCanCommitToMovement = PhysicalStateComponent->bCanCommitToMovement;
+        bRuntimeAdapterCanCommitToAttack = PhysicalStateComponent->bCanCommitToAttack;
     }
 
     if (UWanaAnimationAdapterReportAsset* ReportAsset = ResolvePersistentAdapterReportAsset())
@@ -657,17 +740,27 @@ void UWanaAutoAnimationIntegrationComponent::RefreshRuntimeAnimationAdapter()
     bRuntimeAdapterDirectGraphEditSafe = RuntimeAdapterDirectGraphEditSafety.Equals(TEXT("Safe"), ESearchCase::IgnoreCase);
 
     RuntimeAdapterDetail = FString::Printf(
-        TEXT("Runtime WanaAnimation adapter: %s. Hook Readable: %s. Persistent Report: %s. Posture: %s. Reaction: %s. Facing Hook: %s. Turn-To-Target: %s. Locomotion: %s. Movement Fallback: %s. Report Path: %s. Original Anim BP remains untouched."),
+        TEXT("Runtime WanaAnimation adapter: %s. Hook: %s. Report: %s. Body language: %s / %s posture, %s behavior. Motion hooks: facing %s, turn %s, outward guard %s, locomotion %s, fallback %s. Physical: %s, stability %.2f, instability %.2f, recovery %d%%, impact %.2f, bracing %s. Report Path: %s. Auto-wire: %d supported / %d applied. Preserved: original Anim BP untouched."),
         RuntimeAdapterReadinessState.IsEmpty() ? TEXT("Limited") : *RuntimeAdapterReadinessState,
         bRuntimeAdapterHookReadable ? TEXT("Ready") : TEXT("Needs Enhance"),
         bRuntimeAdapterReportReadable ? TEXT("Readable") : TEXT("Not Found"),
         RuntimeAdapterPostureHint.IsEmpty() ? TEXT("(pending)") : *RuntimeAdapterPostureHint,
-        *UEnum::GetValueAsString(RuntimeAdapterReactionState),
+        RuntimeAdapterPostureCategory.IsEmpty() ? TEXT("(pending)") : *RuntimeAdapterPostureCategory,
+        RuntimeAdapterVisibleBehaviorLabel.IsEmpty() ? TEXT("(pending)") : *RuntimeAdapterVisibleBehaviorLabel,
         bRuntimeAdapterFacingHookRequested ? TEXT("Requested") : TEXT("Not Requested"),
         bRuntimeAdapterTurnToTargetRequested ? TEXT("Requested") : TEXT("Not Requested"),
+        bRuntimeAdapterOutwardGuardHintRequested ? TEXT("Requested") : TEXT("Not Requested"),
         bRuntimeAdapterLocomotionSafeExecutionHint ? TEXT("Safe") : TEXT("Limited"),
         bRuntimeAdapterMovementLimitedFallbackHint ? TEXT("Active") : TEXT("Inactive"),
-        PersistentAdapterReportPath.IsEmpty() ? TEXT("(not linked)") : *PersistentAdapterReportPath);
+        *UEnum::GetValueAsString(RuntimeAdapterPhysicalState),
+        RuntimeAdapterStabilityScore,
+        RuntimeAdapterInstabilityAlpha,
+        FMath::RoundToInt(RuntimeAdapterRecoveryProgress * 100.0f),
+        RuntimeAdapterImpactStrength,
+        bRuntimeAdapterBracing ? TEXT("yes") : TEXT("no"),
+        PersistentAdapterReportPath.IsEmpty() ? TEXT("(not linked)") : *PersistentAdapterReportPath,
+        SupportedFieldCount,
+        LastAppliedFieldCount);
 }
 
 void UWanaAutoAnimationIntegrationComponent::BeginPlay()
