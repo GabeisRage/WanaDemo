@@ -27,7 +27,9 @@ public class WanaWorksUI : ModuleRules
             "WanaWorksWIT",
             "WanaWorksWAY",
             "Slate",
-            "SlateCore"
+            "SlateCore",
+            "IKRig",
+            "IKRigEditor"
         });
     }
 }

@@ -41,7 +41,7 @@ Approximate completion: **92%**
 
 ### Full WanaWorks vision
 
-Approximate completion: **58–60%**
+Approximate completion: **58–60%** (rough estimate, predates the 2026-07-19 audit — Phases 5A and 8 moved from "in progress"/"upcoming" to verified-complete since this number was last set; treat the per-phase statuses below as ground truth over this percentage)
 
 ### Established foundation
 
@@ -59,6 +59,10 @@ The following are established and should not be regressed:
 - Character Building profile/controller/shared-stack compatibility
 - Anim BP readiness and generated adapter reporting
 - Persistent WanaAnimation adapter report asset
+- Runtime WanaAnimation Adapter Component V1 (Phase 5A — full field set surfaced in UI as of 2026-07-19)
+- Level Design WIT Environment Scan V1 (Phase 8 — heuristic cover/obstacle/movement-space/boundary scan, persisted report asset, wired through Enhance/Test/Analyze/Build as of 2026-07-19)
+
+> **Audit note (2026-07-19):** the two items above were previously tracked below as "Upcoming"/"in progress" phases, but a full source-level audit confirmed they are actually implemented end-to-end. See the updated Phase 5A and Phase 8 sections for what was verified and what still has gaps.
 
 ---
 
@@ -66,11 +70,12 @@ The following are established and should not be regressed:
 
 Work phases from here should focus on:
 
-1. Runtime WanaAnimation adapter / consumption layer
-2. Visible Character / AI Improvement
-3. WIT Environment Scan V1
-4. Level Design Workspace V1
-5. UE5 Assistant Generation V1
+1. Visible Character / AI Improvement (Phase 6) — the real remaining gap; the impact-to-physical-state chain computes correctly, but nothing yet visibly changes the character mesh in the viewport
+2. WIT Depth (Phase 11) — WIT signals currently only produce textual guidance in Character Intelligence, not actual runtime AI behavior changes
+3. UE5 Assistant Generation V1 (Phase 9)
+4. WAI / WAMI Depth (Phase 10)
+
+Runtime WanaAnimation Adapter (Phase 5A), WIT Environment Scan V1, and Level Design Workspace V1 (Phase 8) are now implemented end-to-end (verified 2026-07-19) — do not restart these from scratch.
 
 Do not spend time on old utility/command features unless the user explicitly requests them.
 
@@ -186,7 +191,7 @@ A demo-ready WanaWorks build must show:
 
 ## Phase 5A — Runtime WanaAnimation Adapter Component V1
 
-**Status:** Current recommended next animation phase.
+**Status:** Established foundation (verified complete 2026-07-19).
 
 **Goal:** Create a runtime-safe WanaWorks-owned adapter component or helper layer that reads WanaAnimation hook state and exposes animation-friendly values for future Anim BP or linked-layer consumption, without editing the user’s original Anim BP.
 
@@ -214,11 +219,15 @@ A demo-ready WanaWorks build must show:
 - Missing systems degrade to Limited / Needs Enhance / Not Supported
 - Original Anim BP remains untouched
 
+**Verified 2026-07-19:** `UWanaAutoAnimationIntegrationComponent` performs real reflection-based `FProperty` writes onto a live `AnimInstance` when matching property names exist, never edits the Anim BP asset itself, and exposes the full posture/reaction/behavior/fallback/instability/recovery field set through `FWanaRuntimeAnimationAdapterState`. That full field set is now surfaced in the Character Intelligence / Character Building readiness detail string (the last 9 of 19 fields were wired in on 2026-07-19; the first 10 already existed). Readiness correctly degrades to Limited/Needs Enhance/Not Supported when no compatible Anim BP is present. This phase is done — do not restart it.
+
 ---
 
 ## Phase 6 — Visible Character / AI Improvement
 
-**Status:** Next major demo impact phase after runtime adapter layer.
+**Status:** Not yet met — this is the real next focus (verified 2026-07-19).
+
+**Ground truth as of 2026-07-19:** the Impact → Physical State leg is genuinely implemented (`UWanaPhysicalStateComponent` computes real Stable/Alert/Staggered/OffBalance/Bracing/Recovering state from impact hints, and it correctly reaches the runtime adapter). The Physical State → visible Animation/Behavior Response leg is **not implemented**: nothing in the plugin plays a Montage, drives an AnimNotify, blends a physics reaction, or otherwise changes what the skeletal mesh actually looks like. The existing "visible reaction simulation" feature (Character Intelligence "Test") only pushes text rows into the plugin's own analysis report — it does not move the character. The reflection-write auto-integration only takes effect if the target Anim Blueprint happens to expose exactly-matching property names, which the demo's ALS-based AnimBP almost certainly does not, so auto-wire likely applies 0 fields against the real demo subject today. Per AGENTS.md, directly editing the user's Anim BP graph is not allowed without explicit approval — so the practical path here is a plugin-owned procedural effect (e.g. a lean/stagger transform applied to the skeletal mesh component, driven by `StabilityScore`/`InstabilityAlpha`) layered on top of whatever the Anim BP already does, not an AnimGraph edit.
 
 **Goal:** Deliver a dramatic enough visible behavior change that a non-technical viewer notices without reading logs.
 
@@ -266,7 +275,7 @@ Impact → Physical State → Staggered / OffBalance / Recovering → Animation/
 
 ## Phase 8 — Level Design Workspace V1
 
-**Status:** Upcoming.
+**Status:** V1 implemented and verified end-to-end (2026-07-19). Nearly all exit criteria below are already met by working code — see verification notes.
 
 **Goal:** Make Level Design a real semantic world workspace powered by WIT.
 
@@ -291,6 +300,8 @@ Impact → Physical State → Staggered / OffBalance / Recovering → Animation/
 - Results show semantic classification: cover / obstacle / movement space
 - Scene and utility tools are in Level Design, not Character Intelligence
 - Level Design does not fake modular generation before it exists
+
+**Verified 2026-07-19:** the Level Design "Analyze/Enhance/Test/Build" tiles genuinely trigger `RunWITEnvironmentScan()`, which scans selection/world actors and classifies them into Cover / Obstacle / MovementSpace / Boundary / NavigationRelevant via name-keyword and geometry/collision heuristics (not ML/vision). Results render live in Level Design's "Semantic World Model" and "Environment Meaning" cards. Build persists a real, inspectable `WanaWITEnvironmentReportAsset` `.uasset` under `/Game/WanaWorks/WITReports`. "Full Level Generation" is explicitly hard-coded to "Not Supported" with an honest in-UI message, correctly satisfying the "does not fake modular generation" criterion. **Known gap:** this logic currently lives inline in `WanaWorksUIModule.cpp` rather than being exposed through the `WanaWorksWIT` module / `WITBlueprintLibrary` as originally scoped, so it isn't reusable from Blueprints or other C++ modules yet — a worthwhile follow-up, not a blocker.
 
 ---
 
@@ -342,7 +353,7 @@ Impact → Physical State → Staggered / OffBalance / Recovering → Animation/
 
 ## Phase 11 — WIT Depth
 
-**Status:** Upcoming.
+**Status:** Partially implemented (verified 2026-07-19) — display/guidance done, behavioral consumption not yet done.
 
 **Goal:** WIT scan produces actionable scene meaning that influences AI behavior in Level Design and Character Intelligence.
 
@@ -358,6 +369,36 @@ Impact → Physical State → Staggered / OffBalance / Recovering → Animation/
 - WIT scan produces cover / obstacle / movement-space classification
 - At least one AI behavior reads and uses WIT output
 - Level Design displays meaningful environment analysis
+
+**Verified 2026-07-19:** the first and third criteria are met (see Phase 8). Character Intelligence does read the persisted WIT report back (`ResolveWITCharacterInfluenceContext`) and folds cover/obstacle/navigation signals into its suggested-improvement text — but this is textual guidance only. No evidence was found of it mutating an actual runtime AI/behavior component's decision logic. The "at least one AI behavior reads and uses WIT output" criterion is therefore not yet fully met — closing it means making WIT context change what a behavior actually does, not just what it says.
+
+---
+
+## Phase 11A — Workflow Action Planner V1
+
+**Status:** Established foundation (verified 2026-07-20). This phase was already substantially built in commit `d2c11c6` before this entry existed — it was never given its own phase entry, which caused a full duplicate spec to be written for it later without realizing it already existed. Adding this entry so that doesn't happen again.
+
+**Goal:** Convert existing per-workspace diagnosis/reporting into a prioritized, cross-workspace action-plan model — what to do next, why, how urgent, which workflow step handles it, whether WanaWorks can do it now or it needs a manual Unreal step.
+
+**What's real:** `FWanaWorkflowActionPlanItem` (`WanaWorksUIModule.cpp`) — title, category, priority (Critical/High/Medium/Low/Informational), reason, source workspace, recommended workflow step (Analyze/Enhance/Test/Build/Manual Unreal Step/Future Automation), readiness state, risk level, executable-now flag, informational-only flag, related asset path, plus (added 2026-07-20, renamed 2026-07-20) `bRequiresManualEngineAction` (engine-neutral; Unreal-specific display wording like "Manual Unreal Step" is derived from this plus `EngineAdapterId` at display time, not embedded in the field), `bActionRequired` (true for an actionable/unresolved gap, false for an informational/readiness item — **current state only**), and `EngineAdapterId` (neutral engine identifier, always `"Unreal"` today) for the future multi-engine architecture. Generated per-workspace by `BuildCharacterIntelligenceWorkflowActionPlan` / `BuildCharacterBuildingWorkflowActionPlan` / `BuildLevelDesignWorkflowActionPlan`, sorted by priority, surfaced as the top 5 "Next Action" items in existing analysis cards across Analyze/Enhance/Test/Build. Cross-workspace guidance already works (e.g. Character Intelligence recommends "Run Level Design Build" when the WIT report is missing).
+
+**Established, with one explicit limitation:** current action state (what's unresolved right now) is fully supported. **Historical resolution tracking is not implemented** — WanaWorks does not persist prior action-plan snapshots and cannot prove that a previously detected issue was actually corrected versus simply not re-detected this pass. `bActionRequired` reflects only the current readiness check, not a before/after comparison. Do not build features that assume WanaWorks remembers what it flagged last time until this is explicitly added.
+
+**Exit criteria:** met. Do not restart this phase from scratch — check the actual code in `WanaWorksUIModule.cpp` before assuming a reporting/guidance feature doesn't exist.
+
+---
+
+## Phase 11B — Project Health Workspace V1
+
+**Status:** Established foundation (2026-07-20).
+
+**Goal:** A fourth live workspace giving developers an obvious way to inspect Unreal project health — engine version/compatibility, project modules, plugin dependencies, WanaWorks output readiness, build confidence. Read-only diagnosis and guidance only; no automatic repair.
+
+**What's real:** `WanaWorksProjectHealthActions.h/.cpp` (new file) runs a real, read-only scan using `FEngineVersion::Current()`, `IProjectManager`/`IPluginManager` (project/plugin descriptors already in memory, no re-parsing), and a bounded text scan of each Runtime-type module's `Build.cs` for known editor-only dependency names. `FWanaWorksUIModule::RefreshProjectHealthWorkspaceState` reuses the existing shared `LastAnalysis*Summary` fields (same ones every other workspace already writes into) and the existing Workflow Action Planner (`BuildProjectHealthWorkflowActionPlan`, same model as the other three workspace planners) — no parallel scanner or action-planning system was created. Wired into Analyze/Enhance/Test/Build exactly like Level Design's branch. Rail entry added at position 4. No subject/preview concept — opted out of the sandbox preview system the same way Level Design already does.
+
+**Exit criteria:** met. Do not restart this phase or re-audit whether a project-health/engine-version/module-scanning system exists — check `WanaWorksProjectHealthActions.h` and `RefreshProjectHealthWorkspaceState` in `WanaWorksUIModule.cpp` first.
+
+**Known limitation carried forward intentionally:** no persistent Project Health report asset was added (V1 scope said not to widen scope for this); no top-bar status indicator was added (kept inside the workspace per the phase's own fallback instruction).
 
 ---
 

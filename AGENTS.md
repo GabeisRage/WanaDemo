@@ -84,10 +84,10 @@ Internally, all workspace behavior should respect the P6™ loop.
 
 ---
 
-## Current Product Status (as of May 2026)
+## Current Product Status (as of 2026-07-19)
 
 **Demo/prototype foundation:** ~92% complete  
-**Full WanaWorks vision:** ~58–60% complete  
+**Full WanaWorks vision:** ~58–60% complete (rough estimate — see PLANS-2.md per-phase statuses for ground truth; Phases 5A and 8 moved to verified-complete on 2026-07-19)  
 **Canonical branch:** `master`  
 **`main` branch:** stale — ignore
 
@@ -106,6 +106,8 @@ The following systems are established and should not be regressed:
 - Character Building profile/controller/shared-stack compatibility
 - Anim BP readiness and generated adapter reporting
 - Persistent WanaAnimation adapter report asset
+- Runtime WanaAnimation Adapter Component V1 — full posture/reaction/behavior/fallback/instability/recovery field set now surfaced in Character Intelligence / Character Building (verified + completed 2026-07-19)
+- Level Design WIT Environment Scan V1 — heuristic cover/obstacle/movement-space/boundary scan, live UI display, persisted `WanaWITEnvironmentReportAsset` report (verified 2026-07-19; logic lives in WanaWorksUI, not yet exposed via the WanaWorksWIT module)
 
 ### What exists in WanaWorksCore
 
@@ -135,14 +137,16 @@ The following systems are established and should not be regressed:
 ### What exists in WanaWorksWIT
 
 - `WITBlueprintLibrary.h/.cpp` — evolved movement readiness / WIT support
+- `WanaWITEnvironmentReportAsset.h/.cpp` — persistent WIT environment scan report data shape (UDataAsset only; the actual scan/classify/save pipeline lives in WanaWorksUI, not here — see below)
 
 ### What exists in WanaWorksUI
 
 - `WanaWorksUIStyle.h/.cpp` — style system
-- `WanaWorksUITabBuilder.h/.cpp` — tab/panel builder
+- `WanaWorksUITabBuilder.h/.cpp` — tab/panel builder (~6,100 lines; left rail, workspace bodies for AI / Character Building / Level Design, workflow strips, "COMING LATER" placeholder for the 6 not-yet-live workspaces)
 - `WanaWorksUIFormattingUtils.h/.cpp` — formatting helpers
 - `WanaWorksUIEditorActions.h/.cpp` — editor action bindings
 - `WanaWorksUISummaryText.h/.cpp` — summary text generation
+- `WanaWorksUIModule.cpp` (~10,200 lines) — also contains the Level Design WIT Environment Scan pipeline (`RunWITEnvironmentScan` / `ClassifyWITScanActor` / `SavePersistentWITEnvironmentReportAsset`), the cross-workspace Workflow Action Plan subsystem, and the Runtime WanaAnimation Adapter UI bridge (`BuildWanaAnimationAdapterReadinessDetail`)
 
 ---
 
@@ -237,13 +241,14 @@ UI work passes only when all are true:
 
 ## Workspace Rules
 
-Three active workspaces must be meaningfully distinct:
+Four active workspaces must be meaningfully distinct (Project Health added 2026-07-20):
 
 | Workspace | Primary focus |
 |---|---|
 | Character Intelligence | AI Pawn, WAI/WAMI, WAY-lite, WIT context, physical state, behavior |
 | Character Building | Character subject, skeletal/rig/anim, identity, playable readiness, output |
 | Level Design | WIT scan, semantic environment, cover/obstacle/movement meaning |
+| Project Health | Engine version/compatibility, project modules, plugin dependencies, WanaWorks output readiness, build confidence - read-only diagnosis, no subject/preview concept |
 
 Clicking a workspace rail item must change the actual body widget, not only the active label.
 

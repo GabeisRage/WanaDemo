@@ -35,8 +35,16 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<FText(void)> GetCharacterIntelligenceControlSummaryText;
     TFunction<FText(void)> GetCharacterBuildingProfileSummaryText;
     TFunction<FText(void)> GetCharacterBuildingControlSummaryText;
+    TFunction<FText(void)> GetAutoRetargetSummaryText;
+    TFunction<FText(void)> GetProjectHealthOverviewText;
+    TFunction<FText(void)> GetProjectHealthEngineText;
+    TFunction<FText(void)> GetProjectHealthModulesText;
+    TFunction<FText(void)> GetProjectHealthAssetsText;
+    TFunction<FText(void)> GetProjectHealthBuildReadinessText;
+    TFunction<FText(void)> GetProjectHealthNextActionsText;
     const TArray<TSharedPtr<FString>>* CharacterPawnAssetOptions = nullptr;
     const TArray<TSharedPtr<FString>>* AIPawnAssetOptions = nullptr;
+    const TArray<TSharedPtr<FString>>* TargetRetargetSkeletalMeshOptions = nullptr;
     const TArray<TSharedPtr<FString>>* WorkflowPresetOptions = nullptr;
     const TArray<TSharedPtr<FString>>* EnhancementPresetOptions = nullptr;
     const TArray<TSharedPtr<FString>>* EnhancementWorkflowOptions = nullptr;
@@ -56,6 +64,7 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<TSharedPtr<FString>(void)> GetSelectedCharacterIntelligenceRelationshipOption;
     TFunction<TSharedPtr<FString>(void)> GetSelectedCharacterIntelligenceTargetOption;
     TFunction<TSharedPtr<FString>(void)> GetSelectedCharacterBuildingProfileOption;
+    TFunction<TSharedPtr<FString>(void)> GetSelectedTargetRetargetSkeletalMeshOption;
     TFunction<void(const FText&)> OnCommandTextChanged;
     TFunction<void(const FText&)> OnIdentityFactionTagTextChanged;
     TFunction<void(const FString&)> OnWorkspaceSelected;
@@ -71,6 +80,7 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<void(TSharedPtr<FString>)> OnCharacterIntelligenceRelationshipOptionSelected;
     TFunction<void(TSharedPtr<FString>)> OnCharacterIntelligenceTargetOptionSelected;
     TFunction<void(TSharedPtr<FString>)> OnCharacterBuildingProfileOptionSelected;
+    TFunction<void(TSharedPtr<FString>)> OnTargetRetargetSkeletalMeshOptionSelected;
     TFunction<void(void)> OnRunCommand;
     TFunction<void(void)> OnClearLog;
     TFunction<void(void)> OnEnsureIdentityComponent;
@@ -94,6 +104,7 @@ struct FWanaWorksUITabBuilderArgs
     TFunction<void(void)> OnUseSelectedAsSandboxTarget;
     TFunction<void(void)> OnEvaluateSandboxPair;
     TFunction<void(void)> OnFinalizeSandboxBuild;
+    TFunction<void(void)> OnExecuteAutoRetarget;
     TFunction<void(void)> OnFocusSandboxPreviewSubject;
     TFunction<void(void)> OnFocusSandboxObserver;
     TFunction<void(void)> OnFocusSandboxTarget;

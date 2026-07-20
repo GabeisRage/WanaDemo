@@ -45,6 +45,10 @@
     {
       "Name": "PythonScriptPlugin",
       "Enabled": true
+    },
+    {
+      "Name": "IKRig",
+      "Enabled": true
     }
   ]
 }

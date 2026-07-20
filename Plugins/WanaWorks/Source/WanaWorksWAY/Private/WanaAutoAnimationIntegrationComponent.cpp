@@ -409,6 +409,9 @@ UWanaAutoAnimationIntegrationComponent::UWanaAutoAnimationIntegrationComponent()
 {
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.bStartWithTickEnabled = true;
+    // Editor-world ticking so the procedural visible reaction plays when Test drives
+    // impacts on editor subjects, not only in PIE.
+    bTickInEditor = true;
 }
 
 FWanaRuntimeAnimationAdapterState UWanaAutoAnimationIntegrationComponent::GetWanaAnimationRuntimeAdapterState() const
@@ -773,6 +776,7 @@ void UWanaAutoAnimationIntegrationComponent::TickComponent(float DeltaTime, ELev
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
     RefreshAutomaticAnimationIntegration();
+    ApplyProceduralVisibleReaction(DeltaTime);
 }
 
 void UWanaAutoAnimationIntegrationComponent::RefreshAutomaticAnimationIntegration()
@@ -916,4 +920,142 @@ UAnimInstance* UWanaAutoAnimationIntegrationComponent::ResolveLiveAnimInstance(U
     }
 
     return nullptr;
+}
+
+bool UWanaAutoAnimationIntegrationComponent::IsProceduralVisibleReactionActive() const
+{
+    return bVisibleReactionBaseCaptured
+        && (!CurrentVisibleReactionOffsetQuat.IsIdentity(KINDA_SMALL_NUMBER) || CurrentVisibleCrouchOffset > KINDA_SMALL_NUMBER);
+}
+
+void UWanaAutoAnimationIntegrationComponent::RestoreVisibleReactionBaseTransform()
+{
+    USkeletalMeshComponent* MeshComponent = VisibleReactionMesh.Get();
+
+    if (bVisibleReactionBaseCaptured && MeshComponent && IsValid(MeshComponent))
+    {
+        MeshComponent->SetRelativeRotation(VisibleReactionBaseRelativeQuat.Rotator());
+        MeshComponent->SetRelativeLocation(VisibleReactionBaseRelativeLocation);
+    }
+
+    bVisibleReactionBaseCaptured = false;
+    CurrentVisibleReactionOffsetQuat = FQuat::Identity;
+    CurrentVisibleCrouchOffset = 0.0f;
+}
+
+void UWanaAutoAnimationIntegrationComponent::ApplyProceduralVisibleReaction(float DeltaTime)
+{
+    if (!bEnableProceduralVisibleReaction)
+    {
+        RestoreVisibleReactionBaseTransform();
+        return;
+    }
+
+    AActor* OwnerActor = GetOwner();
+    USkeletalMeshComponent* MeshComponent = ResolveIntegrationMesh();
+
+    if (!OwnerActor || !MeshComponent)
+    {
+        RestoreVisibleReactionBaseTransform();
+        VisibleReactionMesh.Reset();
+        return;
+    }
+
+    if (VisibleReactionMesh.Get() != MeshComponent)
+    {
+        RestoreVisibleReactionBaseTransform();
+        VisibleReactionMesh = MeshComponent;
+    }
+
+    const UWanaPhysicalStateComponent* PhysicalState = OwnerActor->FindComponentByClass<UWanaPhysicalStateComponent>();
+    const float Disruption = FMath::Clamp(PhysicalState ? PhysicalState->InstabilityAlpha : RuntimeAdapterInstabilityAlpha, 0.0f, 1.0f);
+    const float Recovery = FMath::Clamp(PhysicalState ? PhysicalState->RecoveryProgress : RuntimeAdapterRecoveryProgress, 0.0f, 1.0f);
+    const bool bBracingNow = PhysicalState ? PhysicalState->bBracing : bRuntimeAdapterBracing;
+    const FVector ImpactDirection = PhysicalState ? PhysicalState->LastImpactDirection : RuntimeAdapterImpactDirection;
+    const float ImpactStrength = FMath::Clamp(PhysicalState ? PhysicalState->LastImpactStrength : RuntimeAdapterImpactStrength, 0.0f, 1.0f);
+
+    VisibleReactionTimeSeconds += DeltaTime;
+
+    // Target offset is expressed in the mesh parent's space so it composes cleanly with
+    // whatever relative rotation the character mesh already uses.
+    FQuat TargetOffsetQuat = FQuat::Identity;
+    float TargetCrouch = 0.0f;
+
+    const bool bHasVisibleDisruption = Disruption > 0.02f;
+
+    if (bHasVisibleDisruption)
+    {
+        const FVector ActorForward = OwnerActor->GetActorForwardVector().GetSafeNormal();
+        const FVector ActorRight = OwnerActor->GetActorRightVector().GetSafeNormal();
+        const FVector PushDirection = ImpactDirection.IsNearlyZero() ? -ActorForward : ImpactDirection.GetSafeNormal();
+        const float ForwardPush = FVector::DotProduct(PushDirection, ActorForward);
+        const float RightPush = FVector::DotProduct(PushDirection, ActorRight);
+        const FVector PushLocal(ForwardPush, RightPush, 0.0f);
+
+        const float LeanEnvelope = Disruption * FMath::Max(ImpactStrength, 0.35f);
+        const float LeanDegrees = MaxVisibleLeanDegrees * LeanEnvelope;
+
+        if (!PushLocal.IsNearlyZero() && LeanDegrees > KINDA_SMALL_NUMBER)
+        {
+            const FVector TiltAxisLocal = FVector::CrossProduct(FVector::UpVector, PushLocal.GetSafeNormal()).GetSafeNormal();
+
+            if (!TiltAxisLocal.IsNearlyZero())
+            {
+                TargetOffsetQuat = FQuat(TiltAxisLocal, FMath::DegreesToRadians(LeanDegrees));
+            }
+        }
+
+        // Wobble decays as recovery completes so the settle reads as regaining balance.
+        const float WobbleEnvelope = Disruption * (1.0f - (Recovery * 0.65f));
+
+        if (WobbleEnvelope > 0.02f)
+        {
+            const float WobbleSpeed = FMath::Lerp(5.0f, 11.0f, Disruption);
+            const float WobbleRollDegrees = FMath::Sin(VisibleReactionTimeSeconds * WobbleSpeed) * VisibleWobbleDegrees * WobbleEnvelope;
+            const float WobblePitchDegrees = FMath::Sin(VisibleReactionTimeSeconds * WobbleSpeed * 0.63f) * VisibleWobbleDegrees * 0.5f * WobbleEnvelope;
+            const FQuat WobbleQuat = FQuat(FVector::ForwardVector, FMath::DegreesToRadians(WobbleRollDegrees))
+                * FQuat(FVector::RightVector, FMath::DegreesToRadians(WobblePitchDegrees));
+            TargetOffsetQuat = TargetOffsetQuat * WobbleQuat;
+        }
+
+        TargetCrouch = Disruption * 6.0f;
+    }
+
+    if (bBracingNow)
+    {
+        // Braced subjects hunch slightly forward and sink into a protective stance.
+        TargetOffsetQuat = FQuat(FVector::RightVector, FMath::DegreesToRadians(6.0f)) * TargetOffsetQuat;
+        TargetCrouch = FMath::Max(TargetCrouch, BracingCrouchOffset);
+    }
+
+    const bool bTargetIsNeutral = TargetOffsetQuat.IsIdentity(KINDA_SMALL_NUMBER) && TargetCrouch <= KINDA_SMALL_NUMBER;
+
+    if (bTargetIsNeutral && !bVisibleReactionBaseCaptured)
+    {
+        return;
+    }
+
+    if (!bVisibleReactionBaseCaptured)
+    {
+        VisibleReactionBaseRelativeQuat = MeshComponent->GetRelativeRotation().Quaternion();
+        VisibleReactionBaseRelativeLocation = MeshComponent->GetRelativeLocation();
+        bVisibleReactionBaseCaptured = true;
+    }
+
+    const float InterpAlpha = FMath::Clamp(DeltaTime * VisibleReactionInterpSpeed, 0.0f, 1.0f);
+    CurrentVisibleReactionOffsetQuat = FQuat::Slerp(CurrentVisibleReactionOffsetQuat, TargetOffsetQuat, InterpAlpha).GetNormalized();
+    CurrentVisibleCrouchOffset = FMath::FInterpTo(CurrentVisibleCrouchOffset, TargetCrouch, DeltaTime, VisibleReactionInterpSpeed);
+
+    const bool bSettledAtNeutral = bTargetIsNeutral
+        && CurrentVisibleReactionOffsetQuat.IsIdentity(0.0004f)
+        && CurrentVisibleCrouchOffset <= 0.05f;
+
+    if (bSettledAtNeutral)
+    {
+        RestoreVisibleReactionBaseTransform();
+        return;
+    }
+
+    MeshComponent->SetRelativeRotation((CurrentVisibleReactionOffsetQuat * VisibleReactionBaseRelativeQuat).Rotator());
+    MeshComponent->SetRelativeLocation(VisibleReactionBaseRelativeLocation - FVector(0.0f, 0.0f, CurrentVisibleCrouchOffset));
 }

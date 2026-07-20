@@ -113,7 +113,8 @@ bool IsLiveWorkspaceLabel(const FString& WorkspaceLabel)
 {
     return WorkspaceLabel.Equals(TEXT("AI"), ESearchCase::IgnoreCase)
         || WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase)
-        || WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase);
+        || WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase);
 }
 
 TSharedRef<SWidget> MakeStudioDivider(float Height = 1.0f, const FLinearColor& DividerColor = StudioDividerColor)
@@ -504,6 +505,11 @@ FText GetWorkspacePreviewTitle(const FString& WorkspaceLabel)
         return LOCTEXT("WanaWorksStudioLevelPreviewCardTitle", "Semantic World Preview");
     }
 
+    if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return LOCTEXT("WanaWorksStudioHealthPreviewCardTitle", "Project Health Overview");
+    }
+
     return LOCTEXT("WanaWorksStudioAIPreviewCardTitle", "Character Intelligence Preview");
 }
 
@@ -517,6 +523,11 @@ FText GetWorkspacePreviewEyebrow(const FString& WorkspaceLabel)
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
     {
         return LOCTEXT("WanaWorksStudioLevelPreviewCardEyebrow", "SEMANTIC WORLD STAGE");
+    }
+
+    if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return LOCTEXT("WanaWorksStudioHealthPreviewCardEyebrow", "PROJECT HEALTH INTELLIGENCE");
     }
 
     return LOCTEXT("WanaWorksStudioAIPreviewCardEyebrow", "CHARACTER INTELLIGENCE STAGE");
@@ -534,6 +545,11 @@ FText GetWorkspacePreviewStandbyTitle(const FString& WorkspaceLabel)
         return LOCTEXT("WanaWorksStudioLevelPreviewStandbyTitle", "Semantic World Stage Ready");
     }
 
+    if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return LOCTEXT("WanaWorksStudioHealthPreviewStandbyTitle", "Project Intelligence Ready");
+    }
+
     return LOCTEXT("WanaWorksStudioAIPreviewStandbyTitle", "Character Intelligence Stage Ready");
 }
 
@@ -549,6 +565,11 @@ FText GetWorkspacePreviewStandbyNote(const FString& WorkspaceLabel)
         return LOCTEXT("WanaWorksStudioLevelPreviewStandbyNote", "Scan environment context or select modular scene assets to begin shaping cover, obstacle, boundary, and movement-space meaning.");
     }
 
+    if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return LOCTEXT("WanaWorksStudioHealthPreviewStandbyNote", "Run Analyze to inspect engine compatibility, project modules, plugin dependencies, WanaWorks outputs, and build readiness.");
+    }
+
     return LOCTEXT("WanaWorksStudioAIPreviewStandbyNote", "Choose an AI Pawn or working subject to wake the intelligence stage with a live character preview and current stack context.");
 }
 
@@ -562,6 +583,11 @@ FText GetWorkspacePreviewActiveLabel(const FString& WorkspaceLabel)
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
     {
         return LOCTEXT("WanaWorksStudioLevelPreviewActiveLabel", "SCENE ANCHOR");
+    }
+
+    if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return LOCTEXT("WanaWorksStudioHealthPreviewActiveLabel", "PROJECT CONTEXT");
     }
 
     return LOCTEXT("WanaWorksStudioAIPreviewActiveLabel", "AI SUBJECT");
@@ -855,6 +881,7 @@ public:
         ThumbnailPool = MakeShared<FAssetThumbnailPool>(16, false);
         const FString WorkspaceLabel = GetSelectedWorkspaceLabel ? GetSelectedWorkspaceLabel() : FString(TEXT("AI"));
         const FLinearColor WorkspaceAccentColor = GetWorkspaceAccentColor(WorkspaceLabel);
+        const bool bProjectHealthWorkspace = WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase);
 
         ChildSlot
         [
@@ -925,6 +952,7 @@ public:
                         .VAlign(VAlign_Center)
                         [
                             SNew(SButton)
+                            .Visibility(bProjectHealthWorkspace ? EVisibility::Collapsed : EVisibility::Visible)
                             .ButtonStyle(FCoreStyle::Get(), "NoBorder")
                             .ContentPadding(FMargin(0.0f))
                             .OnClicked_Lambda([this]()
@@ -951,6 +979,7 @@ public:
                     .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                     [
                         SNew(SWrapBox)
+                        .Visibility(bProjectHealthWorkspace ? EVisibility::Collapsed : EVisibility::Visible)
                         + SWrapBox::Slot()
                         .Padding(FMargin(0.0f, 0.0f, 8.0f, 8.0f))
                         [
@@ -988,6 +1017,7 @@ public:
                     .Padding(0.0f, 14.0f, 0.0f, 0.0f)
                     [
                         SAssignNew(SummaryBox, SBox)
+                        .Visibility(bProjectHealthWorkspace ? EVisibility::Collapsed : EVisibility::Visible)
                     ]
                 ]
             ]
@@ -1000,10 +1030,13 @@ public:
     {
         SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
 
-        UObject* PreviewObject = GetPreviewObject ? GetPreviewObject() : nullptr;
+        const bool bProjectHealthWorkspace = IsProjectHealthWorkspace();
+        UObject* PreviewObject = !bProjectHealthWorkspace && GetPreviewObject ? GetPreviewObject() : nullptr;
 
         const FString CurrentSummary = GetPreviewSummaryText ? GetPreviewSummaryText().ToString() : FString();
-        const FString CurrentViewLabel = GetSelectedPreviewViewLabel ? GetSelectedPreviewViewLabel() : FString();
+        const FString CurrentViewLabel = bProjectHealthWorkspace
+            ? FString(TEXT("Project Scan"))
+            : (GetSelectedPreviewViewLabel ? GetSelectedPreviewViewLabel() : FString());
 
         if (PreviewObject != CachedPreviewObject.Get()
             || CurrentSummary != CachedPreviewSummary
@@ -1014,6 +1047,12 @@ public:
     }
 
 private:
+    bool IsProjectHealthWorkspace() const
+    {
+        return GetSelectedWorkspaceLabel
+            && GetSelectedWorkspaceLabel().Equals(TEXT("Project Health"), ESearchCase::IgnoreCase);
+    }
+
     TSharedRef<SWidget> MakeStageViewButton(const FString& ViewLabel)
     {
         return SNew(SButton)
@@ -1078,9 +1117,12 @@ private:
 
     void RefreshPreviewContent()
     {
-        CachedPreviewObject = GetPreviewObject ? GetPreviewObject() : nullptr;
+        const bool bProjectHealthWorkspace = IsProjectHealthWorkspace();
+        CachedPreviewObject = !bProjectHealthWorkspace && GetPreviewObject ? GetPreviewObject() : nullptr;
         CachedPreviewSummary = GetPreviewSummaryText ? GetPreviewSummaryText().ToString() : FString();
-        CachedPreviewViewLabel = GetSelectedPreviewViewLabel ? GetSelectedPreviewViewLabel() : FString();
+        CachedPreviewViewLabel = bProjectHealthWorkspace
+            ? FString(TEXT("Project Scan"))
+            : (GetSelectedPreviewViewLabel ? GetSelectedPreviewViewLabel() : FString());
 
         if (!PreviewContentBox.IsValid())
         {
@@ -1264,7 +1306,9 @@ private:
                             .AutoWrapText(true)
                             .Font(MakeStudioFont("Regular", 10))
                             .ColorAndOpacity(SecondaryTextColor)
-                            .Text(GetWorkspacePreviewStandbyNote(WorkspaceLabel))
+                            .Text(bProjectHealthWorkspace && !CachedPreviewSummary.IsEmpty()
+                                ? FText::FromString(CachedPreviewSummary)
+                                : GetWorkspacePreviewStandbyNote(WorkspaceLabel))
                         ]
                     ]
                     + SVerticalBox::Slot()
@@ -3618,6 +3662,11 @@ FText GetWorkspaceHeroBadge(const FString& WorkspaceLabel)
         return LOCTEXT("WanaWorksStudioHeroLevelDesignBadge", "LEVEL DESIGN");
     }
 
+    if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return LOCTEXT("WanaWorksStudioHeroProjectHealthBadge", "PROJECT HEALTH");
+    }
+
     return LOCTEXT("WanaWorksStudioHeroFutureWorkspaceBadge", "PLATFORM WORKSPACE");
 }
 
@@ -3636,6 +3685,11 @@ FLinearColor GetWorkspaceAccentColor(const FString& WorkspaceLabel)
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
     {
         return FLinearColor(0.22f, 0.82f, 0.78f, 1.0f);
+    }
+
+    if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return FLinearColor(0.32f, 0.80f, 0.44f, 1.0f);
     }
 
     return FLinearColor(0.48f, 0.62f, 0.92f, 1.0f);
@@ -3772,6 +3826,7 @@ TSharedRef<SWidget> MakeStudioNavigationRail(const FWanaWorksUITabBuilderArgs& A
         { TEXT("AI"), LOCTEXT("WanaWorksStudioNavAISubtitle", "WAI/WAMI, WIT, animation, combat, UI") },
         { TEXT("Character Building"), LOCTEXT("WanaWorksStudioNavCharacterSubtitle", "Rig, animation, identity, build readiness") },
         { TEXT("Level Design"), LOCTEXT("WanaWorksStudioNavLevelSubtitle", "Semantic world meaning and scene context") },
+        { TEXT("Project Health"), LOCTEXT("WanaWorksStudioNavProjectHealthSubtitle", "Engine, module, and output readiness") },
         { TEXT("Logic & Blueprints"), LOCTEXT("WanaWorksStudioNavLogicSubtitle", "UE5-native orchestration lane") },
         { TEXT("Physics"), LOCTEXT("WanaWorksStudioNavPhysicsSubtitle", "Future physical middleware lane") },
         { TEXT("Audio"), LOCTEXT("WanaWorksStudioNavAudioSubtitle", "Future audio integration lane") },
@@ -5208,6 +5263,47 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                     ]
                     + SVerticalBox::Slot()
                     .AutoHeight()
+                    .Padding(0.0f, 0.0f, 0.0f, 16.0f)
+                    [
+                        SNew(SVerticalBox)
+                        + SVerticalBox::Slot()
+                        .AutoHeight()
+                        .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                        [
+                            MakeStringPickerControl(
+                                LOCTEXT("WanaWorksStudioRetargetPickerLabel", "Target Skeletal Mesh (Retarget)"),
+                                Args.TargetRetargetSkeletalMeshOptions,
+                                Args.GetSelectedTargetRetargetSkeletalMeshOption,
+                                Args.OnTargetRetargetSkeletalMeshOptionSelected,
+                                LOCTEXT("WanaWorksStudioRetargetPickerDefault", "(Choose Target Skeletal Mesh)"),
+                                260.0f)
+                        ]
+                        + SVerticalBox::Slot()
+                        .AutoHeight()
+                        [
+                            SNew(SBox)
+                            .WidthOverride(260.0f)
+                            .HeightOverride(30.0f)
+                            [
+                                SNew(SButton)
+                                .HAlign(HAlign_Center)
+                                .VAlign(VAlign_Center)
+                                .ToolTipText(LOCTEXT("WanaWorksStudioRetargetButtonTooltip", "Auto-characterize both skeletons and auto-map retarget chains. Original meshes are never modified."))
+                                .Text(LOCTEXT("WanaWorksStudioRetargetButton", "Auto-Retarget"))
+                                .OnClicked_Lambda([OnExecuteAutoRetarget = Args.OnExecuteAutoRetarget]()
+                                {
+                                    if (OnExecuteAutoRetarget)
+                                    {
+                                        OnExecuteAutoRetarget();
+                                    }
+
+                                    return FReply::Handled();
+                                })
+                            ]
+                        ]
+                    ]
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
                     .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                     [
                         MakeStudioStatusCard(
@@ -5326,6 +5422,7 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                 ]
                 + SVerticalBox::Slot()
                 .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
                 [
                     MakeStudioStatusCard(
                         LOCTEXT("WanaWorksStudioCharacterOutputRightTitle", "Output Status"),
@@ -5333,6 +5430,17 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                         Args.GetSavedSubjectProgressText,
                         StudioSuccessColor,
                         7,
+                        210.0f)
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                [
+                    MakeStudioStatusCard(
+                        LOCTEXT("WanaWorksStudioRetargetReadinessTitle", "Auto-Retarget Readiness"),
+                        LOCTEXT("WanaWorksStudioRetargetReadinessEyebrow", "IK RIG / RETARGETER"),
+                        Args.GetAutoRetargetSummaryText,
+                        FLinearColor(0.62f, 0.38f, 0.86f, 1.0f),
+                        9,
                         210.0f)
                 ]
             ]
@@ -5543,6 +5651,189 @@ TSharedRef<SWidget> BuildLevelDesignWorkspaceBody(const FWanaWorksUITabBuilderAr
         ];
 }
 
+TSharedRef<SWidget> MakeProjectHealthWorkspaceWorkflowStrip(const FWanaWorksUITabBuilderArgs& Args)
+{
+    const FLinearColor HealthAccentColor = GetWorkspaceAccentColor(TEXT("Project Health"));
+
+    const TSharedRef<SWidget> FlowBadge = WanaWorksUIStyle::WanaStatusPill(
+        LOCTEXT("WanaWorksStudioProjectHealthWorkflowBadge", "PROJECT HEALTH"),
+        HealthAccentColor,
+        true,
+        8,
+        FMargin(12.0f, 6.0f));
+
+    const TSharedRef<SWidget> WorkflowTiles =
+        SNew(SHorizontalBox)
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        .Padding(0.0f, 0.0f, 12.0f, 0.0f)
+        [
+            MakeWorkflowTile(
+                TEXT("1"),
+                LOCTEXT("WanaWorksStudioProjectHealthWorkflowEnhanceTile", "Enhance"),
+                LOCTEXT("WanaWorksStudioProjectHealthWorkflowEnhanceText", "Prepare a proposed correction plan from current findings. Project Health V1 does not repair project files automatically."),
+                HealthAccentColor,
+                Args.OnEnhanceWorkspace)
+        ]
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        .Padding(0.0f, 0.0f, 12.0f, 0.0f)
+        [
+            MakeWorkflowTile(
+                TEXT("2"),
+                LOCTEXT("WanaWorksStudioProjectHealthWorkflowTestTile", "Test"),
+                LOCTEXT("WanaWorksStudioProjectHealthWorkflowTestText", "Re-check current health conditions against live project metadata and refresh recommended next actions."),
+                StudioAccentBlueColor,
+                Args.OnTestWorkspace)
+        ]
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        .Padding(0.0f, 0.0f, 12.0f, 0.0f)
+        [
+            MakeWorkflowTile(
+                TEXT("3"),
+                LOCTEXT("WanaWorksStudioProjectHealthWorkflowAnalyzeTile", "Analyze"),
+                LOCTEXT("WanaWorksStudioProjectHealthWorkflowAnalyzeText", "Run a full read-only scan of engine version, project modules, plugin dependencies, and WanaWorks outputs."),
+                HealthAccentColor,
+                Args.OnAnalyzeWorkspace)
+        ]
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        [
+            MakeWorkflowTile(
+                TEXT("4"),
+                LOCTEXT("WanaWorksStudioProjectHealthWorkflowBuildTile", "Build"),
+                LOCTEXT("WanaWorksStudioProjectHealthWorkflowBuildText", "Produce a concise in-app project-health summary. No project files, source, settings, or assets are modified."),
+                StudioAccentGoldColor,
+                Args.OnFinalizeSandboxBuild)
+        ];
+
+    return WanaWorksUIStyle::WanaCard(
+        LOCTEXT("WanaWorksStudioProjectHealthWorkflowEyebrow", "HEALTH FLOW"),
+        LOCTEXT("WanaWorksStudioProjectHealthWorkflowTitle", "Analyze. Enhance. Test. Build."),
+        HealthAccentColor,
+        WorkflowTiles,
+        FlowBadge,
+        true);
+}
+
+TSharedRef<SWidget> BuildProjectHealthWorkspaceBody(const FWanaWorksUITabBuilderArgs& Args)
+{
+    const FString WorkspaceLabel(TEXT("Project Health"));
+    const FLinearColor HealthAccentColor = GetWorkspaceAccentColor(WorkspaceLabel);
+
+    return SNew(SVerticalBox)
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        .Padding(0.0f, 0.0f, 0.0f, 12.0f)
+        [
+            SNew(SSplitter)
+            .PhysicalSplitterHandleSize(2.0f)
+            + SSplitter::Slot()
+            .Value(0.22f)
+            [
+                MakeWorkspaceContextPanel(
+                    LOCTEXT("WanaWorksStudioHealthLeftEyebrow", "PROJECT HEALTH"),
+                    LOCTEXT("WanaWorksStudioHealthLeftTitle", "Understand Your Unreal Project"),
+                    LOCTEXT("WanaWorksStudioHealthLeftDescription", "Scan project structure, engine compatibility, modules, dependencies, assets, and build readiness. Run Analyze to begin a full project-health scan. This workspace never modifies project files or assets."),
+                    HealthAccentColor,
+                    MakeStudioStatusCard(
+                        LOCTEXT("WanaWorksStudioHealthOverviewTitle", "Project Overview"),
+                        LOCTEXT("WanaWorksStudioHealthOverviewEyebrow", "SCAN STATE"),
+                        Args.GetProjectHealthOverviewText,
+                        HealthAccentColor,
+                        7,
+                        320.0f))
+            ]
+            + SSplitter::Slot()
+            .Value(0.48f)
+            [
+                MakeWorkspaceStageShell(
+                    Args,
+                    WorkspaceLabel,
+                    LOCTEXT("WanaWorksStudioHealthStageEyebrow", "PROJECT-AWARE DIAGNOSIS"),
+                    LOCTEXT("WanaWorksStudioHealthStageTitle", "Project Health Scan"),
+                    LOCTEXT("WanaWorksStudioHealthStageDescription", "WanaWorks reads engine version, project/plugin descriptors, and module dependency metadata to explain risks in production-intelligence language - what was detected, why it matters in Unreal, what may be affected, the safest next route, and how to avoid it next time. Read-only: no source, settings, or assets are changed."),
+                    {
+                        LOCTEXT("WanaWorksStudioHealthStageChipOne", "Engine Version"),
+                        LOCTEXT("WanaWorksStudioHealthStageChipTwo", "Modules"),
+                        LOCTEXT("WanaWorksStudioHealthStageChipThree", "Plugin Dependencies"),
+                        LOCTEXT("WanaWorksStudioHealthStageChipFour", "WanaWorks Outputs"),
+                        LOCTEXT("WanaWorksStudioHealthStageChipFive", "Build Readiness")
+                    })
+            ]
+            + SSplitter::Slot()
+            .Value(0.30f)
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
+                [
+                    MakeStudioStatusCard(
+                        LOCTEXT("WanaWorksStudioHealthEngineTitle", "Engine and Compatibility"),
+                        LOCTEXT("WanaWorksStudioHealthEngineEyebrow", "ENGINE ADAPTER: UNREAL"),
+                        Args.GetProjectHealthEngineText,
+                        HealthAccentColor,
+                        6,
+                        200.0f)
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
+                [
+                    MakeStudioStatusCard(
+                        LOCTEXT("WanaWorksStudioHealthModulesTitle", "Modules and Dependencies"),
+                        LOCTEXT("WanaWorksStudioHealthModulesEyebrow", "PROJECT / PLUGIN METADATA"),
+                        Args.GetProjectHealthModulesText,
+                        StudioAccentBlueColor,
+                        6,
+                        200.0f)
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
+                [
+                    MakeStudioStatusCard(
+                        LOCTEXT("WanaWorksStudioHealthAssetsTitle", "Assets and Outputs"),
+                        LOCTEXT("WanaWorksStudioHealthAssetsEyebrow", "WANAWORKS-OWNED REPORTS"),
+                        Args.GetProjectHealthAssetsText,
+                        StudioAccentGoldColor,
+                        5,
+                        200.0f)
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 14.0f)
+                [
+                    MakeStudioStatusCard(
+                        LOCTEXT("WanaWorksStudioHealthBuildTitle", "Build Readiness"),
+                        LOCTEXT("WanaWorksStudioHealthBuildEyebrow", "PACKAGING CONFIDENCE"),
+                        Args.GetProjectHealthBuildReadinessText,
+                        StudioSuccessColor,
+                        5,
+                        200.0f)
+                ]
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                [
+                    MakeStudioStatusCard(
+                        LOCTEXT("WanaWorksStudioHealthActionsTitle", "Next Actions"),
+                        LOCTEXT("WanaWorksStudioHealthActionsEyebrow", "WORKFLOW ACTION PLANNER"),
+                        Args.GetProjectHealthNextActionsText,
+                        HealthAccentColor,
+                        9,
+                        200.0f)
+                ]
+            ]
+        ]
+        + SVerticalBox::Slot()
+        .AutoHeight()
+        [
+            MakeProjectHealthWorkspaceWorkflowStrip(Args)
+        ];
+}
+
 TSharedRef<SWidget> BuildWorkspaceBodyForLabel(const FWanaWorksUITabBuilderArgs& Args, const FString& WorkspaceLabel)
 {
     if (WorkspaceLabel.Equals(TEXT("AI"), ESearchCase::IgnoreCase))
@@ -5553,6 +5844,11 @@ TSharedRef<SWidget> BuildWorkspaceBodyForLabel(const FWanaWorksUITabBuilderArgs&
     if (WorkspaceLabel.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase))
     {
         return BuildCharacterBuildingWorkspaceBody(Args);
+    }
+
+    if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return BuildProjectHealthWorkspaceBody(Args);
     }
 
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))

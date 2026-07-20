@@ -15,6 +15,9 @@ UWanaPhysicalStateComponent::UWanaPhysicalStateComponent()
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.bStartWithTickEnabled = false;
     PrimaryComponentTick.SetTickFunctionEnable(false);
+    // Editor-world ticking so the recovery arc interpolates when Test drives impacts
+    // on editor subjects, not only in PIE.
+    bTickInEditor = true;
 }
 
 void UWanaPhysicalStateComponent::BeginPlay()

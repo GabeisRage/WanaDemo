@@ -12,6 +12,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Engine/Blueprint.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Controller.h"
@@ -42,6 +43,42 @@ FWanaCommandResponse MakeEditorFailureResponse(const FString& StatusMessage, con
     Response.StatusMessage = StatusMessage;
     Response.OutputLines.Add(OutputLine);
     return Response;
+}
+
+const FName WanaWorksSandboxFolderPath(TEXT("WanaWorks/Sandbox"));
+
+FName BuildWanaWorksSandboxSourceTag(const AActor* SourceActor)
+{
+    return SourceActor ? FName(*FString::Printf(TEXT("WanaWorksSourceActor:%s"), *SourceActor->GetName())) : NAME_None;
+}
+
+bool IsWanaWorksSandboxActor(const AActor* Actor)
+{
+    return Actor && Actor->GetFolderPath() == WanaWorksSandboxFolderPath;
+}
+
+// Finds a previously-created working copy for SourceActor so repeated Enhance/Test presses
+// reuse it instead of piling up a fresh duplicate every click.
+AActor* FindExistingWanaWorksSandboxCopy(UWorld* World, const AActor* SourceActor)
+{
+    if (!World || !SourceActor)
+    {
+        return nullptr;
+    }
+
+    const FName SourceTag = BuildWanaWorksSandboxSourceTag(SourceActor);
+
+    for (TActorIterator<AActor> It(World); It; ++It)
+    {
+        AActor* Candidate = *It;
+
+        if (Candidate && IsValid(Candidate) && IsWanaWorksSandboxActor(Candidate) && Candidate->Tags.Contains(SourceTag))
+        {
+            return Candidate;
+        }
+    }
+
+    return nullptr;
 }
 
 FString GetRelationshipStateDisplayLabel(EWAYRelationshipState RelationshipState)
@@ -2762,9 +2799,45 @@ FWanaCommandResponse ExecuteCreateSandboxDuplicateCommand()
         return MakeEditorFailureResponse(TEXT("Status: Working copy failed."), TEXT("Could not access the editor world for working-copy creation."));
     }
 
+    // The selected actor is already a WanaWorks working copy - reuse it instead of duplicating
+    // a duplicate every time Enhance/Test is pressed.
+    if (IsWanaWorksSandboxActor(SelectedActor))
+    {
+        FWanaCommandResponse ReuseResponse;
+        ReuseResponse.bSucceeded = true;
+        ReuseResponse.StatusMessage = TEXT("Status: Reused existing working copy.");
+        ReuseResponse.OutputLines.Add(FString::Printf(TEXT("Active Subject: %s"), *SelectedActor->GetActorNameOrLabel()));
+        ReuseResponse.OutputLines.Add(TEXT("Workflow Path: Reuse Working Copy"));
+        ReuseResponse.OutputLines.Add(TEXT("Subject Mode: Working copy"));
+        ReuseResponse.OutputLines.Add(TEXT("Compatibility Notes: The already-selected working copy was reused instead of creating another duplicate."));
+        return ReuseResponse;
+    }
+
+    // An existing working copy for this source actor was found elsewhere in the level - reuse
+    // it instead of creating another one.
+    if (AActor* ExistingCopy = FindExistingWanaWorksSandboxCopy(EditorWorld, SelectedActor))
+    {
+        GEditor->SelectNone(false, true, false);
+        GEditor->SelectActor(ExistingCopy, true, true, true);
+        GEditor->NoteSelectionChange();
+
+        FWanaCommandResponse ReuseResponse;
+        ReuseResponse.bSucceeded = true;
+        ReuseResponse.StatusMessage = TEXT("Status: Reused existing working copy.");
+        ReuseResponse.OutputLines.Add(FString::Printf(TEXT("Selected Actor: %s"), *SelectedActor->GetActorNameOrLabel()));
+        ReuseResponse.OutputLines.Add(TEXT("Workflow Path: Reuse Working Copy"));
+        ReuseResponse.OutputLines.Add(TEXT("Subject Mode: Working copy"));
+        ReuseResponse.OutputLines.Add(FString::Printf(TEXT("Active Subject: %s"), *ExistingCopy->GetActorNameOrLabel()));
+        ReuseResponse.OutputLines.Add(TEXT("Compatibility Notes: An existing working copy for this subject was found and reused instead of creating another duplicate."));
+        return ReuseResponse;
+    }
+
     const FTransform SourceTransform = SelectedActor->GetActorTransform();
     FTransform DuplicateTransform = SourceTransform;
-    DuplicateTransform.AddToTranslation(FVector(180.0f, 0.0f, 0.0f));
+    // Offset diagonally and turn to face back toward the original so the working copy reads as
+    // a separate staging spot rather than an identical twin standing shoulder-to-shoulder.
+    DuplicateTransform.AddToTranslation(FVector(350.0f, 350.0f, 0.0f));
+    DuplicateTransform.ConcatenateRotation(FRotator(0.0f, 180.0f, 0.0f).Quaternion());
 
     FScopedTransaction Transaction(LOCTEXT("WanaWorksCreateSandboxDuplicateTransaction", "Create WanaWorks Working Copy"));
     AActor* DuplicateActor = GEditor->AddActor(SelectedActor->GetLevel(), SelectedActor->GetClass(), DuplicateTransform);
@@ -2778,7 +2851,8 @@ FWanaCommandResponse ExecuteCreateSandboxDuplicateCommand()
     DuplicateActor->SetFlags(RF_Transactional);
     DuplicateActor->Modify();
     DuplicateActor->SetActorLabel(FString::Printf(TEXT("WW_Sandbox_%s"), *SelectedActor->GetActorNameOrLabel()), true);
-    DuplicateActor->SetFolderPath(FName(TEXT("WanaWorks/Sandbox")));
+    DuplicateActor->SetFolderPath(WanaWorksSandboxFolderPath);
+    DuplicateActor->Tags.AddUnique(BuildWanaWorksSandboxSourceTag(SelectedActor));
 
     const FWanaAutomaticAnimationPreparationResult AutomaticAnimationPreparation = PrepareAutomaticAnimationIntegrationForActor(DuplicateActor);
     DuplicateActor->MarkPackageDirty();

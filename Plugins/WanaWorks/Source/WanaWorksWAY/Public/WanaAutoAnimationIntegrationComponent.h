@@ -284,6 +284,26 @@ public:
     UFUNCTION(BlueprintPure, Category = "Wana Works|Animation", meta = (DisplayName = "Get Runtime Adapter Detail"))
     FString GetRuntimeAdapterDetail() const { return RuntimeAdapterDetail; }
 
+    UFUNCTION(BlueprintPure, Category = "Wana Works|Visible Reaction", meta = (DisplayName = "Is Procedural Visible Reaction Active"))
+    bool IsProceduralVisibleReactionActive() const;
+
+    // Procedural visible reaction: plugin-owned lean/stagger/recovery motion applied to the
+    // resolved skeletal mesh transform so physical state is observable without Anim BP edits.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|Visible Reaction")
+    bool bEnableProceduralVisibleReaction = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|Visible Reaction", meta = (ClampMin = "0.0", ClampMax = "45.0"))
+    float MaxVisibleLeanDegrees = 16.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|Visible Reaction", meta = (ClampMin = "0.0", ClampMax = "30.0"))
+    float VisibleWobbleDegrees = 7.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|Visible Reaction", meta = (ClampMin = "0.0", ClampMax = "40.0"))
+    float BracingCrouchOffset = 10.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wana Works|Visible Reaction", meta = (ClampMin = "0.5", ClampMax = "30.0"))
+    float VisibleReactionInterpSpeed = 9.0f;
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wana Works|Animation")
     EWAYAutomaticAnimationIntegrationStatus AutomaticIntegrationStatus = EWAYAutomaticAnimationIntegrationStatus::NotSupported;
 
@@ -423,4 +443,14 @@ private:
     UWanaAnimationAdapterReportAsset* ResolvePersistentAdapterReportAsset() const;
     USkeletalMeshComponent* ResolveIntegrationMesh() const;
     UAnimInstance* ResolveLiveAnimInstance(USkeletalMeshComponent*& OutMeshComponent, UClass*& OutAnimClass) const;
+    void ApplyProceduralVisibleReaction(float DeltaTime);
+    void RestoreVisibleReactionBaseTransform();
+
+    TWeakObjectPtr<USkeletalMeshComponent> VisibleReactionMesh;
+    bool bVisibleReactionBaseCaptured = false;
+    FQuat VisibleReactionBaseRelativeQuat = FQuat::Identity;
+    FVector VisibleReactionBaseRelativeLocation = FVector::ZeroVector;
+    FQuat CurrentVisibleReactionOffsetQuat = FQuat::Identity;
+    float CurrentVisibleCrouchOffset = 0.0f;
+    float VisibleReactionTimeSeconds = 0.0f;
 };

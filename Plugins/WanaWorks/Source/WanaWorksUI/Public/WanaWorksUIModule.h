@@ -38,6 +38,7 @@ private:
     void HandleCharacterBuildingProfileOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleCharacterPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleAIPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleTargetRetargetSkeletalMeshOptionSelected(TSharedPtr<FString> SelectedOption);
     void RegisterEditorLauncherMenus();
     void OpenWanaWorksStudioTab();
     bool SyncSelectedWorkflowPresetIntoControls(FString* OutPresetLabel = nullptr, FString* OutPresetNotes = nullptr);
@@ -71,6 +72,8 @@ private:
     void UseSelectedActorAsSandboxTarget();
     void EvaluateSandboxPair();
     void FinalizeSandboxBuild();
+    void ExecuteAutoRetarget();
+    void RefreshProjectHealthWorkspaceState(const FString& ActionVerb);
     void FocusSandboxPreviewSubject();
     void FocusSandboxObserver();
     void FocusSandboxTarget();
@@ -87,6 +90,7 @@ private:
     TSharedPtr<FString> GetSelectedEnhancementWorkflowOption() const;
     TSharedPtr<FString> GetSelectedCharacterPawnAssetOption() const;
     TSharedPtr<FString> GetSelectedAIPawnAssetOption() const;
+    TSharedPtr<FString> GetSelectedTargetRetargetSkeletalMeshOption() const;
     TSharedPtr<FString> GetSelectedIdentitySeedStateOption();
     TSharedPtr<FString> GetSelectedRelationshipStateOption() const;
     TSharedPtr<FString> GetSelectedCharacterIntelligenceIdentityRoleOption() const;
@@ -141,6 +145,13 @@ private:
     FText GetCharacterIntelligenceControlSummaryText() const;
     FText GetCharacterBuildingProfileSummaryText() const;
     FText GetCharacterBuildingControlSummaryText() const;
+    FText GetAutoRetargetSummaryText() const;
+    FText GetProjectHealthOverviewText() const;
+    FText GetProjectHealthEngineText() const;
+    FText GetProjectHealthModulesText() const;
+    FText GetProjectHealthAssetsText() const;
+    FText GetProjectHealthBuildReadinessText() const;
+    FText GetProjectHealthNextActionsText() const;
     FString GetSharedCharacterStackSummaryText() const;
     FString GetSharedCharacterStackStatusLabel() const;
     bool ResolvePreferredWITReadinessPair(AActor*& OutObserverActor, AActor*& OutTargetActor, FString& OutPairSourceLabel, bool& bOutTargetFallsBackToObserver) const;
@@ -166,6 +177,7 @@ private:
     FString SelectedEnhancementWorkflowLabel;
     FString SelectedCharacterPawnAssetLabel;
     FString SelectedAIPawnAssetLabel;
+    FString SelectedTargetRetargetSkeletalMeshLabel;
     FString SelectedCharacterIntelligenceIdentityRoleLabel;
     FString SelectedCharacterIntelligenceRelationshipLabel;
     FString SelectedCharacterIntelligenceTargetLabel;
@@ -182,8 +194,10 @@ private:
     TArray<TSharedPtr<FString>> CharacterIntelligenceRelationshipOptions;
     TArray<TSharedPtr<FString>> CharacterIntelligenceTargetOptions;
     TArray<TSharedPtr<FString>> CharacterBuildingProfileOptions;
+    TArray<TSharedPtr<FString>> TargetRetargetSkeletalMeshOptions;
     TMap<FString, FString> CharacterPawnAssetPathByLabel;
     TMap<FString, FString> AIPawnAssetPathByLabel;
+    TMap<FString, FString> TargetRetargetSkeletalMeshPathByLabel;
     TWeakObjectPtr<AActor> CachedIdentityActor;
     TWeakObjectPtr<AActor> LastEnhancementResultsActor;
     TWeakObjectPtr<AActor> SandboxObserverActor;
@@ -247,6 +261,9 @@ private:
     FString LastGeneratedAnimationAdapterStatus;
     FString LastGeneratedAnimationAdapterOutputPath;
     FString LastGeneratedAnimationAdapterSummary;
+    bool bLastAutoRetargetInitialized = false;
+    FString LastAutoRetargetStatusLabel;
+    FString LastAutoRetargetSummaryText;
 
     static const FName WanaWorksTabName;
 };

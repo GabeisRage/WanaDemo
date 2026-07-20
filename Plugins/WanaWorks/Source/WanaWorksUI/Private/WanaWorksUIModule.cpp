@@ -34,7 +34,9 @@
 #include "Widgets/InvalidateWidgetReason.h"
 #include "WorkspaceMenuStructure.h"
 #include "WorkspaceMenuStructureModule.h"
+#include "WanaWorksAutoRetargetActions.h"
 #include "WanaWorksCommandDispatcher.h"
+#include "WanaWorksProjectHealthActions.h"
 #include "WanaWorksUIEditorActions.h"
 #include "WanaWorksUIFormattingUtils.h"
 #include "WanaWorksUISummaryText.h"
@@ -87,6 +89,7 @@ const TCHAR* SavedWorkflowPresetFactionTagKey = TEXT("SavedWorkflowPresetFaction
 const TCHAR* SavedCustomWorkflowPresetLabel = TEXT("Saved Custom Preset");
 const TCHAR* CharacterPawnPickerDefaultLabel = TEXT("(Choose Character Blueprint)");
 const TCHAR* AIPawnPickerDefaultLabel = TEXT("(Choose AI Pawn)");
+const TCHAR* TargetRetargetSkeletalMeshDefaultLabel = TEXT("(Choose Target Skeletal Mesh)");
 const TCHAR* CharacterBuildingDefaultProfileLabel = TEXT("Custom / Unassigned");
 
 struct FProjectAssetPickerEntry
@@ -758,15 +761,32 @@ FString BuildWanaAnimationAdapterReadinessDetail(
             Snapshot.RuntimeAnimationAdapterImpactStrength,
             Snapshot.bRuntimeAnimationAdapterBracing ? TEXT("yes") : TEXT("no"))
         : FString(TEXT("runtime adapter values unavailable until Enhance prepares the WanaWorks adapter component"));
+    const FString RuntimeAdapterImpactDirectionLabel = Snapshot.RuntimeAnimationAdapterImpactStrength > KINDA_SMALL_NUMBER
+        ? Snapshot.RuntimeAnimationAdapterImpactDirection.GetSafeNormal().ToCompactString()
+        : FString(TEXT("no active impact direction"));
+    const FString RuntimeAdapterBehaviorSignals = Snapshot.bHasRuntimeAnimationAdapterComponent
+        ? FString::Printf(
+            TEXT("intent=%s, fallback=%s, reaction=%s, relationship=%s, recommended=%s, impact dir=%s, needs recovery=%s, can move=%s, can attack=%s"),
+            Snapshot.RuntimeAnimationAdapterBehaviorIntent.IsEmpty() ? TEXT("(none)") : *Snapshot.RuntimeAnimationAdapterBehaviorIntent,
+            Snapshot.RuntimeAnimationAdapterFallbackHint.IsEmpty() ? TEXT("(none)") : *Snapshot.RuntimeAnimationAdapterFallbackHint,
+            *UIFmt::GetReactionStateSummaryLabel(Snapshot.RuntimeAnimationAdapterReactionState),
+            UIFmt::GetRelationshipStateLabel(Snapshot.RuntimeAnimationAdapterRelationshipState),
+            *UIFmt::GetBehaviorPresetSummaryLabel(Snapshot.RuntimeAnimationAdapterRecommendedBehavior),
+            *RuntimeAdapterImpactDirectionLabel,
+            Snapshot.bRuntimeAnimationAdapterNeedsRecovery ? TEXT("yes") : TEXT("no"),
+            Snapshot.bRuntimeAnimationAdapterCanCommitToMovement ? TEXT("yes") : TEXT("no"),
+            Snapshot.bRuntimeAnimationAdapterCanCommitToAttack ? TEXT("yes") : TEXT("no"))
+        : FString(TEXT("behavior signals unavailable until Enhance prepares the WanaWorks adapter component"));
 
     return FString::Printf(
-        TEXT("Adapter: %s. Runtime Bridge: %s. Hook: %s. Report: %s. Strategy: %s. Runtime Values: %s. Stack: %s, mesh %s, skeleton %s, anim %s. Shared Anim BP: %s. Direct Graph Edit Safety: %s. Providers: hook %s, physical %s. Auto-wire: %d supported / %d applied. Hook Inputs: %s. Output: %s. Detail: %s Preserved: original Anim BP is not edited or reassigned."),
+        TEXT("Adapter: %s. Runtime Bridge: %s. Hook: %s. Report: %s. Strategy: %s. Runtime Values: %s. Runtime Behavior Signals: %s. Stack: %s, mesh %s, skeleton %s, anim %s. Shared Anim BP: %s. Direct Graph Edit Safety: %s. Providers: hook %s, physical %s. Auto-wire: %d supported / %d applied. Hook Inputs: %s. Output: %s. Detail: %s Preserved: original Anim BP is not edited or reassigned."),
         *AdapterStatus,
         *RuntimeAdapterStatus,
         Snapshot.bRuntimeAnimationAdapterHookReadable ? TEXT("Ready") : TEXT("Needs Enhance"),
         Snapshot.bRuntimeAnimationAdapterReportReadable ? TEXT("Readable") : (bAdapterRecordGenerated ? TEXT("Ready after Build refresh") : TEXT("Not Found")),
         *RecommendedStrategy,
         *RuntimeAdapterInputs,
+        *RuntimeAdapterBehaviorSignals,
         Snapshot.SelectedActorLabel.IsEmpty() ? TEXT("(none)") : *Snapshot.SelectedActorLabel,
         Snapshot.SkeletalMeshLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.SkeletalMeshLabel,
         Snapshot.SkeletonLabel.IsEmpty() ? TEXT("Unknown") : *Snapshot.SkeletonLabel,
@@ -2481,6 +2501,18 @@ struct FWanaWorkflowActionPlanItem
     bool bExecutableNow = false;
     bool bInformationalOnly = false;
     FString RelatedPath;
+    // Whether this action requires a step performed by hand in the target engine editor rather
+    // than a WanaWorks workflow button (derived from RecommendedWorkflowStep). Engine-neutral by
+    // design - Unreal-specific display wording (e.g. "Manual Unreal Step") is derived from this
+    // plus EngineAdapterId at display time, not embedded in the field itself.
+    bool bRequiresManualEngineAction = false;
+    // Whether this item describes a currently unresolved gap (true) or an informational/readiness
+    // confirmation (false). This reflects current state only - WanaWorks does not yet persist
+    // prior action-plan snapshots, so it cannot prove a previously detected issue was corrected.
+    bool bActionRequired = false;
+    // Neutral engine identifier so the action-plan model does not assume Unreal is the only
+    // consumer as future engine adapters are added. Unreal-only today by design.
+    FString EngineAdapterId = TEXT("Unreal");
 };
 
 void TrackAnalysisStatus(FWanaAnalysisResult& Result, const FString& Status)
@@ -2600,6 +2632,10 @@ void AddWorkflowActionPlanItem(
     Item.bExecutableNow = bExecutableNow;
     Item.bInformationalOnly = bInformationalOnly;
     Item.RelatedPath = RelatedPath;
+    Item.bRequiresManualEngineAction = Item.RecommendedWorkflowStep.Equals(TEXT("Manual Unreal Step"), ESearchCase::IgnoreCase);
+    // Actionable items describe a currently unresolved gap; informational items confirm current
+    // readiness. This mirrors the convention every existing call site already follows.
+    Item.bActionRequired = !bInformationalOnly;
     ActionPlan.Add(Item);
 }
 
@@ -2610,7 +2646,16 @@ FString BuildWorkflowActionPlanAvailabilityLabel(const FWanaWorkflowActionPlanIt
         return TEXT("Info");
     }
 
-    return Item.bExecutableNow ? TEXT("Now") : TEXT("Manual or future automation");
+    if (Item.bExecutableNow)
+    {
+        return TEXT("Now");
+    }
+
+    // Unreal-specific wording derived here from the engine-neutral field + EngineAdapterId,
+    // not embedded in the field itself.
+    return Item.bRequiresManualEngineAction && Item.EngineAdapterId.Equals(TEXT("Unreal"), ESearchCase::IgnoreCase)
+        ? TEXT("Manual Unreal Step")
+        : (Item.bRequiresManualEngineAction ? TEXT("Manual Engine Step") : TEXT("Future Automation"));
 }
 
 FString FormatWorkflowActionPlanItem(const FWanaWorkflowActionPlanItem& Item)
@@ -3004,6 +3049,83 @@ void BuildLevelDesignWorkflowActionPlan(
             TEXT("Low"),
             true,
             false);
+    }
+}
+
+// Translates verified Project Health findings into the existing Workflow Action Planner model.
+// Does not create a second action-planning system - reuses AddWorkflowActionPlanItem exactly
+// like the other three workspace planners.
+void BuildProjectHealthWorkflowActionPlan(
+    TArray<FWanaWorkflowActionPlanItem>& ActionPlan,
+    const FWanaProjectHealthScanResult& ScanResult,
+    bool bHasAnyPersistentWITReport,
+    bool bHasAnyAnimationAdapterReport)
+{
+    for (const FWanaProjectHealthFinding& Finding : ScanResult.Findings)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            Finding.Title,
+            Finding.Category,
+            Finding.Severity,
+            Finding.ProblemDescription,
+            TEXT("Project Health"),
+            Finding.bRequiresManualEngineAction ? TEXT("Manual Unreal Step") : (Finding.bCanWanaWorksActNow ? TEXT("Enhance") : TEXT("Analyze")),
+            Finding.CurrentStateStatus,
+            Finding.Severity,
+            Finding.bCanWanaWorksActNow,
+            Finding.Severity.Equals(TEXT("Informational"), ESearchCase::IgnoreCase),
+            Finding.RelatedPath);
+    }
+
+    if (!bHasAnyPersistentWITReport)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Generate WIT Context"),
+            TEXT("WIT / Level Design"),
+            TEXT("Medium"),
+            TEXT("No persistent WIT report was found anywhere in the project yet, limiting environment-aware Character Intelligence everywhere."),
+            TEXT("Project Health"),
+            TEXT("Build"),
+            TEXT("Missing"),
+            TEXT("Low"),
+            true,
+            false,
+            WanaWITEnvironmentReportRootPath);
+    }
+
+    if (!bHasAnyAnimationAdapterReport)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Generate WanaAnimation Adapter Report"),
+            TEXT("WanaWorks Outputs"),
+            TEXT("Low"),
+            TEXT("No WanaAnimation adapter report has been generated yet in this project, so runtime animation adapter readiness has not been proven anywhere."),
+            TEXT("Project Health"),
+            TEXT("Enhance"),
+            TEXT("Missing"),
+            TEXT("Low"),
+            true,
+            false,
+            WanaAnimationAdapterReportRootPath);
+    }
+
+    if (ScanResult.CriticalCount == 0 && ScanResult.HighCount == 0 && ScanResult.MediumCount == 0 && ScanResult.LowCount == 0)
+    {
+        AddWorkflowActionPlanItem(
+            ActionPlan,
+            TEXT("Project Structure Ready"),
+            TEXT("Project Health"),
+            TEXT("Informational"),
+            TEXT("WanaWorks found no confirmed module-structure or plugin blockers in the current scan."),
+            TEXT("Project Health"),
+            TEXT("Test"),
+            TEXT("Ready"),
+            TEXT("Low"),
+            true,
+            true);
     }
 }
 
@@ -5250,6 +5372,7 @@ void FWanaWorksUIModule::LoadSavedSubjectProgress()
 
 void FWanaWorksUIModule::HandleCharacterPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption)
 {
+    const FString PreviousLabel = SelectedCharacterPawnAssetLabel;
     SelectedCharacterPawnAssetLabel = SelectedOption.IsValid() ? *SelectedOption : FString();
 
     if (SelectedCharacterPawnAssetLabel.Equals(CharacterPawnPickerDefaultLabel))
@@ -5262,12 +5385,21 @@ void FWanaWorksUIModule::HandleCharacterPawnAssetOptionSelected(TSharedPtr<FStri
         SelectedWorkspaceLabel = TEXT("Character Building");
     }
 
+    if (!SelectedCharacterPawnAssetLabel.Equals(PreviousLabel))
+    {
+        // A different subject was picked - stop pinning the preview stage to whichever working
+        // copy or build result was active for the previous subject so it reflects the new pick.
+        SandboxObserverActor.Reset();
+        LastEnhancementResultsActor.Reset();
+    }
+
     bWorkspaceAnalysisInitialized = false;
     RefreshReactiveUI(true);
 }
 
 void FWanaWorksUIModule::HandleAIPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption)
 {
+    const FString PreviousLabel = SelectedAIPawnAssetLabel;
     SelectedAIPawnAssetLabel = SelectedOption.IsValid() ? *SelectedOption : FString();
 
     if (SelectedAIPawnAssetLabel.Equals(AIPawnPickerDefaultLabel))
@@ -5280,7 +5412,28 @@ void FWanaWorksUIModule::HandleAIPawnAssetOptionSelected(TSharedPtr<FString> Sel
         SelectedWorkspaceLabel = TEXT("AI");
     }
 
+    if (!SelectedAIPawnAssetLabel.Equals(PreviousLabel))
+    {
+        // A different subject was picked - stop pinning the preview stage to whichever working
+        // copy or build result was active for the previous subject so it reflects the new pick.
+        SandboxObserverActor.Reset();
+        LastEnhancementResultsActor.Reset();
+    }
+
     bWorkspaceAnalysisInitialized = false;
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::HandleTargetRetargetSkeletalMeshOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    SelectedTargetRetargetSkeletalMeshLabel = SelectedOption.IsValid() ? *SelectedOption : FString();
+
+    if (SelectedTargetRetargetSkeletalMeshLabel.Equals(TargetRetargetSkeletalMeshDefaultLabel))
+    {
+        SelectedTargetRetargetSkeletalMeshLabel.Reset();
+    }
+
+    bLastAutoRetargetInitialized = false;
     RefreshReactiveUI(true);
 }
 
@@ -5347,14 +5500,33 @@ void FWanaWorksUIModule::RefreshProjectAssetPickerOptions()
 {
     CharacterPawnAssetOptions.Reset();
     AIPawnAssetOptions.Reset();
+    TargetRetargetSkeletalMeshOptions.Reset();
     CharacterPawnAssetPathByLabel.Reset();
     AIPawnAssetPathByLabel.Reset();
+    TargetRetargetSkeletalMeshPathByLabel.Reset();
 
     AddAssetPickerDefaultOption(CharacterPawnAssetOptions, CharacterPawnPickerDefaultLabel);
     AddAssetPickerDefaultOption(AIPawnAssetOptions, AIPawnPickerDefaultLabel);
+    AddAssetPickerDefaultOption(TargetRetargetSkeletalMeshOptions, TargetRetargetSkeletalMeshDefaultLabel);
 
     FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
     IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+
+    TArray<FAssetData> SkeletalMeshAssets;
+    AssetRegistry.GetAssetsByClass(USkeletalMesh::StaticClass()->GetClassPathName(), SkeletalMeshAssets, true);
+
+    TArray<FProjectAssetPickerEntry> TargetRetargetSkeletalMeshEntries;
+
+    for (const FAssetData& AssetData : SkeletalMeshAssets)
+    {
+        TargetRetargetSkeletalMeshEntries.Add(FProjectAssetPickerEntry
+        {
+            MakeProjectAssetDisplayLabel(AssetData),
+            AssetData.ToSoftObjectPath().ToString()
+        });
+    }
+
+    AddSortedAssetPickerOptions(TargetRetargetSkeletalMeshEntries, TargetRetargetSkeletalMeshOptions, TargetRetargetSkeletalMeshPathByLabel);
 
     TArray<FAssetData> BlueprintAssets;
     AssetRegistry.GetAssetsByClass(UBlueprint::StaticClass()->GetClassPathName(), BlueprintAssets, true);
@@ -5483,7 +5655,8 @@ UObject* FWanaWorksUIModule::GetSandboxPreviewObject() const
 {
     const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
 
-    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
     {
         return nullptr;
     }
@@ -5506,7 +5679,9 @@ UObject* FWanaWorksUIModule::GetSandboxPreviewObject() const
 
 bool FWanaWorksUIModule::IsActorCompatibleWithWorkspacePreview(const AActor* Actor, const FString& WorkspaceLabel) const
 {
-    if (!IsValid(Actor) || WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    if (!IsValid(Actor)
+        || WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
     {
         return false;
     }
@@ -5597,7 +5772,8 @@ bool FWanaWorksUIModule::ResolvePreferredSandboxPreviewActor(AActor*& OutActor, 
     OutPreviewModeLabel = TEXT("Picked subject preview");
     const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
 
-    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
     {
         return false;
     }
@@ -6760,6 +6936,12 @@ void FWanaWorksUIModule::EnhanceActiveWorkspace()
 {
     const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
 
+    if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        RefreshProjectHealthWorkspaceState(TEXT("Enhance"));
+        return;
+    }
+
     if (!HasCurrentWorkspaceAnalysis())
     {
         AnalyzeActiveWorkspace();
@@ -6976,6 +7158,12 @@ void FWanaWorksUIModule::EnhanceActiveWorkspace()
 void FWanaWorksUIModule::TestActiveWorkspace()
 {
     const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
+
+    if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        RefreshProjectHealthWorkspaceState(TEXT("Test"));
+        return;
+    }
 
     if (!HasCurrentWorkspaceAnalysis())
     {
@@ -7919,6 +8107,13 @@ void FWanaWorksUIModule::EvaluateLiveTarget()
 void FWanaWorksUIModule::AnalyzeActiveWorkspace()
 {
     const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
+
+    if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        RefreshProjectHealthWorkspaceState(TEXT("Analyze"));
+        return;
+    }
+
     FWanaAnalysisResult Result;
     Result.WorkspaceLabel = WorkspaceLabel;
     Result.DisplayWorkspaceLabel = GetWorkspaceDisplayLabel(WorkspaceLabel);
@@ -8700,6 +8895,12 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
     const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
     const FString DisplayWorkspaceLabel = GetWorkspaceDisplayLabel(WorkspaceLabel);
 
+    if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        RefreshProjectHealthWorkspaceState(TEXT("Build"));
+        return;
+    }
+
     if (!HasCurrentWorkspaceAnalysis())
     {
         AnalyzeActiveWorkspace();
@@ -9261,6 +9462,238 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
     RefreshReactiveUI(true);
 }
 
+void FWanaWorksUIModule::ExecuteAutoRetarget()
+{
+    FWanaSelectedCharacterEnhancementSnapshot Snapshot;
+    const bool bHasSubject = ResolvePreferredSubjectSnapshot(Snapshot) && Snapshot.bHasSelectedActor && Snapshot.SelectedActor.IsValid();
+
+    if (!bHasSubject)
+    {
+        LastAutoRetargetStatusLabel = TEXT("Retarget Not Supported");
+        LastAutoRetargetSummaryText = TEXT("Auto-Retarget needs a source subject selected in Character Building first.");
+        bLastAutoRetargetInitialized = true;
+        StatusMessage = FString::Printf(TEXT("Status: %s"), *LastAutoRetargetStatusLabel);
+        RefreshReactiveUI(true);
+        return;
+    }
+
+    const AActor* SourceActor = Snapshot.SelectedActor.Get();
+    const USkeletalMeshComponent* SourceMeshComponent = SourceActor ? SourceActor->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
+    USkeletalMesh* SourceMesh = SourceMeshComponent ? SourceMeshComponent->GetSkeletalMeshAsset() : nullptr;
+
+    if (!SourceMesh)
+    {
+        LastAutoRetargetStatusLabel = TEXT("Retarget Not Supported");
+        LastAutoRetargetSummaryText = TEXT("Auto-Retarget needs the source subject to have a skeletal mesh component with an assigned mesh.");
+        bLastAutoRetargetInitialized = true;
+        StatusMessage = FString::Printf(TEXT("Status: %s"), *LastAutoRetargetStatusLabel);
+        RefreshReactiveUI(true);
+        return;
+    }
+
+    const FString* TargetAssetPath = TargetRetargetSkeletalMeshPathByLabel.Find(SelectedTargetRetargetSkeletalMeshLabel);
+
+    if (!TargetAssetPath || TargetAssetPath->IsEmpty())
+    {
+        LastAutoRetargetStatusLabel = TEXT("Retarget Not Supported");
+        LastAutoRetargetSummaryText = TEXT("Choose a target skeletal mesh from the picker before running Auto-Retarget.");
+        bLastAutoRetargetInitialized = true;
+        StatusMessage = FString::Printf(TEXT("Status: %s"), *LastAutoRetargetStatusLabel);
+        RefreshReactiveUI(true);
+        return;
+    }
+
+    USkeletalMesh* TargetMesh = LoadObject<USkeletalMesh>(nullptr, **TargetAssetPath);
+
+    if (!TargetMesh)
+    {
+        LastAutoRetargetStatusLabel = TEXT("Retarget Failed");
+        LastAutoRetargetSummaryText = TEXT("WanaWorks could not load the selected target skeletal mesh asset.");
+        bLastAutoRetargetInitialized = true;
+        StatusMessage = FString::Printf(TEXT("Status: %s"), *LastAutoRetargetStatusLabel);
+        RefreshReactiveUI(true);
+        return;
+    }
+
+    const FWanaAutoRetargetResult Result = WanaWorksAutoRetargetActions::ExecuteAutoRetargetAnalysis(
+        SourceMesh,
+        TargetMesh,
+        Snapshot.SelectedActorLabel.IsEmpty() ? SourceMesh->GetName() : Snapshot.SelectedActorLabel,
+        TargetMesh->GetName());
+
+    LastAutoRetargetStatusLabel = Result.StatusLabel;
+    LastAutoRetargetSummaryText = Result.ReadinessSummaryText.IsEmpty() ? Result.Detail : Result.ReadinessSummaryText;
+    bLastAutoRetargetInitialized = true;
+
+    StatusMessage = FString::Printf(TEXT("Status: %s"), *Result.Detail);
+    RefreshReactiveUI(true);
+}
+
+FText FWanaWorksUIModule::GetAutoRetargetSummaryText() const
+{
+    if (!bLastAutoRetargetInitialized)
+    {
+        return FText::FromString(TEXT("Auto-Retarget Readiness\nStatus: Not Run\nPick a target skeletal mesh and press Auto-Retarget to characterize both skeletons and auto-map retarget chains. Original meshes are never modified."));
+    }
+
+    return FText::FromString(LastAutoRetargetSummaryText);
+}
+
+static bool DoesWanaWorksOutputPathHaveAnyAssets(const TCHAR* PackagePath)
+{
+    FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+    TArray<FAssetData> Assets;
+    AssetRegistryModule.Get().GetAssetsByPath(FName(PackagePath), Assets, false);
+    return Assets.Num() > 0;
+}
+
+void FWanaWorksUIModule::RefreshProjectHealthWorkspaceState(const FString& ActionVerb)
+{
+    const FWanaProjectHealthScanResult ScanResult = WanaWorksProjectHealthActions::RunFullScan();
+    const bool bHasAnyWITReport = DoesWanaWorksOutputPathHaveAnyAssets(WanaWITEnvironmentReportRootPath);
+    const bool bHasAnyAdapterReport = DoesWanaWorksOutputPathHaveAnyAssets(WanaAnimationAdapterReportRootPath);
+    TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+    BuildProjectHealthWorkflowActionPlan(WorkflowActionPlan, ScanResult, bHasAnyWITReport, bHasAnyAdapterReport);
+    const FString RecommendedNextAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+
+    bWorkspaceAnalysisInitialized = true;
+    LastAnalysisWorkspaceLabel = TEXT("Project Health");
+    LastAnalysisStatusSummary = FString::Printf(
+        TEXT("Overall Health: %s\nTotal Findings: %d (%d Critical, %d High, %d Medium, %d Low, %d Informational)\nEngine Version: %s\nRecommended Next Action: %s"),
+        *ScanResult.OverallStatusLabel,
+        ScanResult.Findings.Num(),
+        ScanResult.CriticalCount,
+        ScanResult.HighCount,
+        ScanResult.MediumCount,
+        ScanResult.LowCount,
+        ScanResult.InformationalCount,
+        *ScanResult.EngineVersionLabel,
+        RecommendedNextAction.IsEmpty() ? TEXT("Review the current Project Health cards.") : *RecommendedNextAction);
+
+    LastAnalysisPrimarySummary = FString::Printf(
+        TEXT("Project: %s\nEngine Adapter: Unreal\nScan State: %s\nOverall Health: %s\nFindings: %d Critical, %d High, %d Medium, %d Low, %d Informational\nLast Scan (UTC): %s\nOriginal Files: Preserved (read-only diagnosis)"),
+        *ScanResult.ProjectName,
+        ScanResult.bScanCompleted ? TEXT("Full Scan Complete") : TEXT("Needs Analyze"),
+        *ScanResult.OverallStatusLabel,
+        ScanResult.CriticalCount,
+        ScanResult.HighCount,
+        ScanResult.MediumCount,
+        ScanResult.LowCount,
+        ScanResult.InformationalCount,
+        *ScanResult.ScanTimestampUtc);
+
+    LastAnalysisAnimationSummary = FString::Printf(
+        TEXT("Engine Adapter: Unreal\nDetected Engine Version: %s\nCompatibility State: %s\nWanaWorks Plugin Version: %s\nGuidance: Treat compatibility findings above as %s until validated against a real build/package pass."),
+        *ScanResult.EngineVersionLabel,
+        *ScanResult.EngineCompatibilityStatus,
+        *ScanResult.WanaWorksPluginVersionLabel,
+        ScanResult.EngineCompatibilityStatus.Contains(TEXT("Not yet validated")) ? TEXT("limited confidence") : TEXT("confirmed from project metadata"));
+
+    LastAnalysisPhysicalSummary = FString::Printf(
+        TEXT("Project Modules: %d\nDeclared Plugins: %d\nEnabled Plugins (engine-wide): %d\nTotal Findings: %d\nLimitations: %s"),
+        ScanResult.ProjectModuleCount,
+        ScanResult.DeclaredPluginCount,
+        ScanResult.EnabledPluginCount,
+        ScanResult.Findings.Num(),
+        *ScanResult.ScanLimitationsText);
+
+    LastAnalysisBehaviorSummary = FString::Printf(
+        TEXT("Persistent WIT Reports In Project: %s\nWanaAnimation Adapter Reports In Project: %s\nWanaWorks Output Root: /Game/WanaWorks\nOriginal Assets: Preserved (Project Health never modifies or resaves assets)"),
+        bHasAnyWITReport ? TEXT("Present") : TEXT("None Found"),
+        bHasAnyAdapterReport ? TEXT("Present") : TEXT("None Found"));
+
+    const FString BuildReadinessNote = ActionVerb.Equals(TEXT("Enhance"), ESearchCase::IgnoreCase)
+        ? TEXT("Correction plan prepared. Automatic repair is not enabled in Project Health V1.")
+        : (ActionVerb.Equals(TEXT("Test"), ESearchCase::IgnoreCase)
+            ? TEXT("Current health conditions re-checked against live project metadata. This reflects present state only - WanaWorks does not yet track whether a previously reported issue was actually corrected.")
+            : TEXT("Read-only diagnosis only. No project files, source, settings, or assets were modified."));
+
+    LastAnalysisWITSummary = FString::Printf(
+        TEXT("WanaWorks Modules Loaded: Yes\nEditor Target Recognized: Yes\nBuild Confidence: %s\nKnown Blockers: %d Critical, %d High\nNote: %s"),
+        ScanResult.CriticalCount + ScanResult.HighCount == 0 ? TEXT("Not limited by findings above") : TEXT("Limited by findings above"),
+        ScanResult.CriticalCount,
+        ScanResult.HighCount,
+        *BuildReadinessNote);
+
+    LastAnalysisSuggestedSummary = BuildWorkflowActionPlanSummary(WorkflowActionPlan, 5);
+
+    StatusMessage = FString::Printf(TEXT("Status: Project Health %s complete (%s). Read-only - no project files modified."), *ActionVerb, *ScanResult.OverallStatusLabel);
+    RefreshReactiveUI(true);
+}
+
+FText FWanaWorksUIModule::GetProjectHealthOverviewText() const
+{
+    if (HasCurrentWorkspaceAnalysis() && !LastAnalysisPrimarySummary.IsEmpty() && LastAnalysisWorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return FText::FromString(LastAnalysisPrimarySummary);
+    }
+
+    const FWanaProjectHealthScanResult Overview = WanaWorksProjectHealthActions::RunLightweightOverview();
+    return FText::FromString(FString::Printf(
+        TEXT("Project: %s\nEngine Adapter: Unreal\nScan State: %s\nOverall Health: %s\nRun Analyze to begin a full project-health scan."),
+        *Overview.ProjectName,
+        *Overview.OverallStatusLabel,
+        *Overview.OverallStatusLabel));
+}
+
+FText FWanaWorksUIModule::GetProjectHealthEngineText() const
+{
+    if (HasCurrentWorkspaceAnalysis() && !LastAnalysisAnimationSummary.IsEmpty() && LastAnalysisWorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return FText::FromString(LastAnalysisAnimationSummary);
+    }
+
+    const FWanaProjectHealthScanResult Overview = WanaWorksProjectHealthActions::RunLightweightOverview();
+    return FText::FromString(FString::Printf(
+        TEXT("Engine Adapter: Unreal\nDetected Engine Version: %s\nWanaWorks Plugin Version: %s\nRun Analyze for a full compatibility check."),
+        *Overview.EngineVersionLabel,
+        *Overview.WanaWorksPluginVersionLabel));
+}
+
+FText FWanaWorksUIModule::GetProjectHealthModulesText() const
+{
+    if (HasCurrentWorkspaceAnalysis() && !LastAnalysisPhysicalSummary.IsEmpty() && LastAnalysisWorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return FText::FromString(LastAnalysisPhysicalSummary);
+    }
+
+    const FWanaProjectHealthScanResult Overview = WanaWorksProjectHealthActions::RunLightweightOverview();
+    return FText::FromString(FString::Printf(
+        TEXT("Project Modules: %d\nDeclared Plugins: %d\nRun Analyze for dependency and runtime/editor boundary findings."),
+        Overview.ProjectModuleCount,
+        Overview.DeclaredPluginCount));
+}
+
+FText FWanaWorksUIModule::GetProjectHealthAssetsText() const
+{
+    if (HasCurrentWorkspaceAnalysis() && !LastAnalysisBehaviorSummary.IsEmpty() && LastAnalysisWorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return FText::FromString(LastAnalysisBehaviorSummary);
+    }
+
+    return FText::FromString(TEXT("Status: Needs Analyze\nRun Analyze to check for persistent WIT and WanaAnimation adapter reports in this project."));
+}
+
+FText FWanaWorksUIModule::GetProjectHealthBuildReadinessText() const
+{
+    if (HasCurrentWorkspaceAnalysis() && !LastAnalysisWITSummary.IsEmpty() && LastAnalysisWorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return FText::FromString(LastAnalysisWITSummary);
+    }
+
+    return FText::FromString(TEXT("Status: Needs Analyze\nWanaWorks Modules Loaded: Yes\nRun Analyze for a current build-confidence read."));
+}
+
+FText FWanaWorksUIModule::GetProjectHealthNextActionsText() const
+{
+    if (HasCurrentWorkspaceAnalysis() && !LastAnalysisSuggestedSummary.IsEmpty() && LastAnalysisWorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        return FText::FromString(LastAnalysisSuggestedSummary);
+    }
+
+    return FText::FromString(TEXT("Run Analyze to begin a full project-health scan and generate prioritized next actions."));
+}
+
 void FWanaWorksUIModule::FocusSandboxPreviewSubject()
 {
     FString PreviewModeLabel;
@@ -9464,6 +9897,23 @@ TSharedPtr<FString> FWanaWorksUIModule::GetSelectedAIPawnAssetOption() const
     return AIPawnAssetOptions.Num() > 0 ? AIPawnAssetOptions[0] : nullptr;
 }
 
+TSharedPtr<FString> FWanaWorksUIModule::GetSelectedTargetRetargetSkeletalMeshOption() const
+{
+    const FString SelectedLabel = SelectedTargetRetargetSkeletalMeshLabel.IsEmpty()
+        ? TargetRetargetSkeletalMeshDefaultLabel
+        : SelectedTargetRetargetSkeletalMeshLabel;
+
+    for (const TSharedPtr<FString>& Option : TargetRetargetSkeletalMeshOptions)
+    {
+        if (Option.IsValid() && Option->Equals(SelectedLabel))
+        {
+            return Option;
+        }
+    }
+
+    return TargetRetargetSkeletalMeshOptions.Num() > 0 ? TargetRetargetSkeletalMeshOptions[0] : nullptr;
+}
+
 TSharedPtr<FString> FWanaWorksUIModule::GetSelectedRelationshipStateOption() const
 {
     const FString SelectedLabel = UIFmt::GetRelationshipStateLabel(SelectedRelationshipState);
@@ -9618,6 +10068,16 @@ FText FWanaWorksUIModule::GetSubjectStackSummaryText() const
 
 FText FWanaWorksUIModule::GetSandboxPreviewSummaryText() const
 {
+    if (GetSelectedWorkspaceLabel().Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+    {
+        if (HasCurrentWorkspaceAnalysis() && !LastAnalysisStatusSummary.IsEmpty())
+        {
+            return FText::FromString(LastAnalysisStatusSummary);
+        }
+
+        return FText::FromString(TEXT("Run Analyze to inspect engine compatibility, project modules, plugin dependencies, WanaWorks outputs, and build readiness."));
+    }
+
     if (GetSelectedWorkspaceLabel().Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
     {
         if (HasCurrentWorkspaceAnalysis() && !LastAnalysisPrimarySummary.IsEmpty())
@@ -10158,8 +10618,16 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetCharacterIntelligenceControlSummaryText = [this]() { return GetCharacterIntelligenceControlSummaryText(); };
     BuilderArgs.GetCharacterBuildingProfileSummaryText = [this]() { return GetCharacterBuildingProfileSummaryText(); };
     BuilderArgs.GetCharacterBuildingControlSummaryText = [this]() { return GetCharacterBuildingControlSummaryText(); };
+    BuilderArgs.GetAutoRetargetSummaryText = [this]() { return GetAutoRetargetSummaryText(); };
+    BuilderArgs.GetProjectHealthOverviewText = [this]() { return GetProjectHealthOverviewText(); };
+    BuilderArgs.GetProjectHealthEngineText = [this]() { return GetProjectHealthEngineText(); };
+    BuilderArgs.GetProjectHealthModulesText = [this]() { return GetProjectHealthModulesText(); };
+    BuilderArgs.GetProjectHealthAssetsText = [this]() { return GetProjectHealthAssetsText(); };
+    BuilderArgs.GetProjectHealthBuildReadinessText = [this]() { return GetProjectHealthBuildReadinessText(); };
+    BuilderArgs.GetProjectHealthNextActionsText = [this]() { return GetProjectHealthNextActionsText(); };
     BuilderArgs.CharacterPawnAssetOptions = &CharacterPawnAssetOptions;
     BuilderArgs.AIPawnAssetOptions = &AIPawnAssetOptions;
+    BuilderArgs.TargetRetargetSkeletalMeshOptions = &TargetRetargetSkeletalMeshOptions;
     BuilderArgs.WorkflowPresetOptions = &WorkflowPresetOptions;
     BuilderArgs.EnhancementPresetOptions = &EnhancementPresetOptions;
     BuilderArgs.EnhancementWorkflowOptions = &EnhancementWorkflowOptions;
@@ -10179,6 +10647,7 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetSelectedCharacterIntelligenceRelationshipOption = [this]() { return GetSelectedCharacterIntelligenceRelationshipOption(); };
     BuilderArgs.GetSelectedCharacterIntelligenceTargetOption = [this]() { return GetSelectedCharacterIntelligenceTargetOption(); };
     BuilderArgs.GetSelectedCharacterBuildingProfileOption = [this]() { return GetSelectedCharacterBuildingProfileOption(); };
+    BuilderArgs.GetSelectedTargetRetargetSkeletalMeshOption = [this]() { return GetSelectedTargetRetargetSkeletalMeshOption(); };
     BuilderArgs.OnCommandTextChanged = [this](const FText& NewText) { HandleCommandTextChanged(NewText); };
     BuilderArgs.OnIdentityFactionTagTextChanged = [this](const FText& NewText) { HandleIdentityFactionTagTextChanged(NewText); };
     BuilderArgs.OnWorkspaceSelected = [this](const FString& WorkspaceLabel) { HandleWorkspaceSelected(WorkspaceLabel); };
@@ -10194,6 +10663,7 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.OnCharacterIntelligenceRelationshipOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterIntelligenceRelationshipOptionSelected(SelectedOption); };
     BuilderArgs.OnCharacterIntelligenceTargetOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterIntelligenceTargetOptionSelected(SelectedOption); };
     BuilderArgs.OnCharacterBuildingProfileOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterBuildingProfileOptionSelected(SelectedOption); };
+    BuilderArgs.OnTargetRetargetSkeletalMeshOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleTargetRetargetSkeletalMeshOptionSelected(SelectedOption); };
     BuilderArgs.OnRunCommand = [this]() { RunCommand(); };
     BuilderArgs.OnClearLog = [this]() { ClearLog(); };
     BuilderArgs.OnEnsureIdentityComponent = [this]() { EnsureIdentityComponent(); };
@@ -10217,6 +10687,7 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.OnUseSelectedAsSandboxTarget = [this]() { UseSelectedActorAsSandboxTarget(); };
     BuilderArgs.OnEvaluateSandboxPair = [this]() { EvaluateSandboxPair(); };
     BuilderArgs.OnFinalizeSandboxBuild = [this]() { FinalizeSandboxBuild(); };
+    BuilderArgs.OnExecuteAutoRetarget = [this]() { ExecuteAutoRetarget(); };
     BuilderArgs.OnFocusSandboxPreviewSubject = [this]() { FocusSandboxPreviewSubject(); };
     BuilderArgs.OnFocusSandboxObserver = [this]() { FocusSandboxObserver(); };
     BuilderArgs.OnFocusSandboxTarget = [this]() { FocusSandboxTarget(); };
