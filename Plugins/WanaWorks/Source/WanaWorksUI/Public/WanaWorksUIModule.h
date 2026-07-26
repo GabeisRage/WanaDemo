@@ -10,6 +10,9 @@ class FSpawnTabArgs;
 class UObject;
 class UClass;
 struct FWanaCommandResponse;
+struct FWanaProjectBlueprintPlan;
+struct FWanaProjectBlueprintReadinessContext;
+struct FWanaProjectVisionBrief;
 struct FWanaSelectedCharacterEnhancementSnapshot;
 
 class WANAWORKSUI_API FWanaWorksUIModule : public IModuleInterface
@@ -24,6 +27,7 @@ private:
     void RefreshReactiveUI(bool bForceRefresh = false);
     void HandleEditorSelectionChanged(UObject* NewSelection);
     void HandleCommandTextChanged(const FText& NewText);
+    void HandleProjectBlueprintVisionBriefTextChanged(const FText& NewText);
     void HandleIdentityFactionTagTextChanged(const FText& NewText);
     void HandleWorkspaceSelected(const FString& WorkspaceLabel);
     void HandlePreviewStageViewSelected(const FString& PreviewViewLabel);
@@ -39,6 +43,13 @@ private:
     void HandleCharacterPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleAIPawnAssetOptionSelected(TSharedPtr<FString> SelectedOption);
     void HandleTargetRetargetSkeletalMeshOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleProjectBlueprintTeamSizeOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleProjectBlueprintExperienceOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleProjectBlueprintTimelineOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleProjectBlueprintBudgetOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleProjectBlueprintPlatformOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleProjectBlueprintDeliverableOptionSelected(TSharedPtr<FString> SelectedOption);
+    void HandleProjectBlueprintPlaytimeOptionSelected(TSharedPtr<FString> SelectedOption);
     void RegisterEditorLauncherMenus();
     void OpenWanaWorksStudioTab();
     bool SyncSelectedWorkflowPresetIntoControls(FString* OutPresetLabel = nullptr, FString* OutPresetNotes = nullptr);
@@ -74,6 +85,7 @@ private:
     void FinalizeSandboxBuild();
     void ExecuteAutoRetarget();
     void RefreshProjectHealthWorkspaceState(const FString& ActionVerb);
+    void RefreshProjectBlueprintWorkspaceState(const FString& ActionVerb);
     void FocusSandboxPreviewSubject();
     void FocusSandboxObserver();
     void FocusSandboxTarget();
@@ -97,6 +109,13 @@ private:
     TSharedPtr<FString> GetSelectedCharacterIntelligenceRelationshipOption() const;
     TSharedPtr<FString> GetSelectedCharacterIntelligenceTargetOption() const;
     TSharedPtr<FString> GetSelectedCharacterBuildingProfileOption() const;
+    TSharedPtr<FString> GetSelectedProjectBlueprintTeamSizeOption() const;
+    TSharedPtr<FString> GetSelectedProjectBlueprintExperienceOption() const;
+    TSharedPtr<FString> GetSelectedProjectBlueprintTimelineOption() const;
+    TSharedPtr<FString> GetSelectedProjectBlueprintBudgetOption() const;
+    TSharedPtr<FString> GetSelectedProjectBlueprintPlatformOption() const;
+    TSharedPtr<FString> GetSelectedProjectBlueprintDeliverableOption() const;
+    TSharedPtr<FString> GetSelectedProjectBlueprintPlaytimeOption() const;
     void RefreshProjectAssetPickerOptions();
     bool ResolvePreferredSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const;
     bool ResolvePickedSubjectSnapshot(FWanaSelectedCharacterEnhancementSnapshot& OutSnapshot) const;
@@ -152,6 +171,14 @@ private:
     FText GetProjectHealthAssetsText() const;
     FText GetProjectHealthBuildReadinessText() const;
     FText GetProjectHealthNextActionsText() const;
+    FText GetProjectBlueprintVisionBriefText() const;
+    FText GetProjectBlueprintVisionSummaryText() const;
+    FText GetProjectBlueprintScopeText() const;
+    FText GetProjectBlueprintPillarsText() const;
+    FText GetProjectBlueprintVerticalSliceText() const;
+    FText GetProjectBlueprintMilestonesText() const;
+    FText GetProjectBlueprintGapsText() const;
+    FText GetProjectBlueprintNextActionsText() const;
     FString GetSharedCharacterStackSummaryText() const;
     FString GetSharedCharacterStackStatusLabel() const;
     bool ResolvePreferredWITReadinessPair(AActor*& OutObserverActor, AActor*& OutTargetActor, FString& OutPairSourceLabel, bool& bOutTargetFallsBackToObserver) const;
@@ -182,6 +209,14 @@ private:
     FString SelectedCharacterIntelligenceRelationshipLabel;
     FString SelectedCharacterIntelligenceTargetLabel;
     FString SelectedCharacterBuildingProfileLabel;
+    FString ProjectBlueprintVisionBriefText;
+    FString SelectedProjectBlueprintTeamSizeLabel;
+    FString SelectedProjectBlueprintExperienceLabel;
+    FString SelectedProjectBlueprintTimelineLabel;
+    FString SelectedProjectBlueprintBudgetLabel;
+    FString SelectedProjectBlueprintPlatformLabel;
+    FString SelectedProjectBlueprintDeliverableLabel;
+    FString SelectedProjectBlueprintPlaytimeLabel;
     EWAYRelationshipState SelectedIdentitySeedState = EWAYRelationshipState::Neutral;
     EWAYRelationshipState SelectedRelationshipState = EWAYRelationshipState::Neutral;
     TArray<TSharedPtr<FString>> WorkflowPresetOptions;
@@ -195,6 +230,13 @@ private:
     TArray<TSharedPtr<FString>> CharacterIntelligenceTargetOptions;
     TArray<TSharedPtr<FString>> CharacterBuildingProfileOptions;
     TArray<TSharedPtr<FString>> TargetRetargetSkeletalMeshOptions;
+    TArray<TSharedPtr<FString>> ProjectBlueprintTeamSizeOptions;
+    TArray<TSharedPtr<FString>> ProjectBlueprintExperienceOptions;
+    TArray<TSharedPtr<FString>> ProjectBlueprintTimelineOptions;
+    TArray<TSharedPtr<FString>> ProjectBlueprintBudgetOptions;
+    TArray<TSharedPtr<FString>> ProjectBlueprintPlatformOptions;
+    TArray<TSharedPtr<FString>> ProjectBlueprintDeliverableOptions;
+    TArray<TSharedPtr<FString>> ProjectBlueprintPlaytimeOptions;
     TMap<FString, FString> CharacterPawnAssetPathByLabel;
     TMap<FString, FString> AIPawnAssetPathByLabel;
     TMap<FString, FString> TargetRetargetSkeletalMeshPathByLabel;
@@ -264,6 +306,13 @@ private:
     bool bLastAutoRetargetInitialized = false;
     FString LastAutoRetargetStatusLabel;
     FString LastAutoRetargetSummaryText;
+    FString LastProjectBlueprintVisionSummary;
+    FString LastProjectBlueprintScopeSummary;
+    FString LastProjectBlueprintPillarsSummary;
+    FString LastProjectBlueprintVerticalSliceSummary;
+    FString LastProjectBlueprintMilestonesSummary;
+    FString LastProjectBlueprintGapsSummary;
+    FString LastProjectBlueprintNextActionsSummary;
 
     static const FName WanaWorksTabName;
 };

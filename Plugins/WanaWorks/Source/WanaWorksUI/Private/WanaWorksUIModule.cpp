@@ -46,6 +46,7 @@
 #include "WanaAnimationAdapterReportAsset.h"
 #include "WanaIdentityComponent.h"
 #include "WanaPhysicalStateComponent.h"
+#include "WanaProjectBlueprintPlanner.h"
 #include "WanaWITEnvironmentReportAsset.h"
 #include "WAYPlayerProfileComponent.h"
 #include "Widgets/Docking/SDockTab.h"
@@ -3057,76 +3058,497 @@ void BuildLevelDesignWorkflowActionPlan(
 // like the other three workspace planners.
 void BuildProjectHealthWorkflowActionPlan(
     TArray<FWanaWorkflowActionPlanItem>& ActionPlan,
-    const FWanaProjectHealthScanResult& ScanResult,
-    bool bHasAnyPersistentWITReport,
-    bool bHasAnyAnimationAdapterReport)
+    const FWanaProjectHealthScanResult& ScanResult)
 {
     for (const FWanaProjectHealthFinding& Finding : ScanResult.Findings)
     {
+        const FString Reason = Finding.PotentialImpact.IsEmpty()
+            ? Finding.ProblemDescription
+            : FString::Printf(TEXT("%s Impact: %s"), *Finding.ProblemDescription, *Finding.PotentialImpact);
+
         AddWorkflowActionPlanItem(
             ActionPlan,
             Finding.Title,
             Finding.Category,
             Finding.Severity,
-            Finding.ProblemDescription,
+            Reason,
             TEXT("Project Health"),
-            Finding.bRequiresManualEngineAction ? TEXT("Manual Unreal Step") : (Finding.bCanWanaWorksActNow ? TEXT("Enhance") : TEXT("Analyze")),
+            Finding.RecommendedWorkflowStep,
             Finding.CurrentStateStatus,
             Finding.Severity,
             Finding.bCanWanaWorksActNow,
             Finding.Severity.Equals(TEXT("Informational"), ESearchCase::IgnoreCase),
             Finding.RelatedPath);
     }
+}
 
-    if (!bHasAnyPersistentWITReport)
+FString CompactProjectHealthText(const FString& Value, int32 MaxLength = 260)
+{
+    FString Compact = Value;
+    Compact.ReplaceInline(TEXT("\r"), TEXT(" "));
+    Compact.ReplaceInline(TEXT("\n"), TEXT(" "));
+    while (Compact.Contains(TEXT("  ")))
     {
-        AddWorkflowActionPlanItem(
-            ActionPlan,
-            TEXT("Generate WIT Context"),
-            TEXT("WIT / Level Design"),
-            TEXT("Medium"),
-            TEXT("No persistent WIT report was found anywhere in the project yet, limiting environment-aware Character Intelligence everywhere."),
-            TEXT("Project Health"),
-            TEXT("Build"),
-            TEXT("Missing"),
-            TEXT("Low"),
-            true,
-            false,
-            WanaWITEnvironmentReportRootPath);
+        Compact.ReplaceInline(TEXT("  "), TEXT(" "));
     }
 
-    if (!bHasAnyAnimationAdapterReport)
+    if (MaxLength > 3 && Compact.Len() > MaxLength)
     {
-        AddWorkflowActionPlanItem(
-            ActionPlan,
-            TEXT("Generate WanaAnimation Adapter Report"),
-            TEXT("WanaWorks Outputs"),
-            TEXT("Low"),
-            TEXT("No WanaAnimation adapter report has been generated yet in this project, so runtime animation adapter readiness has not been proven anywhere."),
-            TEXT("Project Health"),
-            TEXT("Enhance"),
-            TEXT("Missing"),
-            TEXT("Low"),
-            true,
-            false,
-            WanaAnimationAdapterReportRootPath);
+        Compact = Compact.Left(MaxLength - 3) + TEXT("...");
     }
 
-    if (ScanResult.CriticalCount == 0 && ScanResult.HighCount == 0 && ScanResult.MediumCount == 0 && ScanResult.LowCount == 0)
+    return Compact;
+}
+
+const FWanaProjectHealthFinding* FindHighestPriorityProjectHealthFinding(
+    const FWanaProjectHealthScanResult& ScanResult,
+    const FString& Category = FString())
+{
+    const FWanaProjectHealthFinding* BestFinding = nullptr;
+    for (const FWanaProjectHealthFinding& Finding : ScanResult.Findings)
     {
+        if (!Category.IsEmpty() && !Finding.Category.Equals(Category, ESearchCase::IgnoreCase))
+        {
+            continue;
+        }
+
+        if (!BestFinding
+            || GetWorkflowActionPriorityRank(Finding.Severity) < GetWorkflowActionPriorityRank(BestFinding->Severity))
+        {
+            BestFinding = &Finding;
+        }
+    }
+
+    return BestFinding;
+}
+
+int32 GetProjectHealthConfidenceRank(const FString& Confidence)
+{
+    if (Confidence.StartsWith(TEXT("Confirmed"), ESearchCase::IgnoreCase)
+        || Confidence.StartsWith(TEXT("High"), ESearchCase::IgnoreCase))
+    {
+        return 0;
+    }
+    if (Confidence.StartsWith(TEXT("Medium"), ESearchCase::IgnoreCase))
+    {
+        return 1;
+    }
+    if (Confidence.StartsWith(TEXT("Low"), ESearchCase::IgnoreCase))
+    {
+        return 2;
+    }
+    return 3;
+}
+
+const FWanaProjectHealthFinding* FindHighestConfidenceProjectHealthFinding(const FWanaProjectHealthScanResult& ScanResult)
+{
+    const FWanaProjectHealthFinding* BestFinding = nullptr;
+    for (const FWanaProjectHealthFinding& Finding : ScanResult.Findings)
+    {
+        if (!BestFinding)
+        {
+            BestFinding = &Finding;
+            continue;
+        }
+
+        const int32 FindingConfidenceRank = GetProjectHealthConfidenceRank(Finding.Confidence);
+        const int32 BestConfidenceRank = GetProjectHealthConfidenceRank(BestFinding->Confidence);
+        if (FindingConfidenceRank < BestConfidenceRank
+            || (FindingConfidenceRank == BestConfidenceRank
+                && GetWorkflowActionPriorityRank(Finding.Severity) < GetWorkflowActionPriorityRank(BestFinding->Severity)))
+        {
+            BestFinding = &Finding;
+        }
+    }
+
+    return BestFinding;
+}
+
+FString BuildProjectHealthFindingCardSummary(const FWanaProjectHealthFinding* Finding, const FString& EmptyState)
+{
+    if (!Finding)
+    {
+        return EmptyState;
+    }
+
+    return FString::Printf(
+        TEXT("Severity / Diagnosis: %s / %s\nDetected: %s Root Cause: %s\nEvidence: %s\nImpact: %s\nNext Route: %s [%s]\nPrevent Next Time: %s"),
+        Finding->Severity.IsEmpty() ? TEXT("Unknown") : *Finding->Severity,
+        Finding->DiagnosisClassification.IsEmpty() ? TEXT("Requires Manual Validation") : *Finding->DiagnosisClassification,
+        *CompactProjectHealthText(Finding->ProblemDescription),
+        *CompactProjectHealthText(Finding->RootCause),
+        *CompactProjectHealthText(Finding->Evidence),
+        *CompactProjectHealthText(Finding->PotentialImpact),
+        *CompactProjectHealthText(Finding->RecommendedRoute),
+        Finding->RecommendedWorkflowStep.IsEmpty() ? TEXT("Analyze") : *Finding->RecommendedWorkflowStep,
+        *CompactProjectHealthText(Finding->PreventionGuidance));
+}
+
+int32 GetProjectHealthCorrectionDependencyRank(const FWanaProjectHealthCorrectionPlan& Plan)
+{
+    if (Plan.SourceFindingId.Contains(TEXT("Module"), ESearchCase::IgnoreCase)
+        || Plan.SourceFindingId.Contains(TEXT("Plugin"), ESearchCase::IgnoreCase)
+        || Plan.SourceFindingId.Contains(TEXT("Descriptor"), ESearchCase::IgnoreCase))
+    {
+        return 0;
+    }
+    if (Plan.SourceFindingId.Contains(TEXT("WIT"), ESearchCase::IgnoreCase)
+        || Plan.SourceFindingId.Contains(TEXT("Adapter"), ESearchCase::IgnoreCase))
+    {
+        return 1;
+    }
+    return 2;
+}
+
+void SortProjectHealthCorrectionPlans(TArray<FWanaProjectHealthCorrectionPlan>& Plans)
+{
+    Plans.Sort([](const FWanaProjectHealthCorrectionPlan& Left, const FWanaProjectHealthCorrectionPlan& Right)
+    {
+        const int32 LeftSeverityRank = GetWorkflowActionPriorityRank(Left.SourceSeverity);
+        const int32 RightSeverityRank = GetWorkflowActionPriorityRank(Right.SourceSeverity);
+        if (LeftSeverityRank != RightSeverityRank)
+        {
+            return LeftSeverityRank < RightSeverityRank;
+        }
+
+        const int32 LeftConfidenceRank = GetProjectHealthConfidenceRank(Left.DiagnosisConfidence);
+        const int32 RightConfidenceRank = GetProjectHealthConfidenceRank(Right.DiagnosisConfidence);
+        if (LeftConfidenceRank != RightConfidenceRank)
+        {
+            return LeftConfidenceRank < RightConfidenceRank;
+        }
+
+        const int32 LeftDependencyRank = GetProjectHealthCorrectionDependencyRank(Left);
+        const int32 RightDependencyRank = GetProjectHealthCorrectionDependencyRank(Right);
+        if (LeftDependencyRank != RightDependencyRank)
+        {
+            return LeftDependencyRank < RightDependencyRank;
+        }
+
+        if (Left.ExecutionCapability.Equals(TEXT("Existing WanaWorks Workflow"), ESearchCase::IgnoreCase)
+            != Right.ExecutionCapability.Equals(TEXT("Existing WanaWorks Workflow"), ESearchCase::IgnoreCase))
+        {
+            return Left.ExecutionCapability.Equals(TEXT("Existing WanaWorks Workflow"), ESearchCase::IgnoreCase);
+        }
+
+        return Left.PlanId < Right.PlanId;
+    });
+}
+
+struct FWanaProjectHealthCorrectionPlanCounts
+{
+    int32 ExistingWorkflowCount = 0;
+    int32 ManualEngineStepCount = 0;
+    int32 FutureAutomationCandidateCount = 0;
+    int32 UnsupportedCount = 0;
+    int32 ApprovalRequiredCount = 0;
+};
+
+FWanaProjectHealthCorrectionPlanCounts CountProjectHealthCorrectionPlans(const TArray<FWanaProjectHealthCorrectionPlan>& Plans)
+{
+    FWanaProjectHealthCorrectionPlanCounts Counts;
+    for (const FWanaProjectHealthCorrectionPlan& Plan : Plans)
+    {
+        if (Plan.ExecutionCapability.Equals(TEXT("Existing WanaWorks Workflow"), ESearchCase::IgnoreCase))
+        {
+            ++Counts.ExistingWorkflowCount;
+        }
+        else if (Plan.ExecutionCapability.Equals(TEXT("Manual Engine Step"), ESearchCase::IgnoreCase))
+        {
+            ++Counts.ManualEngineStepCount;
+        }
+        else if (Plan.ExecutionCapability.Equals(TEXT("Unsupported"), ESearchCase::IgnoreCase))
+        {
+            ++Counts.UnsupportedCount;
+        }
+
+        Counts.FutureAutomationCandidateCount += Plan.bFutureAutomationCandidate ? 1 : 0;
+        Counts.ApprovalRequiredCount += Plan.bRequiresDeveloperApproval ? 1 : 0;
+    }
+    return Counts;
+}
+
+FString GetProjectHealthCorrectionApprovalLabel(const FWanaProjectHealthCorrectionPlan& Plan)
+{
+    if (Plan.CurrentPlanState.Equals(TEXT("Unsupported"), ESearchCase::IgnoreCase))
+    {
+        return TEXT("Unsupported");
+    }
+    if (Plan.bRequiresDeveloperApproval)
+    {
+        return TEXT("Approval Required");
+    }
+    if (Plan.bRequiresManualEngineAction)
+    {
+        return TEXT("Manual Validation Required");
+    }
+    return TEXT("No Source-File Approval Required");
+}
+
+FString GetProjectHealthFirstValidationStep(const FWanaProjectHealthCorrectionPlan& Plan)
+{
+    FString FirstStep = Plan.ValidationSteps;
+    int32 DelimiterIndex = INDEX_NONE;
+    if (FirstStep.FindChar(TEXT(';'), DelimiterIndex))
+    {
+        FirstStep = FirstStep.Left(DelimiterIndex);
+    }
+    return CompactProjectHealthText(FirstStep, 150);
+}
+
+void AppendProjectHealthCorrectionPlanLines(
+    TArray<FString>& Lines,
+    const TArray<FWanaProjectHealthCorrectionPlan>& Plans,
+    int32 MaxPlans = 3)
+{
+    const int32 VisiblePlanCount = FMath::Min(MaxPlans, Plans.Num());
+    for (int32 Index = 0; Index < VisiblePlanCount; ++Index)
+    {
+        const FWanaProjectHealthCorrectionPlan& Plan = Plans[Index];
+        Lines.Add(FString::Printf(
+            TEXT("%d. %s - %s | Risk %s | %s | %s"),
+            Index + 1,
+            Plan.SourceSeverity.IsEmpty() ? TEXT("Unknown") : *Plan.SourceSeverity,
+            Plan.Title.IsEmpty() ? TEXT("Review Correction Route") : *Plan.Title,
+            Plan.EstimatedImplementationRisk.IsEmpty() ? TEXT("Unknown") : *Plan.EstimatedImplementationRisk,
+            Plan.ExecutionCapability.IsEmpty() ? TEXT("Guidance Only") : *Plan.ExecutionCapability,
+            *GetProjectHealthCorrectionApprovalLabel(Plan)));
+        Lines.Add(FString::Printf(
+            TEXT("Detected: %s Proposed: %s Validate: %s"),
+            *CompactProjectHealthText(Plan.DetectedCondition, 105),
+            *CompactProjectHealthText(Plan.ProposedCorrection, 145),
+            *GetProjectHealthFirstValidationStep(Plan)));
+    }
+}
+
+FString BuildProjectHealthCorrectionPlanSummary(
+    TArray<FWanaProjectHealthCorrectionPlan> Plans,
+    const TArray<FWanaWorkflowActionPlanItem>& ActionPlan,
+    const FString& ActionVerb,
+    int32 SourceFindingCount)
+{
+    SortProjectHealthCorrectionPlans(Plans);
+    const FWanaProjectHealthCorrectionPlanCounts Counts = CountProjectHealthCorrectionPlans(Plans);
+    const FString NextWorkflowRoute = GetWorkflowActionPlanRecommendedAction(ActionPlan);
+    TArray<FString> Lines;
+
+    if (ActionVerb.Equals(TEXT("Enhance"), ESearchCase::IgnoreCase))
+    {
+        Lines.Add(TEXT("Correction plan prepared. Review the proposed routes before approving any future project changes."));
+        Lines.Add(FString::Printf(
+            TEXT("Plans: %d | Existing Workflows: %d | Manual Steps: %d | Future Candidates: %d | Unsupported: %d"),
+            Plans.Num(),
+            Counts.ExistingWorkflowCount,
+            Counts.ManualEngineStepCount,
+            Counts.FutureAutomationCandidateCount,
+            Counts.UnsupportedCount));
+        AppendProjectHealthCorrectionPlanLines(Lines, Plans);
+        Lines.Add(TEXT("Files Changed: None. No correction, approval, backup, or execution occurred."));
+    }
+    else if (ActionVerb.Equals(TEXT("Test"), ESearchCase::IgnoreCase))
+    {
+        Lines.Add(FString::Printf(TEXT("Correction Plan Applicability: %d plan(s) remain applicable to the current scan."), Plans.Num()));
+        Lines.Add(TEXT("Current-state recheck only; WanaWorks does not retain historical issue-resolution state."));
+        AppendProjectHealthCorrectionPlanLines(Lines, Plans);
+        Lines.Add(FString::Printf(TEXT("Next Workflow Route: %s"), NextWorkflowRoute.IsEmpty() ? TEXT("Review the current diagnosis cards.") : *NextWorkflowRoute));
+    }
+    else if (ActionVerb.Equals(TEXT("Build"), ESearchCase::IgnoreCase))
+    {
+        Lines.Add(TEXT("Correction Plan Build Summary"));
+        Lines.Add(FString::Printf(TEXT("Plans: %d from %d current finding(s)"), Plans.Num(), SourceFindingCount));
+        Lines.Add(Plans.Num() > 0
+            ? FString::Printf(TEXT("Highest Priority: %s - %s"), *Plans[0].SourceSeverity, *Plans[0].Title)
+            : TEXT("Highest Priority: No supported correction plan"));
+        Lines.Add(FString::Printf(TEXT("Approval Required: %d | Manual Steps: %d | Future Candidates: %d | Existing Workflows: %d"), Counts.ApprovalRequiredCount, Counts.ManualEngineStepCount, Counts.FutureAutomationCandidateCount, Counts.ExistingWorkflowCount));
+        Lines.Add(Plans.Num() > 0
+            ? FString::Printf(TEXT("Recommended Validation Sequence: %s"), *GetProjectHealthFirstValidationStep(Plans[0]))
+            : TEXT("Recommended Validation Sequence: Re-run Analyze after project context changes."));
+        Lines.Add(FString::Printf(TEXT("Next Workflow Route: %s"), NextWorkflowRoute.IsEmpty() ? TEXT("Review the current diagnosis cards.") : *NextWorkflowRoute));
+        Lines.Add(TEXT("Output: In-app summary only. No plan was executed and no persistent Project Health asset was created."));
+    }
+    else
+    {
+        Lines.Add(FString::Printf(TEXT("Correction Plan Eligibility: %d proposed route(s) from %d current finding(s)."), Plans.Num(), SourceFindingCount));
+        Lines.Add(TEXT("State: Proposed only. No approval or execution is implied."));
+        AppendProjectHealthCorrectionPlanLines(Lines, Plans);
+        Lines.Add(FString::Printf(TEXT("Next Workflow Route: %s"), NextWorkflowRoute.IsEmpty() ? TEXT("Review the current diagnosis cards.") : *NextWorkflowRoute));
+    }
+
+    if (Plans.IsEmpty())
+    {
+        Lines.Add(TEXT("No actionable correction plan is supported by the current evidence. Informational readiness findings remain informational."));
+    }
+
+    return FString::Join(Lines, TEXT("\n"));
+}
+
+FString CompactProjectBlueprintText(const FString& Value, int32 MaxLength = 220)
+{
+    FString Compact = Value;
+    Compact.ReplaceInline(TEXT("\r"), TEXT(" "));
+    Compact.ReplaceInline(TEXT("\n"), TEXT(" "));
+    while (Compact.Contains(TEXT("  ")))
+    {
+        Compact.ReplaceInline(TEXT("  "), TEXT(" "));
+    }
+    Compact = Compact.TrimStartAndEnd();
+    return Compact.Len() > MaxLength ? Compact.Left(MaxLength - 3) + TEXT("...") : Compact;
+}
+
+void BuildProjectBlueprintWorkflowActionPlan(
+    TArray<FWanaWorkflowActionPlanItem>& ActionPlan,
+    const FWanaProjectBlueprintPlan& Plan)
+{
+    for (const FWanaProjectBlueprintRoute& Route : Plan.RecommendedRoutes)
+    {
+        const bool bKnownWorkspace = Route.Workspace.Equals(TEXT("Project Blueprint"), ESearchCase::IgnoreCase)
+            || Route.Workspace.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase)
+            || Route.Workspace.Equals(TEXT("Character Building"), ESearchCase::IgnoreCase)
+            || Route.Workspace.Equals(TEXT("Character Intelligence"), ESearchCase::IgnoreCase)
+            || Route.Workspace.Equals(TEXT("AI"), ESearchCase::IgnoreCase)
+            || Route.Workspace.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase);
+        const bool bReadyForRoute = !Route.Readiness.Contains(TEXT("Needs"), ESearchCase::IgnoreCase);
+
         AddWorkflowActionPlanItem(
             ActionPlan,
-            TEXT("Project Structure Ready"),
-            TEXT("Project Health"),
-            TEXT("Informational"),
-            TEXT("WanaWorks found no confirmed module-structure or plugin blockers in the current scan."),
-            TEXT("Project Health"),
-            TEXT("Test"),
-            TEXT("Ready"),
-            TEXT("Low"),
-            true,
-            true);
+            Route.Title,
+            TEXT("Project Blueprint"),
+            Route.Priority,
+            Route.Reason,
+            Route.Workspace,
+            Route.WorkflowStep,
+            Route.Readiness,
+            Route.Risk,
+            bKnownWorkspace && bReadyForRoute,
+            false);
     }
+
+    AddWorkflowActionPlanItem(
+        ActionPlan,
+        TEXT("Protect the First Slice Boundary"),
+        TEXT("Scope"),
+        TEXT("Informational"),
+        Plan.RecommendedVerticalSlice,
+        TEXT("Project Blueprint"),
+        TEXT("Enhance"),
+        Plan.bHasUsableVision ? TEXT("Prepared") : TEXT("Needs Brief"),
+        TEXT("Low"),
+        false,
+        true);
+}
+
+FString BuildProjectBlueprintVisionSummary(
+    const FWanaProjectVisionBrief& Brief,
+    const FWanaProjectBlueprintPlan& Plan)
+{
+    return FString::Printf(
+        TEXT("Status: %s\nInterpreted Game Type: %s\nPerspective: %s\nPlayer Fantasy: %s\nConstraints: %s | %s | %s | %s\nTarget: %s | %s | %s\nPlanner: %s / %s"),
+        Plan.bHasUsableVision ? TEXT("Interpreted") : TEXT("Needs Brief"),
+        *Plan.InterpretedGameType,
+        *Plan.CameraPerspective,
+        *CompactProjectBlueprintText(Plan.PlayerFantasy, 150),
+        *Brief.TeamSize,
+        *Brief.ExperienceLevel,
+        *Brief.Timeline,
+        *Brief.Budget,
+        *Brief.TargetPlatform,
+        *Brief.IntendedDeliverable,
+        *Brief.DesiredPlaytime,
+        *Plan.PlannerMode,
+        *Plan.EngineAdapterId);
+}
+
+FString BuildProjectBlueprintScopeSummary(const FWanaProjectBlueprintPlan& Plan)
+{
+    return FString::Printf(
+        TEXT("Scope State: %s\nProduction Complexity: %s\nRecommended Deliverable: %s\nWhy: %s\nBoundary: Prove the signature loop before adding content breadth.\nOriginal Project: Preserved"),
+        *Plan.ScopeReality,
+        *Plan.ProductionComplexity,
+        *Plan.RecommendedDeliverable,
+        *CompactProjectBlueprintText(Plan.ScopeReason, 250));
+}
+
+FString BuildProjectBlueprintPillarsSummary(const FWanaProjectBlueprintPlan& Plan)
+{
+    TArray<FString> Lines;
+    Lines.Add(FString::Printf(TEXT("Pillars: %d"), Plan.GameplayPillars.Num()));
+    for (int32 Index = 0; Index < Plan.GameplayPillars.Num(); ++Index)
+    {
+        const FWanaProjectBlueprintPillar& Pillar = Plan.GameplayPillars[Index];
+        Lines.Add(FString::Printf(
+            TEXT("%d. %s: %s Systems: %s. Readiness: %s. Route: %s"),
+            Index + 1,
+            *Pillar.Name,
+            *CompactProjectBlueprintText(Pillar.PlayerValue, 82),
+            *FString::Join(Pillar.RequiredSystems, TEXT(", ")),
+            *Pillar.Readiness,
+            *Pillar.WorkspaceRoute));
+    }
+    return FString::Join(Lines, TEXT("\n"));
+}
+
+FString BuildProjectBlueprintVerticalSliceSummary(const FWanaProjectBlueprintPlan& Plan, const FString& ActionVerb)
+{
+    return FString::Printf(
+        TEXT("Plan State: %s\nRecommended Slice: %s\nProof: %s\nAction: %s refreshed this in-app plan.\nGenerated Assets: None\nProject Mutation: None"),
+        Plan.bHasUsableVision ? TEXT("Prepared") : TEXT("Limited - Needs Brief"),
+        *CompactProjectBlueprintText(Plan.RecommendedVerticalSlice, 440),
+        *CompactProjectBlueprintText(Plan.VerticalSliceProof, 300),
+        *ActionVerb);
+}
+
+FString BuildProjectBlueprintMilestonesSummary(const FWanaProjectBlueprintPlan& Plan)
+{
+    TArray<FString> Lines;
+    Lines.Add(FString::Printf(TEXT("Milestones: %d / dependency ordered"), Plan.Milestones.Num()));
+    for (const FWanaProjectBlueprintMilestone& Milestone : Plan.Milestones)
+    {
+        const FString Dependency = Milestone.DependsOn.Num() > 0
+            ? FString::Join(Milestone.DependsOn, TEXT(", "))
+            : FString(TEXT("Foundation"));
+        Lines.Add(FString::Printf(
+            TEXT("%s %s: %s Depends: %s. Complexity: %s. Readiness: %s. Route: %s"),
+            *Milestone.StableId,
+            *Milestone.Title,
+            *CompactProjectBlueprintText(Milestone.Objective, 92),
+            *Dependency,
+            *Milestone.Complexity,
+            *Milestone.Readiness,
+            *Milestone.WorkspaceRoute));
+    }
+    return FString::Join(Lines, TEXT("\n"));
+}
+
+FString BuildProjectBlueprintGapsSummary(const FWanaProjectBlueprintPlan& Plan)
+{
+    TArray<FString> Lines;
+    Lines.Add(FString::Printf(TEXT("Required Systems: %d | Reported Gaps: %d"), Plan.RequiredSystems.Num(), Plan.Gaps.Num()));
+    int32 DependencyExamplesAdded = 0;
+    for (const FWanaProjectBlueprintSystemRequirement& System : Plan.RequiredSystems)
+    {
+        if (System.Dependencies.Num() > 0)
+        {
+            Lines.Add(FString::Printf(TEXT("Dependency: %s <- %s"), *System.Name, *FString::Join(System.Dependencies, TEXT(" + "))));
+            ++DependencyExamplesAdded;
+            if (DependencyExamplesAdded >= 2)
+            {
+                break;
+            }
+        }
+    }
+    const int32 GapCount = FMath::Min(5, Plan.Gaps.Num());
+    for (int32 Index = 0; Index < GapCount; ++Index)
+    {
+        const FWanaProjectBlueprintGap& Gap = Plan.Gaps[Index];
+        Lines.Add(FString::Printf(
+            TEXT("%s: %s - %s Route: %s"),
+            *Gap.Capability,
+            *Gap.Status,
+            *CompactProjectBlueprintText(Gap.Evidence, 112),
+            *Gap.WorkspaceRoute));
+    }
+    Lines.Add(TEXT("Evidence Rule: Unknown means not evidenced, not confirmed missing."));
+    return FString::Join(Lines, TEXT("\n"));
 }
 
 void BuildCharacterBuildingWorkflowActionPlan(
@@ -4620,6 +5042,14 @@ void FWanaWorksUIModule::StartupModule()
     SelectedCharacterIntelligenceRelationshipLabel = TEXT("Unknown");
     SelectedCharacterIntelligenceTargetLabel = TEXT("No Target");
     SelectedCharacterBuildingProfileLabel = CharacterBuildingDefaultProfileLabel;
+    ProjectBlueprintVisionBriefText.Reset();
+    SelectedProjectBlueprintTeamSizeLabel = TEXT("Solo");
+    SelectedProjectBlueprintExperienceLabel = TEXT("Intermediate");
+    SelectedProjectBlueprintTimelineLabel = TEXT("6 Months");
+    SelectedProjectBlueprintBudgetLabel = TEXT("Indie");
+    SelectedProjectBlueprintPlatformLabel = TEXT("PC");
+    SelectedProjectBlueprintDeliverableLabel = TEXT("Vertical Slice");
+    SelectedProjectBlueprintPlaytimeLabel = TEXT("15 Minutes");
     bWorkspaceAnalysisInitialized = false;
     LastAnalysisWorkspaceLabel.Reset();
     LastAnalysisStatusSummary = TEXT("Analyze has not run yet.");
@@ -4629,6 +5059,13 @@ void FWanaWorksUIModule::StartupModule()
     LastAnalysisBehaviorSummary.Reset();
     LastAnalysisWITSummary.Reset();
     LastAnalysisSuggestedSummary.Reset();
+    LastProjectBlueprintVisionSummary.Reset();
+    LastProjectBlueprintScopeSummary.Reset();
+    LastProjectBlueprintPillarsSummary.Reset();
+    LastProjectBlueprintVerticalSliceSummary.Reset();
+    LastProjectBlueprintMilestonesSummary.Reset();
+    LastProjectBlueprintGapsSummary.Reset();
+    LastProjectBlueprintNextActionsSummary.Reset();
     LastEnhancementResultsActor.Reset();
     LastEnhancementResultsActorLabel = TEXT("(none)");
     LastEnhancementWorkflowUsed = TEXT("Not run yet");
@@ -4734,6 +5171,58 @@ void FWanaWorksUIModule::StartupModule()
         MakeShared<FString>(TEXT("Enemy Character Base")),
         MakeShared<FString>(TEXT("Neutral Character")),
         MakeShared<FString>(CharacterBuildingDefaultProfileLabel)
+    };
+    ProjectBlueprintTeamSizeOptions =
+    {
+        MakeShared<FString>(TEXT("Solo")),
+        MakeShared<FString>(TEXT("2-5")),
+        MakeShared<FString>(TEXT("6-15")),
+        MakeShared<FString>(TEXT("16+"))
+    };
+    ProjectBlueprintExperienceOptions =
+    {
+        MakeShared<FString>(TEXT("Beginner")),
+        MakeShared<FString>(TEXT("Intermediate")),
+        MakeShared<FString>(TEXT("Experienced")),
+        MakeShared<FString>(TEXT("Professional"))
+    };
+    ProjectBlueprintTimelineOptions =
+    {
+        MakeShared<FString>(TEXT("1 Month")),
+        MakeShared<FString>(TEXT("3 Months")),
+        MakeShared<FString>(TEXT("6 Months")),
+        MakeShared<FString>(TEXT("12 Months")),
+        MakeShared<FString>(TEXT("18+ Months"))
+    };
+    ProjectBlueprintBudgetOptions =
+    {
+        MakeShared<FString>(TEXT("Minimal")),
+        MakeShared<FString>(TEXT("Indie")),
+        MakeShared<FString>(TEXT("Funded Indie")),
+        MakeShared<FString>(TEXT("Studio"))
+    };
+    ProjectBlueprintPlatformOptions =
+    {
+        MakeShared<FString>(TEXT("PC")),
+        MakeShared<FString>(TEXT("Console")),
+        MakeShared<FString>(TEXT("Multi-platform")),
+        MakeShared<FString>(TEXT("Mobile")),
+        MakeShared<FString>(TEXT("VR"))
+    };
+    ProjectBlueprintDeliverableOptions =
+    {
+        MakeShared<FString>(TEXT("Prototype")),
+        MakeShared<FString>(TEXT("Vertical Slice")),
+        MakeShared<FString>(TEXT("Demo")),
+        MakeShared<FString>(TEXT("Early Access")),
+        MakeShared<FString>(TEXT("Full Game"))
+    };
+    ProjectBlueprintPlaytimeOptions =
+    {
+        MakeShared<FString>(TEXT("5 Minutes")),
+        MakeShared<FString>(TEXT("15 Minutes")),
+        MakeShared<FString>(TEXT("30 Minutes")),
+        MakeShared<FString>(TEXT("60 Minutes"))
     };
     RefreshProjectAssetPickerOptions();
 
@@ -4854,6 +5343,17 @@ void FWanaWorksUIModule::HandleEditorSelectionChanged(UObject* NewSelection)
 void FWanaWorksUIModule::HandleCommandTextChanged(const FText& NewText)
 {
     CommandText = NewText.ToString();
+}
+
+void FWanaWorksUIModule::HandleProjectBlueprintVisionBriefTextChanged(const FText& NewText)
+{
+    ProjectBlueprintVisionBriefText = NewText.ToString().Left(4000);
+    SelectedWorkspaceLabel = TEXT("Project Blueprint");
+    bWorkspaceAnalysisInitialized = false;
+    StatusMessage = ProjectBlueprintVisionBriefText.TrimStartAndEnd().Len() >= 20
+        ? TEXT("Status: Vision brief updated. Run Analyze to refresh the project blueprint.")
+        : TEXT("Status: Add more vision detail before analysis.");
+    RefreshReactiveUI(false);
 }
 
 void FWanaWorksUIModule::HandleWorkspaceSelected(const FString& WorkspaceLabel)
@@ -5618,7 +6118,9 @@ FString FWanaWorksUIModule::GetSelectedSubjectAssetPath() const
 
 FString FWanaWorksUIModule::GetSelectedSubjectAssetPathForWorkspace(const FString& WorkspaceLabel) const
 {
-    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Project Blueprint"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
     {
         return FString();
     }
@@ -5656,7 +6158,8 @@ UObject* FWanaWorksUIModule::GetSandboxPreviewObject() const
     const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
 
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase)
-        || WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+        || WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Project Blueprint"), ESearchCase::IgnoreCase))
     {
         return nullptr;
     }
@@ -5681,7 +6184,8 @@ bool FWanaWorksUIModule::IsActorCompatibleWithWorkspacePreview(const AActor* Act
 {
     if (!IsValid(Actor)
         || WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase)
-        || WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+        || WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Project Blueprint"), ESearchCase::IgnoreCase))
     {
         return false;
     }
@@ -5724,7 +6228,9 @@ bool FWanaWorksUIModule::ResolvePreferredSubjectSnapshot(FWanaSelectedCharacterE
 {
     const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
 
-    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
+    if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Project Blueprint"), ESearchCase::IgnoreCase))
     {
         OutSnapshot = FWanaSelectedCharacterEnhancementSnapshot();
         return false;
@@ -5773,7 +6279,8 @@ bool FWanaWorksUIModule::ResolvePreferredSandboxPreviewActor(AActor*& OutActor, 
     const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
 
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase)
-        || WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
+        || WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase)
+        || WorkspaceLabel.Equals(TEXT("Project Blueprint"), ESearchCase::IgnoreCase))
     {
         return false;
     }
@@ -6936,6 +7443,12 @@ void FWanaWorksUIModule::EnhanceActiveWorkspace()
 {
     const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
 
+    if (WorkspaceLabel.Equals(TEXT("Project Blueprint"), ESearchCase::IgnoreCase))
+    {
+        RefreshProjectBlueprintWorkspaceState(TEXT("Enhance"));
+        return;
+    }
+
     if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
     {
         RefreshProjectHealthWorkspaceState(TEXT("Enhance"));
@@ -7158,6 +7671,12 @@ void FWanaWorksUIModule::EnhanceActiveWorkspace()
 void FWanaWorksUIModule::TestActiveWorkspace()
 {
     const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
+
+    if (WorkspaceLabel.Equals(TEXT("Project Blueprint"), ESearchCase::IgnoreCase))
+    {
+        RefreshProjectBlueprintWorkspaceState(TEXT("Test"));
+        return;
+    }
 
     if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
     {
@@ -8108,6 +8627,12 @@ void FWanaWorksUIModule::AnalyzeActiveWorkspace()
 {
     const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
 
+    if (WorkspaceLabel.Equals(TEXT("Project Blueprint"), ESearchCase::IgnoreCase))
+    {
+        RefreshProjectBlueprintWorkspaceState(TEXT("Analyze"));
+        return;
+    }
+
     if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
     {
         RefreshProjectHealthWorkspaceState(TEXT("Analyze"));
@@ -8895,6 +9420,12 @@ void FWanaWorksUIModule::FinalizeSandboxBuild()
     const FString WorkspaceLabel = GetSelectedWorkspaceLabel();
     const FString DisplayWorkspaceLabel = GetWorkspaceDisplayLabel(WorkspaceLabel);
 
+    if (WorkspaceLabel.Equals(TEXT("Project Blueprint"), ESearchCase::IgnoreCase))
+    {
+        RefreshProjectBlueprintWorkspaceState(TEXT("Build"));
+        return;
+    }
+
     if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
     {
         RefreshProjectHealthWorkspaceState(TEXT("Build"));
@@ -9547,31 +10078,243 @@ static bool DoesWanaWorksOutputPathHaveAnyAssets(const TCHAR* PackagePath)
     return Assets.Num() > 0;
 }
 
-void FWanaWorksUIModule::RefreshProjectHealthWorkspaceState(const FString& ActionVerb)
+void FWanaWorksUIModule::RefreshProjectBlueprintWorkspaceState(const FString& ActionVerb)
 {
-    const FWanaProjectHealthScanResult ScanResult = WanaWorksProjectHealthActions::RunFullScan();
+    const FWanaWITCharacterInfluenceContext WITContext = ResolveWITCharacterInfluenceContext();
     const bool bHasAnyWITReport = DoesWanaWorksOutputPathHaveAnyAssets(WanaWITEnvironmentReportRootPath);
     const bool bHasAnyAdapterReport = DoesWanaWorksOutputPathHaveAnyAssets(WanaAnimationAdapterReportRootPath);
+
+    FWanaProjectHealthScanContext ScanContext;
+    ScanContext.bHasOutputContext = true;
+    ScanContext.bHasEditorWorld = WITContext.bHasWorldContext;
+    ScanContext.CurrentWorldLabel = WITContext.WorldLabel;
+    ScanContext.CurrentWorldPath = WITContext.WorldPackagePath;
+    ScanContext.bHasAnyWITReport = bHasAnyWITReport;
+    ScanContext.bCurrentWorldWITReportReadable = WITContext.bReportReadable;
+    ScanContext.bCurrentWorldWITReportMatches = WITContext.bReportMatchesWorld;
+    ScanContext.CurrentWorldWITReportPath = WITContext.ReportPath;
+    ScanContext.bHasAnyAnimationAdapterReport = bHasAnyAdapterReport;
+    const FWanaProjectHealthScanResult HealthResult = WanaWorksProjectHealthActions::RunFullScan(ScanContext);
+
+    FWanaProjectBlueprintReadinessContext Readiness;
+    Readiness.bProjectHealthScanAvailable = HealthResult.bScanCompleted;
+    Readiness.ProjectHealthStatus = HealthResult.bScanCompleted ? HealthResult.OverallStatusLabel : TEXT("Unknown");
+
+    FWanaSelectedCharacterEnhancementSnapshot CharacterSnapshot;
+    UObject* CharacterSubjectObject = LoadSelectedSubjectAssetObjectForWorkspace(TEXT("Character Building"));
+    Readiness.bCharacterSubjectSelected = CharacterSubjectObject
+        && WanaWorksUIEditorActions::GetCharacterEnhancementSnapshotForSubjectObject(CharacterSubjectObject, CharacterSnapshot)
+        && CharacterSnapshot.bHasSelectedActor;
+    if (Readiness.bCharacterSubjectSelected)
+    {
+        Readiness.CharacterBuildingStatus = GetPlayableModeStatusLabel(&CharacterSnapshot);
+        Readiness.CharacterEvidence = FString::Printf(
+            TEXT("%s; mesh %s; skeleton %s; Anim BP %s."),
+            *CharacterSnapshot.SelectedActorLabel,
+            *CharacterSnapshot.SkeletalMeshLabel,
+            *CharacterSnapshot.SkeletonLabel,
+            *CharacterSnapshot.AnimationBlueprintAssetLabel);
+    }
+    else
+    {
+        Readiness.CharacterBuildingStatus = TEXT("Unknown");
+        Readiness.CharacterEvidence = TEXT("No Character Building project asset is selected. This does not prove a playable character is absent.");
+    }
+
+    FWanaSelectedCharacterEnhancementSnapshot AISnapshot;
+    UObject* AISubjectObject = LoadSelectedSubjectAssetObjectForWorkspace(TEXT("AI"));
+    Readiness.bIntelligenceSubjectSelected = AISubjectObject
+        && WanaWorksUIEditorActions::GetCharacterEnhancementSnapshotForSubjectObject(AISubjectObject, AISnapshot)
+        && AISnapshot.bHasSelectedActor;
+    if (Readiness.bIntelligenceSubjectSelected)
+    {
+        Readiness.CharacterIntelligenceStatus = GetAIModeStatusLabel(&AISnapshot);
+        Readiness.IntelligenceEvidence = FString::Printf(
+            TEXT("%s; controller %s; WAI %s; WAY %s."),
+            *AISnapshot.SelectedActorLabel,
+            *AISnapshot.LinkedAIControllerLabel,
+            AISnapshot.bHasWAIComponent ? TEXT("Ready") : TEXT("Limited"),
+            AISnapshot.bHasWAYComponent ? TEXT("Ready") : TEXT("Limited"));
+    }
+    else
+    {
+        Readiness.CharacterIntelligenceStatus = TEXT("Unknown");
+        Readiness.IntelligenceEvidence = TEXT("No Character Intelligence project asset is selected. AI readiness remains unknown.");
+    }
+
+    Readiness.bEnvironmentReportAvailable = WITContext.bReportReadable && WITContext.bReportMatchesWorld;
+    Readiness.EnvironmentStatus = Readiness.bEnvironmentReportAvailable
+        ? TEXT("Ready")
+        : (bHasAnyWITReport ? TEXT("Limited") : TEXT("Unknown"));
+    Readiness.EnvironmentEvidence = Readiness.bEnvironmentReportAvailable
+        ? FString::Printf(TEXT("Current-map WIT report: %s."), *WITContext.ReportPath)
+        : (bHasAnyWITReport
+            ? TEXT("A WIT report exists, but it is not confirmed readable for the current map.")
+            : TEXT("No persistent WIT report is currently evidenced."));
+
+    const bool bCharacterAdapterMatches = Readiness.bCharacterSubjectSelected
+        && HasPersistentAnimationAdapterReportForSnapshot(CharacterSnapshot);
+    const bool bAIAdapterMatches = Readiness.bIntelligenceSubjectSelected
+        && HasPersistentAnimationAdapterReportForSnapshot(AISnapshot);
+    Readiness.bAnimationAdapterAvailable = bCharacterAdapterMatches || bAIAdapterMatches;
+    Readiness.AnimationAdapterStatus = Readiness.bAnimationAdapterAvailable
+        ? TEXT("Ready")
+        : (bHasAnyAdapterReport ? TEXT("Partially Ready") : TEXT("Unknown"));
+    Readiness.AdapterEvidence = Readiness.bAnimationAdapterAvailable
+        ? TEXT("A subject-matched persistent WanaAnimation adapter report is available.")
+        : (bHasAnyAdapterReport
+            ? TEXT("Adapter reports exist, but Project Blueprint cannot confirm a match to the selected character contexts.")
+            : TEXT("No persistent WanaAnimation adapter report is currently evidenced."));
+
+    FWanaProjectVisionBrief Brief;
+    Brief.VisionBrief = ProjectBlueprintVisionBriefText;
+    Brief.TeamSize = SelectedProjectBlueprintTeamSizeLabel;
+    Brief.ExperienceLevel = SelectedProjectBlueprintExperienceLabel;
+    Brief.Timeline = SelectedProjectBlueprintTimelineLabel;
+    Brief.Budget = SelectedProjectBlueprintBudgetLabel;
+    Brief.TargetPlatform = SelectedProjectBlueprintPlatformLabel;
+    Brief.IntendedDeliverable = SelectedProjectBlueprintDeliverableLabel;
+    Brief.DesiredPlaytime = SelectedProjectBlueprintPlaytimeLabel;
+    Brief.ProjectIdentifier = HealthResult.ProjectName;
+    Brief.EngineAdapterId = TEXT("Unreal");
+
+    const FWanaRuleBasedProjectBlueprintPlanner Planner;
+    const FWanaProjectBlueprintPlan Plan = Planner.BuildPlan(Brief, Readiness);
     TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
-    BuildProjectHealthWorkflowActionPlan(WorkflowActionPlan, ScanResult, bHasAnyWITReport, bHasAnyAdapterReport);
+    BuildProjectBlueprintWorkflowActionPlan(WorkflowActionPlan, Plan);
+
+    LastProjectBlueprintVisionSummary = BuildProjectBlueprintVisionSummary(Brief, Plan);
+    LastProjectBlueprintScopeSummary = BuildProjectBlueprintScopeSummary(Plan);
+    LastProjectBlueprintPillarsSummary = BuildProjectBlueprintPillarsSummary(Plan);
+    LastProjectBlueprintVerticalSliceSummary = BuildProjectBlueprintVerticalSliceSummary(Plan, ActionVerb);
+    LastProjectBlueprintMilestonesSummary = BuildProjectBlueprintMilestonesSummary(Plan);
+    LastProjectBlueprintGapsSummary = BuildProjectBlueprintGapsSummary(Plan);
+    LastProjectBlueprintNextActionsSummary = BuildWorkflowActionPlanSummary(WorkflowActionPlan, 6);
+
+    bWorkspaceAnalysisInitialized = true;
+    LastAnalysisWorkspaceLabel = TEXT("Project Blueprint");
+    LastAnalysisPrimarySummary = LastProjectBlueprintVisionSummary;
+    LastAnalysisAnimationSummary = LastProjectBlueprintScopeSummary;
+    LastAnalysisPhysicalSummary = LastProjectBlueprintPillarsSummary;
+    LastAnalysisBehaviorSummary = LastProjectBlueprintVerticalSliceSummary;
+    LastAnalysisWITSummary = LastProjectBlueprintMilestonesSummary;
+    LastAnalysisSuggestedSummary = LastProjectBlueprintNextActionsSummary;
+
+    const FString RecommendedAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+    if (ActionVerb.Equals(TEXT("Enhance"), ESearchCase::IgnoreCase))
+    {
+        LastAnalysisStatusSummary = FString::Printf(
+            TEXT("Blueprint enhanced: %s. Vertical-slice boundary prepared with %d pillar(s), %d dependency-aware milestone(s), and no project mutation. Next route: %s"),
+            *Plan.ScopeReality,
+            Plan.GameplayPillars.Num(),
+            Plan.Milestones.Num(),
+            RecommendedAction.IsEmpty() ? TEXT("Review the current blueprint cards.") : *RecommendedAction);
+    }
+    else if (ActionVerb.Equals(TEXT("Test"), ESearchCase::IgnoreCase))
+    {
+        LastAnalysisStatusSummary = FString::Printf(
+            TEXT("Blueprint test complete: %s. Proof is %s; %d current or unknown gap(s) remain visible. No gameplay systems were executed or generated."),
+            *Plan.ScopeReality,
+            Plan.bHasUsableVision ? TEXT("defined") : TEXT("limited by an incomplete brief"),
+            Plan.Gaps.Num());
+    }
+    else if (ActionVerb.Equals(TEXT("Build"), ESearchCase::IgnoreCase))
+    {
+        LastAnalysisStatusSummary = FString::Printf(
+            TEXT("Project Blueprint build complete: in-app plan prepared for %s with %d milestone(s). Persistent plan assets are not generated in V1; all project assets and settings remain untouched."),
+            *Plan.RecommendedDeliverable,
+            Plan.Milestones.Num());
+    }
+    else
+    {
+        LastAnalysisStatusSummary = FString::Printf(
+            TEXT("Project Blueprint analysis complete: %s, %d gameplay pillar(s), %d required system(s), and %d evidence-aware gap(s). Next route: %s"),
+            *Plan.ScopeReality,
+            Plan.GameplayPillars.Num(),
+            Plan.RequiredSystems.Num(),
+            Plan.Gaps.Num(),
+            RecommendedAction.IsEmpty() ? TEXT("Review the current blueprint cards.") : *RecommendedAction);
+    }
+
+    StatusMessage = FString::Printf(TEXT("Status: %s"), *LastAnalysisStatusSummary);
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::RefreshProjectHealthWorkspaceState(const FString& ActionVerb)
+{
+    const FWanaWITCharacterInfluenceContext WITContext = ResolveWITCharacterInfluenceContext();
+    const bool bHasAnyWITReport = DoesWanaWorksOutputPathHaveAnyAssets(WanaWITEnvironmentReportRootPath);
+    const bool bHasAnyAdapterReport = DoesWanaWorksOutputPathHaveAnyAssets(WanaAnimationAdapterReportRootPath);
+
+    FWanaProjectHealthScanContext ScanContext;
+    ScanContext.bHasOutputContext = true;
+    ScanContext.bHasEditorWorld = WITContext.bHasWorldContext;
+    ScanContext.CurrentWorldLabel = WITContext.WorldLabel;
+    ScanContext.CurrentWorldPath = WITContext.WorldPackagePath;
+    ScanContext.bHasAnyWITReport = bHasAnyWITReport;
+    ScanContext.bCurrentWorldWITReportReadable = WITContext.bReportReadable;
+    ScanContext.bCurrentWorldWITReportMatches = WITContext.bReportMatchesWorld;
+    ScanContext.CurrentWorldWITReportPath = WITContext.ReportPath;
+    ScanContext.bHasAnyAnimationAdapterReport = bHasAnyAdapterReport;
+
+    const FWanaProjectHealthScanResult ScanResult = WanaWorksProjectHealthActions::RunFullScan(ScanContext);
+    TArray<FWanaWorkflowActionPlanItem> WorkflowActionPlan;
+    BuildProjectHealthWorkflowActionPlan(WorkflowActionPlan, ScanResult);
+    TArray<FWanaProjectHealthCorrectionPlan> CorrectionPlans = WanaWorksProjectHealthActions::BuildCorrectionPlans(ScanResult);
+    SortProjectHealthCorrectionPlans(CorrectionPlans);
+    const FWanaProjectHealthCorrectionPlanCounts CorrectionPlanCounts = CountProjectHealthCorrectionPlans(CorrectionPlans);
     const FString RecommendedNextAction = GetWorkflowActionPlanRecommendedAction(WorkflowActionPlan);
+    const FWanaProjectHealthFinding* HighestPriorityFinding = FindHighestPriorityProjectHealthFinding(ScanResult);
+    const FWanaProjectHealthFinding* HighestConfidenceFinding = FindHighestConfidenceProjectHealthFinding(ScanResult);
+    const FWanaProjectHealthFinding* EngineFinding = FindHighestPriorityProjectHealthFinding(ScanResult, TEXT("Engine Compatibility"));
+    const FWanaProjectHealthFinding* ModuleFinding = FindHighestPriorityProjectHealthFinding(ScanResult, TEXT("Modules and Dependencies"));
+    const FWanaProjectHealthFinding* OutputFinding = FindHighestPriorityProjectHealthFinding(ScanResult, TEXT("WanaWorks Outputs"));
+
+    const FString HighestPriorityLabel = HighestPriorityFinding
+        ? FString::Printf(TEXT("%s: %s (%s)"), *HighestPriorityFinding->Severity, *HighestPriorityFinding->Title, *HighestPriorityFinding->DiagnosisClassification)
+        : TEXT("None reported");
+    const FString HighestConfidenceLabel = HighestConfidenceFinding
+        ? FString::Printf(TEXT("%s - %s"), *HighestConfidenceFinding->Title, *HighestConfidenceFinding->Confidence)
+        : TEXT("No evidence-backed diagnosis available");
+    const FString RecommendedNextRoute = HighestPriorityFinding
+        ? FString::Printf(
+            TEXT("%s: %s"),
+            HighestPriorityFinding->RecommendedWorkflowStep.IsEmpty() ? TEXT("Analyze") : *HighestPriorityFinding->RecommendedWorkflowStep,
+            *CompactProjectHealthText(HighestPriorityFinding->RecommendedRoute, 220))
+        : (RecommendedNextAction.IsEmpty() ? TEXT("Review the current Project Health cards.") : RecommendedNextAction);
 
     bWorkspaceAnalysisInitialized = true;
     LastAnalysisWorkspaceLabel = TEXT("Project Health");
     LastAnalysisStatusSummary = FString::Printf(
-        TEXT("Overall Health: %s\nTotal Findings: %d (%d Critical, %d High, %d Medium, %d Low, %d Informational)\nEngine Version: %s\nRecommended Next Action: %s"),
+        TEXT("Overall Health: %s\nFinding Counts: %d Critical, %d High, %d Medium, %d Low, %d Informational | Correction Plans: %d\nEngine Adapter: Unreal (%s)\nHighest Priority: %s\nHighest Confidence: %s\nNext Route: %s\nScan Scope: Current metadata and WanaWorks output evidence; no compile or package pass."),
         *ScanResult.OverallStatusLabel,
-        ScanResult.Findings.Num(),
         ScanResult.CriticalCount,
         ScanResult.HighCount,
         ScanResult.MediumCount,
         ScanResult.LowCount,
         ScanResult.InformationalCount,
+        CorrectionPlans.Num(),
         *ScanResult.EngineVersionLabel,
-        RecommendedNextAction.IsEmpty() ? TEXT("Review the current Project Health cards.") : *RecommendedNextAction);
+        *HighestPriorityLabel,
+        *HighestConfidenceLabel,
+        *RecommendedNextRoute);
+
+    if (ActionVerb.Equals(TEXT("Enhance"), ESearchCase::IgnoreCase))
+    {
+        LastAnalysisStatusSummary = FString::Printf(
+            TEXT("Correction Planning: Prepared\nCorrection plan prepared. Review the proposed routes before approving any future project changes.\nPlans: %d | Existing Workflows: %d | Manual Steps: %d | Future Candidates: %d | Unsupported: %d\nHighest Plan: %s\nAffected Systems: %s\nValidate First: %s\nFiles Changed: None"),
+            CorrectionPlans.Num(),
+            CorrectionPlanCounts.ExistingWorkflowCount,
+            CorrectionPlanCounts.ManualEngineStepCount,
+            CorrectionPlanCounts.FutureAutomationCandidateCount,
+            CorrectionPlanCounts.UnsupportedCount,
+            CorrectionPlans.Num() > 0 ? *CorrectionPlans[0].Title : TEXT("No supported correction plan"),
+            CorrectionPlans.Num() > 0 ? *CompactProjectHealthText(CorrectionPlans[0].AffectedSystems, 180) : TEXT("No affected system requires a proposed change."),
+            CorrectionPlans.Num() > 0 ? *GetProjectHealthFirstValidationStep(CorrectionPlans[0]) : TEXT("Re-run Analyze after project context changes."));
+    }
 
     LastAnalysisPrimarySummary = FString::Printf(
-        TEXT("Project: %s\nEngine Adapter: Unreal\nScan State: %s\nOverall Health: %s\nFindings: %d Critical, %d High, %d Medium, %d Low, %d Informational\nLast Scan (UTC): %s\nOriginal Files: Preserved (read-only diagnosis)"),
+        TEXT("Project: %s\nScan State: %s (read-only; originals preserved)\nOverall Health: %s\nFindings: %d Critical, %d High, %d Medium, %d Low, %d Informational\nEngine: %s / %s\nHighest Priority: %s\nNext Route: %s"),
         *ScanResult.ProjectName,
         ScanResult.bScanCompleted ? TEXT("Full Scan Complete") : TEXT("Needs Analyze"),
         *ScanResult.OverallStatusLabel,
@@ -9580,44 +10323,150 @@ void FWanaWorksUIModule::RefreshProjectHealthWorkspaceState(const FString& Actio
         ScanResult.MediumCount,
         ScanResult.LowCount,
         ScanResult.InformationalCount,
-        *ScanResult.ScanTimestampUtc);
-
-    LastAnalysisAnimationSummary = FString::Printf(
-        TEXT("Engine Adapter: Unreal\nDetected Engine Version: %s\nCompatibility State: %s\nWanaWorks Plugin Version: %s\nGuidance: Treat compatibility findings above as %s until validated against a real build/package pass."),
         *ScanResult.EngineVersionLabel,
         *ScanResult.EngineCompatibilityStatus,
-        *ScanResult.WanaWorksPluginVersionLabel,
-        ScanResult.EngineCompatibilityStatus.Contains(TEXT("Not yet validated")) ? TEXT("limited confidence") : TEXT("confirmed from project metadata"));
+        *HighestPriorityLabel,
+        *RecommendedNextRoute);
 
-    LastAnalysisPhysicalSummary = FString::Printf(
-        TEXT("Project Modules: %d\nDeclared Plugins: %d\nEnabled Plugins (engine-wide): %d\nTotal Findings: %d\nLimitations: %s"),
-        ScanResult.ProjectModuleCount,
-        ScanResult.DeclaredPluginCount,
-        ScanResult.EnabledPluginCount,
-        ScanResult.Findings.Num(),
-        *ScanResult.ScanLimitationsText);
+    LastAnalysisAnimationSummary = BuildProjectHealthFindingCardSummary(
+        EngineFinding,
+        FString::Printf(
+            TEXT("Severity / Diagnosis: Unknown / Unsupported Check\nDetected: Unreal Engine %s\nEvidence: No engine compatibility finding was produced.\nImpact: Compatibility confidence is unavailable.\nNext Route: Run Analyze again [Analyze]\nPrevent Next Time: Validate engine upgrades on a branch or project copy."),
+            *ScanResult.EngineVersionLabel));
+
+    LastAnalysisPhysicalSummary = BuildProjectHealthFindingCardSummary(
+        ModuleFinding,
+        TEXT("Severity / Diagnosis: Unknown / Unsupported Check\nDetected: No module diagnosis was produced.\nEvidence: Project descriptor or module metadata may be unavailable.\nImpact: Module boundary readiness is unknown.\nNext Route: Re-open the project and run Analyze [Analyze]\nPrevent Next Time: Keep descriptors, targets, module folders, and Build.cs files synchronized."));
 
     LastAnalysisBehaviorSummary = FString::Printf(
-        TEXT("Persistent WIT Reports In Project: %s\nWanaAnimation Adapter Reports In Project: %s\nWanaWorks Output Root: /Game/WanaWorks\nOriginal Assets: Preserved (Project Health never modifies or resaves assets)"),
-        bHasAnyWITReport ? TEXT("Present") : TEXT("None Found"),
-        bHasAnyAdapterReport ? TEXT("Present") : TEXT("None Found"));
+        TEXT("Current Map: %s\nWIT Context: %s\nWIT Evidence: %s\nAnimation Adapter Reports: %s\nOutput Diagnosis / Route: %s / %s [%s]"),
+        WITContext.WorldLabel.IsEmpty() ? TEXT("Unavailable") : *WITContext.WorldLabel,
+        WITContext.bReportReadable && WITContext.bReportMatchesWorld ? TEXT("Ready for current map") : *WITContext.StatusLabel,
+        WITContext.ReportPath.IsEmpty() ? TEXT("No current-map report path") : *WITContext.ReportPath,
+        bHasAnyAdapterReport ? TEXT("Present (subject match still requires character workspace validation)") : TEXT("None found"),
+        OutputFinding ? *OutputFinding->DiagnosisClassification : TEXT("Unknown"),
+        OutputFinding ? *CompactProjectHealthText(OutputFinding->RecommendedRoute, 170) : TEXT("Run Analyze with a valid editor world."),
+        OutputFinding && !OutputFinding->RecommendedWorkflowStep.IsEmpty() ? *OutputFinding->RecommendedWorkflowStep : TEXT("Analyze"));
 
     const FString BuildReadinessNote = ActionVerb.Equals(TEXT("Enhance"), ESearchCase::IgnoreCase)
-        ? TEXT("Correction plan prepared. Automatic repair is not enabled in Project Health V1.")
+        ? TEXT("Correction plan prepared for review only; no files changed and no approval or execution occurred.")
         : (ActionVerb.Equals(TEXT("Test"), ESearchCase::IgnoreCase)
-            ? TEXT("Current health conditions re-checked against live project metadata. This reflects present state only - WanaWorks does not yet track whether a previously reported issue was actually corrected.")
-            : TEXT("Read-only diagnosis only. No project files, source, settings, or assets were modified."));
+            ? FString::Printf(TEXT("Current conditions re-checked; %d plan(s) remain applicable. Current state only - no historical resolution tracking."), CorrectionPlans.Num())
+            : (ActionVerb.Equals(TEXT("Build"), ESearchCase::IgnoreCase)
+                ? FString::Printf(TEXT("Build summarized %d plan(s) in-app only; no plan, package pass, or persistent Project Health asset was created."), CorrectionPlans.Num())
+                : FString::Printf(TEXT("Read-only diagnosis generated %d proposed route(s); no project files, source, settings, or assets were modified."), CorrectionPlans.Num())));
 
     LastAnalysisWITSummary = FString::Printf(
-        TEXT("WanaWorks Modules Loaded: Yes\nEditor Target Recognized: Yes\nBuild Confidence: %s\nKnown Blockers: %d Critical, %d High\nNote: %s"),
-        ScanResult.CriticalCount + ScanResult.HighCount == 0 ? TEXT("Not limited by findings above") : TEXT("Limited by findings above"),
+        TEXT("Editor Target: %s\nWanaWorks Modules: %d loaded / %d available / %d declared\nMetadata Blockers: %d Critical, %d High\nPackaging Confidence: %s\nValidation Scope: %s"),
+        ScanResult.bEditorTargetRecognized ? TEXT("Recognized") : TEXT("Unknown or unavailable"),
+        ScanResult.LoadedWanaWorksModuleCount,
+        ScanResult.AvailableWanaWorksModuleCount,
+        ScanResult.DeclaredWanaWorksModuleCount,
         ScanResult.CriticalCount,
         ScanResult.HighCount,
+        *ScanResult.BuildReadinessStatus,
         *BuildReadinessNote);
 
-    LastAnalysisSuggestedSummary = BuildWorkflowActionPlanSummary(WorkflowActionPlan, 5);
+    LastAnalysisSuggestedSummary = BuildProjectHealthCorrectionPlanSummary(
+        CorrectionPlans,
+        WorkflowActionPlan,
+        ActionVerb,
+        ScanResult.Findings.Num());
 
-    StatusMessage = FString::Printf(TEXT("Status: Project Health %s complete (%s). Read-only - no project files modified."), *ActionVerb, *ScanResult.OverallStatusLabel);
+    StatusMessage = ActionVerb.Equals(TEXT("Enhance"), ESearchCase::IgnoreCase)
+        ? TEXT("Status: Correction plan prepared. Review the proposed routes before approving any future project changes.")
+        : (ActionVerb.Equals(TEXT("Build"), ESearchCase::IgnoreCase)
+            ? FString::Printf(TEXT("Status: Correction plan summary complete. %d plan(s), %d approval requirement(s), no execution."), CorrectionPlans.Num(), CorrectionPlanCounts.ApprovalRequiredCount)
+            : FString::Printf(
+                TEXT("Status: Project Health %s complete (%s). %d correction plan(s) proposed; no execution. Next route: %s"),
+                *ActionVerb,
+                *ScanResult.OverallStatusLabel,
+                CorrectionPlans.Num(),
+                *RecommendedNextRoute));
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::HandleProjectBlueprintTeamSizeOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    if (!TryGetStringPickerValue(SelectedOption, SelectedProjectBlueprintTeamSizeLabel))
+    {
+        return;
+    }
+    SelectedWorkspaceLabel = TEXT("Project Blueprint");
+    bWorkspaceAnalysisInitialized = false;
+    StatusMessage = TEXT("Status: Team-size constraint updated. Run Analyze to refresh scope reality.");
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::HandleProjectBlueprintExperienceOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    if (!TryGetStringPickerValue(SelectedOption, SelectedProjectBlueprintExperienceLabel))
+    {
+        return;
+    }
+    SelectedWorkspaceLabel = TEXT("Project Blueprint");
+    bWorkspaceAnalysisInitialized = false;
+    StatusMessage = TEXT("Status: Experience constraint updated. Run Analyze to refresh scope reality.");
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::HandleProjectBlueprintTimelineOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    if (!TryGetStringPickerValue(SelectedOption, SelectedProjectBlueprintTimelineLabel))
+    {
+        return;
+    }
+    SelectedWorkspaceLabel = TEXT("Project Blueprint");
+    bWorkspaceAnalysisInitialized = false;
+    StatusMessage = TEXT("Status: Timeline constraint updated. Run Analyze to refresh milestones.");
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::HandleProjectBlueprintBudgetOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    if (!TryGetStringPickerValue(SelectedOption, SelectedProjectBlueprintBudgetLabel))
+    {
+        return;
+    }
+    SelectedWorkspaceLabel = TEXT("Project Blueprint");
+    bWorkspaceAnalysisInitialized = false;
+    StatusMessage = TEXT("Status: Budget constraint updated. Run Analyze to refresh scope reality.");
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::HandleProjectBlueprintPlatformOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    if (!TryGetStringPickerValue(SelectedOption, SelectedProjectBlueprintPlatformLabel))
+    {
+        return;
+    }
+    SelectedWorkspaceLabel = TEXT("Project Blueprint");
+    bWorkspaceAnalysisInitialized = false;
+    StatusMessage = TEXT("Status: Platform target updated. Run Analyze to refresh the blueprint.");
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::HandleProjectBlueprintDeliverableOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    if (!TryGetStringPickerValue(SelectedOption, SelectedProjectBlueprintDeliverableLabel))
+    {
+        return;
+    }
+    SelectedWorkspaceLabel = TEXT("Project Blueprint");
+    bWorkspaceAnalysisInitialized = false;
+    StatusMessage = TEXT("Status: Deliverable target updated. Run Analyze to compare it with current constraints.");
+    RefreshReactiveUI(true);
+}
+
+void FWanaWorksUIModule::HandleProjectBlueprintPlaytimeOptionSelected(TSharedPtr<FString> SelectedOption)
+{
+    if (!TryGetStringPickerValue(SelectedOption, SelectedProjectBlueprintPlaytimeLabel))
+    {
+        return;
+    }
+    SelectedWorkspaceLabel = TEXT("Project Blueprint");
+    bWorkspaceAnalysisInitialized = false;
+    StatusMessage = TEXT("Status: Target playtime updated. Run Analyze to refresh the vertical slice.");
     RefreshReactiveUI(true);
 }
 
@@ -9681,7 +10530,7 @@ FText FWanaWorksUIModule::GetProjectHealthBuildReadinessText() const
         return FText::FromString(LastAnalysisWITSummary);
     }
 
-    return FText::FromString(TEXT("Status: Needs Analyze\nWanaWorks Modules Loaded: Yes\nRun Analyze for a current build-confidence read."));
+    return FText::FromString(TEXT("Status: Needs Analyze\nEditor Target: Unknown\nWanaWorks Modules: Not checked\nPackaging Confidence: Unknown\nRun Analyze for a bounded metadata readiness diagnosis."));
 }
 
 FText FWanaWorksUIModule::GetProjectHealthNextActionsText() const
@@ -9692,6 +10541,72 @@ FText FWanaWorksUIModule::GetProjectHealthNextActionsText() const
     }
 
     return FText::FromString(TEXT("Run Analyze to begin a full project-health scan and generate prioritized next actions."));
+}
+
+FText FWanaWorksUIModule::GetProjectBlueprintVisionBriefText() const
+{
+    return FText::FromString(ProjectBlueprintVisionBriefText);
+}
+
+FText FWanaWorksUIModule::GetProjectBlueprintVisionSummaryText() const
+{
+    if (HasCurrentWorkspaceAnalysis() && !LastProjectBlueprintVisionSummary.IsEmpty())
+    {
+        return FText::FromString(LastProjectBlueprintVisionSummary);
+    }
+
+    return FText::FromString(FString::Printf(
+        TEXT("Status: %s\nConstraints: %s | %s | %s | %s\nTarget: %s | %s | %s\nPlanner: Rule-Based V1 / Unreal"),
+        ProjectBlueprintVisionBriefText.TrimStartAndEnd().Len() >= 20 ? TEXT("Ready to Analyze") : TEXT("Needs Brief"),
+        *SelectedProjectBlueprintTeamSizeLabel,
+        *SelectedProjectBlueprintExperienceLabel,
+        *SelectedProjectBlueprintTimelineLabel,
+        *SelectedProjectBlueprintBudgetLabel,
+        *SelectedProjectBlueprintPlatformLabel,
+        *SelectedProjectBlueprintDeliverableLabel,
+        *SelectedProjectBlueprintPlaytimeLabel));
+}
+
+FText FWanaWorksUIModule::GetProjectBlueprintScopeText() const
+{
+    return FText::FromString(HasCurrentWorkspaceAnalysis() && !LastProjectBlueprintScopeSummary.IsEmpty()
+        ? LastProjectBlueprintScopeSummary
+        : FString(TEXT("Scope State: Needs Analyze\nProduction Complexity: Unknown\nRecommended Deliverable: Pending brief interpretation\nOriginal Project: Preserved")));
+}
+
+FText FWanaWorksUIModule::GetProjectBlueprintPillarsText() const
+{
+    return FText::FromString(HasCurrentWorkspaceAnalysis() && !LastProjectBlueprintPillarsSummary.IsEmpty()
+        ? LastProjectBlueprintPillarsSummary
+        : FString(TEXT("Pillars: Needs Analyze\nAdd the player fantasy and signature interaction to derive 3-6 bounded gameplay pillars.")));
+}
+
+FText FWanaWorksUIModule::GetProjectBlueprintVerticalSliceText() const
+{
+    return FText::FromString(HasCurrentWorkspaceAnalysis() && !LastProjectBlueprintVerticalSliceSummary.IsEmpty()
+        ? LastProjectBlueprintVerticalSliceSummary
+        : FString(TEXT("Plan State: Needs Analyze\nRecommended Slice: Pending vision and constraint interpretation\nGenerated Assets: None\nProject Mutation: None")));
+}
+
+FText FWanaWorksUIModule::GetProjectBlueprintMilestonesText() const
+{
+    return FText::FromString(HasCurrentWorkspaceAnalysis() && !LastProjectBlueprintMilestonesSummary.IsEmpty()
+        ? LastProjectBlueprintMilestonesSummary
+        : FString(TEXT("Milestones: Needs Analyze\nDependency order will begin with project health and playable foundations, then prove the signature loop, environment, integration, and build.")));
+}
+
+FText FWanaWorksUIModule::GetProjectBlueprintGapsText() const
+{
+    return FText::FromString(HasCurrentWorkspaceAnalysis() && !LastProjectBlueprintGapsSummary.IsEmpty()
+        ? LastProjectBlueprintGapsSummary
+        : FString(TEXT("Status: Needs Analyze\nEvidence sources: Project Health, Character Building, Character Intelligence, WIT, and WanaAnimation adapters\nUnknown will never be reported as confirmed missing.")));
+}
+
+FText FWanaWorksUIModule::GetProjectBlueprintNextActionsText() const
+{
+    return FText::FromString(HasCurrentWorkspaceAnalysis() && !LastProjectBlueprintNextActionsSummary.IsEmpty()
+        ? LastProjectBlueprintNextActionsSummary
+        : FString(TEXT("Run Analyze to route immediate technical actions through the existing Workflow Action Planner.")));
 }
 
 void FWanaWorksUIModule::FocusSandboxPreviewSubject()
@@ -9978,6 +10893,41 @@ TSharedPtr<FString> FWanaWorksUIModule::GetSelectedCharacterBuildingProfileOptio
     return FindStringOptionByLabel(CharacterBuildingProfileOptions, SelectedLabel);
 }
 
+TSharedPtr<FString> FWanaWorksUIModule::GetSelectedProjectBlueprintTeamSizeOption() const
+{
+    return FindStringOptionByLabel(ProjectBlueprintTeamSizeOptions, SelectedProjectBlueprintTeamSizeLabel);
+}
+
+TSharedPtr<FString> FWanaWorksUIModule::GetSelectedProjectBlueprintExperienceOption() const
+{
+    return FindStringOptionByLabel(ProjectBlueprintExperienceOptions, SelectedProjectBlueprintExperienceLabel);
+}
+
+TSharedPtr<FString> FWanaWorksUIModule::GetSelectedProjectBlueprintTimelineOption() const
+{
+    return FindStringOptionByLabel(ProjectBlueprintTimelineOptions, SelectedProjectBlueprintTimelineLabel);
+}
+
+TSharedPtr<FString> FWanaWorksUIModule::GetSelectedProjectBlueprintBudgetOption() const
+{
+    return FindStringOptionByLabel(ProjectBlueprintBudgetOptions, SelectedProjectBlueprintBudgetLabel);
+}
+
+TSharedPtr<FString> FWanaWorksUIModule::GetSelectedProjectBlueprintPlatformOption() const
+{
+    return FindStringOptionByLabel(ProjectBlueprintPlatformOptions, SelectedProjectBlueprintPlatformLabel);
+}
+
+TSharedPtr<FString> FWanaWorksUIModule::GetSelectedProjectBlueprintDeliverableOption() const
+{
+    return FindStringOptionByLabel(ProjectBlueprintDeliverableOptions, SelectedProjectBlueprintDeliverableLabel);
+}
+
+TSharedPtr<FString> FWanaWorksUIModule::GetSelectedProjectBlueprintPlaytimeOption() const
+{
+    return FindStringOptionByLabel(ProjectBlueprintPlaytimeOptions, SelectedProjectBlueprintPlaytimeLabel);
+}
+
 bool FWanaWorksUIModule::HasCurrentWorkspaceAnalysis() const
 {
     return bWorkspaceAnalysisInitialized
@@ -10068,6 +11018,16 @@ FText FWanaWorksUIModule::GetSubjectStackSummaryText() const
 
 FText FWanaWorksUIModule::GetSandboxPreviewSummaryText() const
 {
+    if (GetSelectedWorkspaceLabel().Equals(TEXT("Project Blueprint"), ESearchCase::IgnoreCase))
+    {
+        if (HasCurrentWorkspaceAnalysis() && !LastProjectBlueprintVerticalSliceSummary.IsEmpty())
+        {
+            return FText::FromString(LastProjectBlueprintVerticalSliceSummary);
+        }
+
+        return FText::FromString(TEXT("Status: Needs Analyze\nStage: Vision-to-production plan\nAdd a clear brief and practical constraints, then run Analyze."));
+    }
+
     if (GetSelectedWorkspaceLabel().Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
     {
         if (HasCurrentWorkspaceAnalysis() && !LastAnalysisStatusSummary.IsEmpty())
@@ -10625,6 +11585,14 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetProjectHealthAssetsText = [this]() { return GetProjectHealthAssetsText(); };
     BuilderArgs.GetProjectHealthBuildReadinessText = [this]() { return GetProjectHealthBuildReadinessText(); };
     BuilderArgs.GetProjectHealthNextActionsText = [this]() { return GetProjectHealthNextActionsText(); };
+    BuilderArgs.GetProjectBlueprintVisionBriefText = [this]() { return GetProjectBlueprintVisionBriefText(); };
+    BuilderArgs.GetProjectBlueprintVisionSummaryText = [this]() { return GetProjectBlueprintVisionSummaryText(); };
+    BuilderArgs.GetProjectBlueprintScopeText = [this]() { return GetProjectBlueprintScopeText(); };
+    BuilderArgs.GetProjectBlueprintPillarsText = [this]() { return GetProjectBlueprintPillarsText(); };
+    BuilderArgs.GetProjectBlueprintVerticalSliceText = [this]() { return GetProjectBlueprintVerticalSliceText(); };
+    BuilderArgs.GetProjectBlueprintMilestonesText = [this]() { return GetProjectBlueprintMilestonesText(); };
+    BuilderArgs.GetProjectBlueprintGapsText = [this]() { return GetProjectBlueprintGapsText(); };
+    BuilderArgs.GetProjectBlueprintNextActionsText = [this]() { return GetProjectBlueprintNextActionsText(); };
     BuilderArgs.CharacterPawnAssetOptions = &CharacterPawnAssetOptions;
     BuilderArgs.AIPawnAssetOptions = &AIPawnAssetOptions;
     BuilderArgs.TargetRetargetSkeletalMeshOptions = &TargetRetargetSkeletalMeshOptions;
@@ -10636,6 +11604,13 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.CharacterIntelligenceRelationshipOptions = &CharacterIntelligenceRelationshipOptions;
     BuilderArgs.CharacterIntelligenceTargetOptions = &CharacterIntelligenceTargetOptions;
     BuilderArgs.CharacterBuildingProfileOptions = &CharacterBuildingProfileOptions;
+    BuilderArgs.ProjectBlueprintTeamSizeOptions = &ProjectBlueprintTeamSizeOptions;
+    BuilderArgs.ProjectBlueprintExperienceOptions = &ProjectBlueprintExperienceOptions;
+    BuilderArgs.ProjectBlueprintTimelineOptions = &ProjectBlueprintTimelineOptions;
+    BuilderArgs.ProjectBlueprintBudgetOptions = &ProjectBlueprintBudgetOptions;
+    BuilderArgs.ProjectBlueprintPlatformOptions = &ProjectBlueprintPlatformOptions;
+    BuilderArgs.ProjectBlueprintDeliverableOptions = &ProjectBlueprintDeliverableOptions;
+    BuilderArgs.ProjectBlueprintPlaytimeOptions = &ProjectBlueprintPlaytimeOptions;
     BuilderArgs.GetSelectedCharacterPawnAssetOption = [this]() { return GetSelectedCharacterPawnAssetOption(); };
     BuilderArgs.GetSelectedAIPawnAssetOption = [this]() { return GetSelectedAIPawnAssetOption(); };
     BuilderArgs.GetSelectedWorkflowPresetOption = [this]() { return GetSelectedWorkflowPresetOption(); };
@@ -10648,8 +11623,16 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.GetSelectedCharacterIntelligenceTargetOption = [this]() { return GetSelectedCharacterIntelligenceTargetOption(); };
     BuilderArgs.GetSelectedCharacterBuildingProfileOption = [this]() { return GetSelectedCharacterBuildingProfileOption(); };
     BuilderArgs.GetSelectedTargetRetargetSkeletalMeshOption = [this]() { return GetSelectedTargetRetargetSkeletalMeshOption(); };
+    BuilderArgs.GetSelectedProjectBlueprintTeamSizeOption = [this]() { return GetSelectedProjectBlueprintTeamSizeOption(); };
+    BuilderArgs.GetSelectedProjectBlueprintExperienceOption = [this]() { return GetSelectedProjectBlueprintExperienceOption(); };
+    BuilderArgs.GetSelectedProjectBlueprintTimelineOption = [this]() { return GetSelectedProjectBlueprintTimelineOption(); };
+    BuilderArgs.GetSelectedProjectBlueprintBudgetOption = [this]() { return GetSelectedProjectBlueprintBudgetOption(); };
+    BuilderArgs.GetSelectedProjectBlueprintPlatformOption = [this]() { return GetSelectedProjectBlueprintPlatformOption(); };
+    BuilderArgs.GetSelectedProjectBlueprintDeliverableOption = [this]() { return GetSelectedProjectBlueprintDeliverableOption(); };
+    BuilderArgs.GetSelectedProjectBlueprintPlaytimeOption = [this]() { return GetSelectedProjectBlueprintPlaytimeOption(); };
     BuilderArgs.OnCommandTextChanged = [this](const FText& NewText) { HandleCommandTextChanged(NewText); };
     BuilderArgs.OnIdentityFactionTagTextChanged = [this](const FText& NewText) { HandleIdentityFactionTagTextChanged(NewText); };
+    BuilderArgs.OnProjectBlueprintVisionBriefTextChanged = [this](const FText& NewText) { HandleProjectBlueprintVisionBriefTextChanged(NewText); };
     BuilderArgs.OnWorkspaceSelected = [this](const FString& WorkspaceLabel) { HandleWorkspaceSelected(WorkspaceLabel); };
     BuilderArgs.OnPreviewViewSelected = [this](const FString& PreviewViewLabel) { HandlePreviewStageViewSelected(PreviewViewLabel); };
     BuilderArgs.OnCharacterPawnAssetOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterPawnAssetOptionSelected(SelectedOption); };
@@ -10664,6 +11647,13 @@ TSharedRef<SDockTab> FWanaWorksUIModule::SpawnWanaWorksTab(const FSpawnTabArgs& 
     BuilderArgs.OnCharacterIntelligenceTargetOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterIntelligenceTargetOptionSelected(SelectedOption); };
     BuilderArgs.OnCharacterBuildingProfileOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleCharacterBuildingProfileOptionSelected(SelectedOption); };
     BuilderArgs.OnTargetRetargetSkeletalMeshOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleTargetRetargetSkeletalMeshOptionSelected(SelectedOption); };
+    BuilderArgs.OnProjectBlueprintTeamSizeOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleProjectBlueprintTeamSizeOptionSelected(SelectedOption); };
+    BuilderArgs.OnProjectBlueprintExperienceOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleProjectBlueprintExperienceOptionSelected(SelectedOption); };
+    BuilderArgs.OnProjectBlueprintTimelineOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleProjectBlueprintTimelineOptionSelected(SelectedOption); };
+    BuilderArgs.OnProjectBlueprintBudgetOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleProjectBlueprintBudgetOptionSelected(SelectedOption); };
+    BuilderArgs.OnProjectBlueprintPlatformOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleProjectBlueprintPlatformOptionSelected(SelectedOption); };
+    BuilderArgs.OnProjectBlueprintDeliverableOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleProjectBlueprintDeliverableOptionSelected(SelectedOption); };
+    BuilderArgs.OnProjectBlueprintPlaytimeOptionSelected = [this](TSharedPtr<FString> SelectedOption) { HandleProjectBlueprintPlaytimeOptionSelected(SelectedOption); };
     BuilderArgs.OnRunCommand = [this]() { RunCommand(); };
     BuilderArgs.OnClearLog = [this]() { ClearLog(); };
     BuilderArgs.OnEnsureIdentityComponent = [this]() { EnsureIdentityComponent(); };

@@ -875,6 +875,17 @@ FString BuildFinalizedActorLabel(const FString& SourceLabel)
     return FString::Printf(TEXT("WW_Final_%s"), *BaseLabel);
 }
 
+// Mirrors BuildFinalizedActorLabel's prefix-stripping so creating a working copy from an
+// already-prefixed actor (e.g. a prior WW_Final_ build output, or re-running Enhance on an
+// existing WW_Sandbox_ copy) never stacks prefixes into WW_Sandbox_WW_Final_... names.
+FString BuildSandboxCopyActorLabel(const FString& SourceLabel)
+{
+    FString BaseLabel = SourceLabel;
+    BaseLabel.RemoveFromStart(TEXT("WW_Sandbox_"));
+    BaseLabel.RemoveFromStart(TEXT("WW_Final_"));
+    return FString::Printf(TEXT("WW_Sandbox_%s"), *BaseLabel);
+}
+
 FString BuildFinalizedAssetName(const FString& SourceLabel)
 {
     FString BaseLabel = SourceLabel;
@@ -2850,7 +2861,7 @@ FWanaCommandResponse ExecuteCreateSandboxDuplicateCommand()
 
     DuplicateActor->SetFlags(RF_Transactional);
     DuplicateActor->Modify();
-    DuplicateActor->SetActorLabel(FString::Printf(TEXT("WW_Sandbox_%s"), *SelectedActor->GetActorNameOrLabel()), true);
+    DuplicateActor->SetActorLabel(BuildSandboxCopyActorLabel(SelectedActor->GetActorNameOrLabel()), true);
     DuplicateActor->SetFolderPath(WanaWorksSandboxFolderPath);
     DuplicateActor->Tags.AddUnique(BuildWanaWorksSandboxSourceTag(SelectedActor));
 
