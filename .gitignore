@@ -1,16 +1,14 @@
-<<<<<<< ours
-<<<<<<< ours
+# Unreal Engine
 .vs/
 Binaries/
 DerivedDataCache/
 Intermediate/
 Saved/
 *.VC.db
-=======
+
+# Python
 __pycache__/
 *.pyc
->>>>>>> theirs
-=======
-__pycache__/
-*.pyc
->>>>>>> theirs
+
+# Claude Code local tooling config (per-machine, not shared)
+.claude/
