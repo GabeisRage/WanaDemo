@@ -250,6 +250,8 @@ Impact → Physical State → Staggered / OffBalance / Recovering → Animation/
 - Enhanced subject behaves visibly differently from baseline
 - Result is observable in the preview stage or UE viewport without reading logs
 
+**Progress note (2026-07-28):** the plugin-owned procedural effect this phase prescribes now has its foundation component: `UWanaProceduralReactionComponent` (`WanaWorksCore/Public|Private/WanaProceduralReactionComponent.h/.cpp`). It reads the owner's `UWanaPhysicalStateComponent` (editor ticking enabled, same as that component), applies a bounded impact-direction lean + stagger sway + instability dip to the skeletal mesh component's relative transform, settles through the Recovering arc, and restores the captured base transform — no Anim BP or animation asset is read or modified. **Not yet compile-verified** (authored in a remote session without the UE toolchain) and **not yet wired** into Enhance/Test — remaining work and seal criteria live in `Docs/MVPSealPlan.md`. Do not rewrite this component from scratch; compile it, then wire it.
+
 ---
 
 ## Phase 7 — Character Building Workspace V1
