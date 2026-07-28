@@ -1,6 +1,6 @@
 # WanaWorks MVP Seal Plan
 
-> Purpose: lock the MVP scope so the product can be sealed and demoed, instead of growing sideways. PLANS-2.md stays the source of truth for phase detail; this doc says what is **in** the MVP, what is **cut until after seal**, and what "sealed" means. Created 2026-07-28.
+> Purpose: lock the MVP scope so the product can be sealed and demoed, instead of growing sideways. PLANS-2.md stays the source of truth for phase detail; this doc says what is **in** the MVP, what is **cut until after seal**, and what "sealed" means. How the software must *behave* — the full workflow/behavior contract and acceptance scenarios — lives in `Docs/WanaWorksBuildSpec.md`. Created 2026-07-28.
 
 ---
 
