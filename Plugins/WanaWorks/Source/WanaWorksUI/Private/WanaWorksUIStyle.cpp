@@ -1,7 +1,9 @@
 #include "WanaWorksUIStyle.h"
 
 #include "Brushes/SlateColorBrush.h"
-#include "Brushes/SlateImageBrush.h"
+#include "Brushes/SlateRoundedBoxBrush.h"
+#include "Brushes/SlateVectorImageBrush.h"
+#include "Fonts/CompositeFont.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/Paths.h"
 #include "Styling/CoreStyle.h"
@@ -57,10 +59,61 @@ const FName ComboBox(TEXT("Wana.Input.ComboBox"));
 const FName ComboRow(TEXT("Wana.Input.ComboRow"));
 const FName CheckBox(TEXT("Wana.Input.CheckBox"));
 const FName ScrollBar(TEXT("Wana.Input.ScrollBar"));
+const FName ExpandableArea(TEXT("Wana.Layout.ExpandableArea"));
+const FName Splitter(TEXT("Wana.Layout.Splitter"));
+const FName ScrollBox(TEXT("Wana.Layout.ScrollBox"));
+const FName RoundedTint(TEXT("Wana.Shape.RoundedTint"));
+const FName RoundedFill(TEXT("Wana.Shape.RoundedFill"));
+const FName RoundedChip(TEXT("Wana.Shape.RoundedChip"));
+const FName FlatTint(TEXT("Wana.Shape.FlatTint"));
+const FName ChevronDownIcon(TEXT("WanaWorks.Icon.ChevronDown"));
+const FName ChevronRightIcon(TEXT("WanaWorks.Icon.ChevronRight"));
+const FName CheckIcon(TEXT("WanaWorks.Icon.Check"));
 
-void SetImageBrush(const TSharedRef<FSlateStyleSet>& StyleSet, const FName BrushName, const TCHAR* ResourceName, const FVector2D& Size)
+constexpr float WanaPanelRadius = 10.0f;
+constexpr float WanaControlRadius = 8.0f;
+constexpr float WanaChipRadius = 6.0f;
+constexpr float WanaOutlineWidth = 1.0f;
+
+TSharedPtr<FCompositeFont> UICompositeFont;
+TSharedPtr<FCompositeFont> MonoCompositeFont;
+bool bUIFontLoaded = false;
+bool bMonoFontLoaded = false;
+
+void AppendFontFace(FCompositeFont& Font, const TCHAR* FaceName, const FString& FilePath)
 {
-    StyleSet->Set(BrushName, new FSlateImageBrush(StyleSet->RootToContentDir(ResourceName, TEXT(".png")), Size));
+    if (FPaths::FileExists(FilePath))
+    {
+        Font.DefaultTypeface.AppendFont(FaceName, FilePath, EFontHinting::Auto, EFontLoadingPolicy::LazyLoad);
+    }
+}
+
+void LoadMidnightFonts(const FString& ResourcesRoot)
+{
+    const FString FontDir = FPaths::Combine(ResourcesRoot, TEXT("Fonts"));
+    UICompositeFont = MakeShared<FCompositeFont>();
+    MonoCompositeFont = MakeShared<FCompositeFont>();
+
+    const FString UIRegular = FPaths::Combine(FontDir, TEXT("HankenGrotesk-Regular.ttf"));
+    const FString MonoRegular = FPaths::Combine(FontDir, TEXT("GeistMono-Regular.ttf"));
+    bUIFontLoaded = FPaths::FileExists(UIRegular);
+    bMonoFontLoaded = FPaths::FileExists(MonoRegular);
+    AppendFontFace(*UICompositeFont, TEXT("Regular"), UIRegular);
+    AppendFontFace(*UICompositeFont, TEXT("Medium"), FPaths::Combine(FontDir, TEXT("HankenGrotesk-Medium.ttf")));
+    AppendFontFace(*UICompositeFont, TEXT("Bold"), FPaths::Combine(FontDir, TEXT("HankenGrotesk-Bold.ttf")));
+    AppendFontFace(*MonoCompositeFont, TEXT("Regular"), MonoRegular);
+    AppendFontFace(*MonoCompositeFont, TEXT("Medium"), FPaths::Combine(FontDir, TEXT("GeistMono-Medium.ttf")));
+    AppendFontFace(*MonoCompositeFont, TEXT("Bold"), FPaths::Combine(FontDir, TEXT("GeistMono-Bold.ttf")));
+}
+
+void SetVectorIcon(const TSharedRef<FSlateStyleSet>& StyleSet, const FName BrushName, const TCHAR* ResourceName, const FVector2D& Size)
+{
+    StyleSet->Set(BrushName, new FSlateVectorImageBrush(StyleSet->RootToContentDir(ResourceName, TEXT(".svg")), Size));
+}
+
+FSlateRoundedBoxBrush MakeRoundedBrush(const FLinearColor& Fill, float Radius, const FLinearColor& Outline, float OutlineWidth)
+{
+    return FSlateRoundedBoxBrush(Fill, Radius, Outline, OutlineWidth);
 }
 
 TSharedRef<SWidget> MakeIconWidget(FName IconBrushName, const FLinearColor& IconTint, float Size)
@@ -87,51 +140,65 @@ FButtonStyle MakeButtonStyle(
     const FLinearColor& Hovered,
     const FLinearColor& Pressed,
     const FLinearColor& Disabled,
-    const FLinearColor& Foreground)
+    const FLinearColor& Foreground,
+    const FLinearColor& Outline,
+    const FLinearColor& HoverOutline)
 {
     return FButtonStyle()
-        .SetNormal(FSlateColorBrush(Normal))
-        .SetHovered(FSlateColorBrush(Hovered))
-        .SetPressed(FSlateColorBrush(Pressed))
-        .SetDisabled(FSlateColorBrush(Disabled))
+        .SetNormal(MakeRoundedBrush(Normal, WanaControlRadius, Outline, WanaOutlineWidth))
+        .SetHovered(MakeRoundedBrush(Hovered, WanaControlRadius, HoverOutline, WanaOutlineWidth))
+        .SetPressed(MakeRoundedBrush(Pressed, WanaControlRadius, HoverOutline, WanaOutlineWidth))
+        .SetDisabled(MakeRoundedBrush(Disabled, WanaControlRadius, Outline.CopyWithNewOpacity(0.35f), WanaOutlineWidth))
         .SetNormalForeground(Foreground)
         .SetHoveredForeground(Foreground)
         .SetPressedForeground(Foreground)
         .SetDisabledForeground(Tokens().TextDisabled)
         .SetNormalPadding(FMargin(0.0f))
-        .SetPressedPadding(FMargin(0.0f));
+        .SetPressedPadding(FMargin(0.0f, 1.0f, 0.0f, 0.0f));
 }
 
 FScrollBarStyle MakeScrollBarStyle()
 {
     const FWanaDesignTokens& T = Tokens();
+    const FSlateRoundedBoxBrush Track(T.Input, 4.0f);
+    const FSlateRoundedBoxBrush Thumb(T.BorderSubtle, 4.0f);
+    const FSlateRoundedBoxBrush ThumbHover(T.Cyan.CopyWithNewOpacity(0.90f), 4.0f);
+    const FSlateRoundedBoxBrush ThumbDrag(T.Cyan, 4.0f);
     return FScrollBarStyle()
-        .SetHorizontalBackgroundImage(FSlateColorBrush(T.Input))
-        .SetVerticalBackgroundImage(FSlateColorBrush(T.Input))
-        .SetHorizontalTopSlotImage(FSlateColorBrush(T.Input))
-        .SetVerticalTopSlotImage(FSlateColorBrush(T.Input))
-        .SetHorizontalBottomSlotImage(FSlateColorBrush(T.Input))
-        .SetVerticalBottomSlotImage(FSlateColorBrush(T.Input))
-        .SetNormalThumbImage(FSlateColorBrush(T.BorderSubtle))
-        .SetHoveredThumbImage(FSlateColorBrush(T.Cyan.CopyWithNewOpacity(0.90f)))
-        .SetDraggedThumbImage(FSlateColorBrush(T.Blue))
-        .SetThickness(7.0f);
+        .SetHorizontalBackgroundImage(Track)
+        .SetVerticalBackgroundImage(Track)
+        .SetHorizontalTopSlotImage(Track)
+        .SetVerticalTopSlotImage(Track)
+        .SetHorizontalBottomSlotImage(Track)
+        .SetVerticalBottomSlotImage(Track)
+        .SetNormalThumbImage(Thumb)
+        .SetHoveredThumbImage(ThumbHover)
+        .SetDraggedThumbImage(ThumbDrag)
+        .SetThickness(8.0f);
 }
 
 FEditableTextBoxStyle MakeInputTextBoxStyle(bool bMultiline)
 {
     const FWanaDesignTokens& T = Tokens();
+    const FSlateFontInfo Font = bMultiline ? WanaFont("Mono", 10) : WanaFont("Regular", 10);
     return FEditableTextBoxStyle()
-        .SetBackgroundImageNormal(FSlateColorBrush(T.Input))
-        .SetBackgroundImageHovered(FSlateColorBrush(T.CardHover.CopyWithNewOpacity(0.90f)))
-        .SetBackgroundImageFocused(FSlateColorBrush(T.CardRaised))
-        .SetBackgroundImageReadOnly(FSlateColorBrush(T.Panel))
+        .SetFont(Font)
+        .SetBackgroundImageNormal(MakeRoundedBrush(T.Input, WanaControlRadius, T.BorderSubtle, WanaOutlineWidth))
+        .SetBackgroundImageHovered(MakeRoundedBrush(T.Card, WanaControlRadius, T.BorderStrong, WanaOutlineWidth))
+        .SetBackgroundImageFocused(MakeRoundedBrush(T.CardRaised, WanaControlRadius, T.Cyan.CopyWithNewOpacity(0.85f), WanaOutlineWidth))
+        .SetBackgroundImageReadOnly(MakeRoundedBrush(T.Panel, WanaControlRadius, T.BorderSubtle.CopyWithNewOpacity(0.65f), WanaOutlineWidth))
         .SetForegroundColor(T.TextPrimary)
         .SetFocusedForegroundColor(T.TextPrimary)
         .SetReadOnlyForegroundColor(T.TextSecondary)
         .SetBackgroundColor(T.Input)
         .SetPadding(FMargin(11.0f, bMultiline ? 10.0f : 7.0f))
         .SetScrollBarStyle(MakeScrollBarStyle());
+}
+
+const FSlateBrush& OwnedBrush(const FName BrushName)
+{
+    const FSlateBrush* Brush = GetBrush(BrushName);
+    return Brush ? *Brush : *FCoreStyle::Get().GetBrush("WhiteBrush");
 }
 
 FComboBoxStyle MakeComboBoxStyle()
@@ -142,14 +209,16 @@ FComboBoxStyle MakeComboBoxStyle()
         T.CardHover,
         T.CardRaised,
         T.Panel,
-        T.TextPrimary);
+        T.TextPrimary,
+        T.BorderSubtle,
+        T.Cyan.CopyWithNewOpacity(0.70f));
     const FComboButtonStyle ComboButtonStyle = FComboButtonStyle()
         .SetButtonStyle(Button)
-        .SetDownArrowImage(FSlateColorBrush(T.Cyan))
-        .SetMenuBorderBrush(FSlateColorBrush(T.Panel))
-        .SetMenuBorderPadding(FMargin(1.0f))
+        .SetDownArrowImage(OwnedBrush(ChevronDownIcon))
+        .SetMenuBorderBrush(MakeRoundedBrush(T.Panel, WanaControlRadius, T.BorderSubtle, WanaOutlineWidth))
+        .SetMenuBorderPadding(FMargin(4.0f))
         .SetContentPadding(FMargin(11.0f, 7.0f))
-        .SetDownArrowPadding(FMargin(9.0f, 0.0f, 4.0f, 0.0f))
+        .SetDownArrowPadding(FMargin(8.0f, 0.0f, 6.0f, 0.0f))
         .SetDownArrowAlignment(VAlign_Center);
 
     return FComboBoxStyle()
@@ -161,32 +230,84 @@ FComboBoxStyle MakeComboBoxStyle()
 FTableRowStyle MakeComboRowStyle()
 {
     const FWanaDesignTokens& T = Tokens();
-    return FTableRowStyle()
-        .SetSelectorFocusedBrush(FSlateColorBrush(T.Cyan.CopyWithNewOpacity(0.24f)))
-        .SetActiveHoveredBrush(FSlateColorBrush(T.Cyan.CopyWithNewOpacity(0.28f)))
-        .SetActiveBrush(FSlateColorBrush(T.Blue.CopyWithNewOpacity(0.22f)))
-        .SetInactiveHoveredBrush(FSlateColorBrush(T.CardHover))
-        .SetInactiveBrush(FSlateColorBrush(T.Panel))
-        .SetEvenRowBackgroundHoveredBrush(FSlateColorBrush(T.CardHover))
-        .SetEvenRowBackgroundBrush(FSlateColorBrush(T.Panel))
-        .SetOddRowBackgroundHoveredBrush(FSlateColorBrush(T.CardHover))
-        .SetOddRowBackgroundBrush(FSlateColorBrush(T.Input))
+    FTableRowStyle Style = FTableRowStyle::GetDefault();
+    Style
+        .SetSelectorFocusedBrush(MakeRoundedBrush(T.Cyan.CopyWithNewOpacity(0.24f), 6.0f, FLinearColor::Transparent, 0.0f))
+        .SetActiveHoveredBrush(MakeRoundedBrush(T.Cyan.CopyWithNewOpacity(0.28f), 6.0f, FLinearColor::Transparent, 0.0f))
+        .SetActiveBrush(MakeRoundedBrush(T.Violet.CopyWithNewOpacity(0.22f), 6.0f, FLinearColor::Transparent, 0.0f))
+        .SetInactiveHoveredBrush(MakeRoundedBrush(T.CardHover, 6.0f, FLinearColor::Transparent, 0.0f))
+        .SetInactiveBrush(MakeRoundedBrush(T.Panel, 6.0f, FLinearColor::Transparent, 0.0f))
+        .SetEvenRowBackgroundHoveredBrush(MakeRoundedBrush(T.CardHover, 6.0f, FLinearColor::Transparent, 0.0f))
+        .SetEvenRowBackgroundBrush(MakeRoundedBrush(T.Panel, 6.0f, FLinearColor::Transparent, 0.0f))
+        .SetOddRowBackgroundHoveredBrush(MakeRoundedBrush(T.CardHover, 6.0f, FLinearColor::Transparent, 0.0f))
+        .SetOddRowBackgroundBrush(MakeRoundedBrush(T.Input, 6.0f, FLinearColor::Transparent, 0.0f))
         .SetTextColor(T.TextPrimary)
         .SetSelectedTextColor(T.TextPrimary);
+    return Style;
 }
 
 FCheckBoxStyle MakeCheckBoxStyle()
 {
     const FWanaDesignTokens& T = Tokens();
-    return FCheckBoxStyle()
+    const FSlateRoundedBoxBrush Box(T.Input, 4.0f, T.BorderSubtle, WanaOutlineWidth);
+    const FSlateRoundedBoxBrush BoxHover(T.CardHover, 4.0f, T.Cyan.CopyWithNewOpacity(0.65f), WanaOutlineWidth);
+    const FSlateRoundedBoxBrush BoxPress(T.CardRaised, 4.0f, T.Cyan, WanaOutlineWidth);
+    const FSlateBrush& Mark = OwnedBrush(CheckIcon);
+    FCheckBoxStyle Style = FCheckBoxStyle::GetDefault();
+    Style
         .SetCheckBoxType(ESlateCheckBoxType::CheckBox)
-        .SetUncheckedImage(FSlateColorBrush(T.Input))
-        .SetUncheckedHoveredImage(FSlateColorBrush(T.CardHover))
-        .SetUncheckedPressedImage(FSlateColorBrush(T.CardRaised))
-        .SetCheckedImage(FSlateColorBrush(T.Cyan.CopyWithNewOpacity(0.82f)))
-        .SetCheckedHoveredImage(FSlateColorBrush(T.Cyan))
-        .SetCheckedPressedImage(FSlateColorBrush(T.Blue))
-        .SetPadding(FMargin(3.0f));
+        .SetUncheckedImage(Box)
+        .SetUncheckedHoveredImage(BoxHover)
+        .SetUncheckedPressedImage(BoxPress)
+        .SetCheckedImage(Mark)
+        .SetCheckedHoveredImage(Mark)
+        .SetCheckedPressedImage(Mark)
+        .SetUndeterminedImage(Mark)
+        .SetUndeterminedHoveredImage(Mark)
+        .SetUndeterminedPressedImage(Mark)
+        .SetBackgroundImage(Box)
+        .SetBackgroundHoveredImage(BoxHover)
+        .SetBackgroundPressedImage(BoxPress)
+        .SetForegroundColor(T.TextMuted)
+        .SetHoveredForeground(T.TextSecondary)
+        .SetPressedForeground(T.TextPrimary)
+        .SetCheckedForeground(T.Cyan)
+        .SetCheckedHoveredForeground(T.TextPrimary)
+        .SetCheckedPressedForeground(T.Cyan)
+        .SetUndeterminedForeground(T.TextSecondary)
+        .SetBorderBackgroundColor(FLinearColor::Transparent)
+        .SetPadding(FMargin(2.0f));
+    return Style;
+}
+
+FExpandableAreaStyle MakeExpandableAreaStyle()
+{
+    const FWanaDesignTokens& T = Tokens();
+    FExpandableAreaStyle Style = FExpandableAreaStyle::GetDefault();
+    Style
+        .SetCollapsedImage(OwnedBrush(ChevronRightIcon))
+        .SetExpandedImage(OwnedBrush(ChevronDownIcon))
+        .SetRolloutAnimationSeconds(0.12f);
+    (void)T;
+    return Style;
+}
+
+FSplitterStyle MakeSplitterStyle()
+{
+    const FWanaDesignTokens& T = Tokens();
+    return FSplitterStyle()
+        .SetHandleNormalBrush(MakeRoundedBrush(T.Divider, 2.0f, FLinearColor::Transparent, 0.0f))
+        .SetHandleHighlightBrush(MakeRoundedBrush(T.Cyan.CopyWithNewOpacity(0.75f), 2.0f, FLinearColor::Transparent, 0.0f));
+}
+
+FScrollBoxStyle MakeScrollBoxStyle()
+{
+    const FSlateColorBrush Clear(FLinearColor::Transparent);
+    return FScrollBoxStyle()
+        .SetTopShadowBrush(Clear)
+        .SetBottomShadowBrush(Clear)
+        .SetLeftShadowBrush(Clear)
+        .SetRightShadowBrush(Clear);
 }
 
 template <typename StyleType>
@@ -213,63 +334,80 @@ void Register()
         : FPaths::ProjectPluginsDir() / TEXT("WanaWorks/Resources");
 
     WanaStyleSet->SetContentRoot(ResourcesRoot);
+    LoadMidnightFonts(ResourcesRoot);
 
     const TSharedRef<FSlateStyleSet> StyleRef = WanaStyleSet.ToSharedRef();
-    SetImageBrush(StyleRef, LauncherIconName, TEXT("WanaWorksLauncher"), FVector2D(40.0f, 40.0f));
-    SetImageBrush(StyleRef, GetWorkspaceIconName(TEXT("AI")), TEXT("WorkspaceCharacterIntelligence"), FVector2D(22.0f, 22.0f));
-    SetImageBrush(StyleRef, GetWorkspaceIconName(TEXT("Character Building")), TEXT("WorkspaceCharacterBuilding"), FVector2D(22.0f, 22.0f));
-    SetImageBrush(StyleRef, GetWorkspaceIconName(TEXT("Level Design")), TEXT("WorkspaceLevelDesign"), FVector2D(22.0f, 22.0f));
-    SetImageBrush(StyleRef, GetWorkspaceIconName(TEXT("Project Blueprint")), TEXT("WorkspaceLogicBlueprints"), FVector2D(22.0f, 22.0f));
-    SetImageBrush(StyleRef, GetWorkspaceIconName(TEXT("Logic & Blueprints")), TEXT("WorkspaceLogicBlueprints"), FVector2D(22.0f, 22.0f));
-    SetImageBrush(StyleRef, GetWorkspaceIconName(TEXT("Physics")), TEXT("WorkspacePhysics"), FVector2D(22.0f, 22.0f));
-    SetImageBrush(StyleRef, GetWorkspaceIconName(TEXT("Audio")), TEXT("WorkspaceAudio"), FVector2D(22.0f, 22.0f));
-    SetImageBrush(StyleRef, GetWorkspaceIconName(TEXT("UI / UX")), TEXT("WorkspaceUIUX"), FVector2D(22.0f, 22.0f));
-    SetImageBrush(StyleRef, GetWorkspaceIconName(TEXT("Optimize")), TEXT("WorkspaceOptimize"), FVector2D(22.0f, 22.0f));
-    SetImageBrush(StyleRef, GetWorkspaceIconName(TEXT("Build & Deploy")), TEXT("WorkspaceBuildDeploy"), FVector2D(22.0f, 22.0f));
-    SetImageBrush(StyleRef, GetWorkflowIconName(TEXT("Enhance")), TEXT("WorkflowEnhance"), FVector2D(24.0f, 24.0f));
-    SetImageBrush(StyleRef, GetWorkflowIconName(TEXT("Test")), TEXT("WorkflowTest"), FVector2D(24.0f, 24.0f));
-    SetImageBrush(StyleRef, GetWorkflowIconName(TEXT("Analyze")), TEXT("WorkflowAnalyze"), FVector2D(24.0f, 24.0f));
-    SetImageBrush(StyleRef, GetWorkflowIconName(TEXT("Build")), TEXT("WorkflowBuild"), FVector2D(24.0f, 24.0f));
+    SetVectorIcon(StyleRef, LauncherIconName, TEXT("WanaWorksLauncher"), FVector2D(40.0f, 40.0f));
+    SetVectorIcon(StyleRef, GetWorkspaceIconName(TEXT("AI")), TEXT("WorkspaceCharacterIntelligence"), FVector2D(22.0f, 22.0f));
+    SetVectorIcon(StyleRef, GetWorkspaceIconName(TEXT("Character Building")), TEXT("WorkspaceCharacterBuilding"), FVector2D(22.0f, 22.0f));
+    SetVectorIcon(StyleRef, GetWorkspaceIconName(TEXT("Level Design")), TEXT("WorkspaceLevelDesign"), FVector2D(22.0f, 22.0f));
+    SetVectorIcon(StyleRef, GetWorkspaceIconName(TEXT("Project Blueprint")), TEXT("WorkspaceLogicBlueprints"), FVector2D(22.0f, 22.0f));
+    SetVectorIcon(StyleRef, GetWorkspaceIconName(TEXT("Logic & Blueprints")), TEXT("WorkspaceLogicBlueprints"), FVector2D(22.0f, 22.0f));
+    SetVectorIcon(StyleRef, GetWorkspaceIconName(TEXT("Physics")), TEXT("WorkspacePhysics"), FVector2D(22.0f, 22.0f));
+    SetVectorIcon(StyleRef, GetWorkspaceIconName(TEXT("Audio")), TEXT("WorkspaceAudio"), FVector2D(22.0f, 22.0f));
+    SetVectorIcon(StyleRef, GetWorkspaceIconName(TEXT("UI / UX")), TEXT("WorkspaceUIUX"), FVector2D(22.0f, 22.0f));
+    SetVectorIcon(StyleRef, GetWorkspaceIconName(TEXT("Optimize")), TEXT("WorkspaceOptimize"), FVector2D(22.0f, 22.0f));
+    SetVectorIcon(StyleRef, GetWorkspaceIconName(TEXT("Build & Deploy")), TEXT("WorkspaceBuildDeploy"), FVector2D(22.0f, 22.0f));
+    SetVectorIcon(StyleRef, GetWorkflowIconName(TEXT("Enhance")), TEXT("WorkflowEnhance"), FVector2D(24.0f, 24.0f));
+    SetVectorIcon(StyleRef, GetWorkflowIconName(TEXT("Test")), TEXT("WorkflowTest"), FVector2D(24.0f, 24.0f));
+    SetVectorIcon(StyleRef, GetWorkflowIconName(TEXT("Analyze")), TEXT("WorkflowAnalyze"), FVector2D(24.0f, 24.0f));
+    SetVectorIcon(StyleRef, GetWorkflowIconName(TEXT("Build")), TEXT("WorkflowBuild"), FVector2D(24.0f, 24.0f));
 
     const FWanaDesignTokens& T = Tokens();
+    StyleRef->Set(ChevronDownIcon, new FSlateVectorImageBrush(StyleRef->RootToContentDir(TEXT("IconChevronDown"), TEXT(".svg")), FVector2D(10.0f, 10.0f), T.TextSecondary));
+    StyleRef->Set(ChevronRightIcon, new FSlateVectorImageBrush(StyleRef->RootToContentDir(TEXT("IconChevronRight"), TEXT(".svg")), FVector2D(10.0f, 10.0f), T.TextSecondary));
+    StyleRef->Set(CheckIcon, new FSlateVectorImageBrush(StyleRef->RootToContentDir(TEXT("IconCheck"), TEXT(".svg")), FVector2D(12.0f, 12.0f), T.Cyan));
+    const FLinearColor NoOutline = FLinearColor::Transparent;
 
-    auto MakeColorBrush = [](const FLinearColor& Color) -> FSlateColorBrush*
+    auto MakeSurfaceBrush = [&T](const FLinearColor& Fill) -> FSlateRoundedBoxBrush*
     {
-        return new FSlateColorBrush(Color);
+        return new FSlateRoundedBoxBrush(Fill, WanaPanelRadius, T.BorderSubtle, WanaOutlineWidth);
     };
 
-    StyleRef->Set(CardBrush, MakeColorBrush(T.SurfaceRaised));
-    StyleRef->Set(CardProminentBrush, MakeColorBrush(T.CardRaised));
-    StyleRef->Set(RailActiveBrush, MakeColorBrush(T.Cyan.CopyWithNewOpacity(0.16f)));
-    StyleRef->Set(RailHoverBrush, MakeColorBrush(T.CardHover.CopyWithNewOpacity(0.72f)));
-    StyleRef->Set(ActionPrimaryBrush, MakeColorBrush(T.Blue.CopyWithNewOpacity(0.22f)));
-    StyleRef->Set(ActionSecondaryBrush, MakeColorBrush(T.Card));
-    StyleRef->Set(StatusPillSuccessBrush, MakeColorBrush(T.Emerald.CopyWithNewOpacity(0.20f)));
-    StyleRef->Set(StatusPillWarningBrush, MakeColorBrush(T.Amber.CopyWithNewOpacity(0.20f)));
-    StyleRef->Set(StatusPillInfoBrush, MakeColorBrush(T.Blue.CopyWithNewOpacity(0.20f)));
-    StyleRef->Set(AppBackgroundBrush, MakeColorBrush(T.BackgroundDeep));
-    StyleRef->Set(NavigationBrush, MakeColorBrush(T.Navigation));
-    StyleRef->Set(TopBarBrush, MakeColorBrush(T.TopBar));
-    StyleRef->Set(WorkspaceBrush, MakeColorBrush(T.Workspace));
-    StyleRef->Set(PanelBrush, MakeColorBrush(T.Panel));
-    StyleRef->Set(CardHoverBrush, MakeColorBrush(T.CardHover));
-    StyleRef->Set(InputBrush, MakeColorBrush(T.Input));
-    StyleRef->Set(DividerBrush, MakeColorBrush(T.Divider));
+    StyleRef->Set(RoundedTint, new FSlateRoundedBoxBrush(FLinearColor::White, WanaPanelRadius, T.BorderSubtle, WanaOutlineWidth));
+    StyleRef->Set(RoundedFill, new FSlateRoundedBoxBrush(FLinearColor::White, WanaPanelRadius, NoOutline, 0.0f));
+    StyleRef->Set(RoundedChip, new FSlateRoundedBoxBrush(FLinearColor::White, WanaChipRadius, NoOutline, 0.0f));
+    StyleRef->Set(FlatTint, new FSlateColorBrush(FLinearColor::White));
 
-    StyleRef->Set(PrimaryButton, MakeButtonStyle(T.Card, T.CardHover, T.CardRaised, T.Panel, T.TextPrimary));
-    StyleRef->Set(SecondaryButton, MakeButtonStyle(T.Panel, T.Card, T.CardRaised, T.BackgroundMain, T.TextPrimary));
-    StyleRef->Set(GhostButton, MakeButtonStyle(FLinearColor::Transparent, T.CardHover.CopyWithNewOpacity(0.58f), T.CardRaised.CopyWithNewOpacity(0.72f), FLinearColor::Transparent, T.TextSecondary));
-    StyleRef->Set(DangerButton, MakeButtonStyle(T.Red.CopyWithNewOpacity(0.14f), T.Red.CopyWithNewOpacity(0.24f), T.Red.CopyWithNewOpacity(0.34f), T.Panel, T.TextPrimary));
-    StyleRef->Set(EnhanceButton, MakeButtonStyle(T.Blue.CopyWithNewOpacity(0.15f), T.Blue.CopyWithNewOpacity(0.25f), T.Blue.CopyWithNewOpacity(0.34f), T.Panel, T.TextPrimary));
-    StyleRef->Set(TestButton, MakeButtonStyle(T.Cyan.CopyWithNewOpacity(0.13f), T.Cyan.CopyWithNewOpacity(0.22f), T.Cyan.CopyWithNewOpacity(0.31f), T.Panel, T.TextPrimary));
-    StyleRef->Set(AnalyzeButton, MakeButtonStyle(T.Violet.CopyWithNewOpacity(0.15f), T.Violet.CopyWithNewOpacity(0.24f), T.Violet.CopyWithNewOpacity(0.34f), T.Panel, T.TextPrimary));
-    StyleRef->Set(BuildButton, MakeButtonStyle(T.Blue.CopyWithNewOpacity(0.18f), T.Blue.CopyWithNewOpacity(0.28f), T.Blue.CopyWithNewOpacity(0.38f), T.Panel, T.TextPrimary));
+    StyleRef->Set(CardBrush, MakeSurfaceBrush(T.SurfaceRaised));
+    StyleRef->Set(CardProminentBrush, MakeSurfaceBrush(T.CardRaised));
+    StyleRef->Set(RailActiveBrush, new FSlateRoundedBoxBrush(T.Cyan.CopyWithNewOpacity(0.16f), WanaControlRadius, T.Cyan.CopyWithNewOpacity(0.45f), WanaOutlineWidth));
+    StyleRef->Set(RailHoverBrush, new FSlateRoundedBoxBrush(T.CardHover.CopyWithNewOpacity(0.72f), WanaControlRadius, T.BorderSubtle, WanaOutlineWidth));
+    StyleRef->Set(ActionPrimaryBrush, new FSlateRoundedBoxBrush(T.Blue.CopyWithNewOpacity(0.22f), WanaControlRadius, T.Blue.CopyWithNewOpacity(0.45f), WanaOutlineWidth));
+    StyleRef->Set(ActionSecondaryBrush, MakeSurfaceBrush(T.Card));
+    StyleRef->Set(StatusPillSuccessBrush, new FSlateRoundedBoxBrush(T.Emerald.CopyWithNewOpacity(0.20f), 999.0f, T.Emerald.CopyWithNewOpacity(0.45f), WanaOutlineWidth));
+    StyleRef->Set(StatusPillWarningBrush, new FSlateRoundedBoxBrush(T.Amber.CopyWithNewOpacity(0.20f), 999.0f, T.Amber.CopyWithNewOpacity(0.45f), WanaOutlineWidth));
+    StyleRef->Set(StatusPillInfoBrush, new FSlateRoundedBoxBrush(T.Cyan.CopyWithNewOpacity(0.20f), 999.0f, T.Cyan.CopyWithNewOpacity(0.45f), WanaOutlineWidth));
+    StyleRef->Set(AppBackgroundBrush, new FSlateColorBrush(T.BackgroundDeep));
+    StyleRef->Set(NavigationBrush, MakeSurfaceBrush(T.Navigation));
+    StyleRef->Set(TopBarBrush, MakeSurfaceBrush(T.TopBar));
+    StyleRef->Set(WorkspaceBrush, MakeSurfaceBrush(T.Workspace));
+    StyleRef->Set(PanelBrush, MakeSurfaceBrush(T.Panel));
+    StyleRef->Set(CardHoverBrush, MakeSurfaceBrush(T.CardHover));
+    StyleRef->Set(InputBrush, new FSlateRoundedBoxBrush(T.Input, WanaControlRadius, T.BorderSubtle, WanaOutlineWidth));
+    StyleRef->Set(DividerBrush, new FSlateColorBrush(T.Divider));
+
+    const FLinearColor QuietOutline = T.BorderSubtle;
+    StyleRef->Set(PrimaryButton, MakeButtonStyle(T.Card, T.CardHover, T.CardRaised, T.Panel, T.TextPrimary, QuietOutline, T.Cyan.CopyWithNewOpacity(0.75f)));
+    StyleRef->Set(SecondaryButton, MakeButtonStyle(T.Panel, T.Card, T.CardRaised, T.BackgroundMain, T.TextPrimary, QuietOutline, T.BorderStrong));
+    StyleRef->Set(GhostButton, MakeButtonStyle(FLinearColor::Transparent, T.CardHover.CopyWithNewOpacity(0.58f), T.CardRaised.CopyWithNewOpacity(0.72f), FLinearColor::Transparent, T.TextSecondary, NoOutline, T.BorderSubtle.CopyWithNewOpacity(0.65f)));
+    StyleRef->Set(DangerButton, MakeButtonStyle(T.Red.CopyWithNewOpacity(0.14f), T.Red.CopyWithNewOpacity(0.24f), T.Red.CopyWithNewOpacity(0.34f), T.Panel, T.TextPrimary, T.Red.CopyWithNewOpacity(0.45f), T.Red.CopyWithNewOpacity(0.80f)));
+    StyleRef->Set(EnhanceButton, MakeButtonStyle(T.Card, T.CardHover, T.Panel, T.Panel, T.TextPrimary, T.Cyan.CopyWithNewOpacity(0.45f), T.Cyan.CopyWithNewOpacity(0.85f)));
+    StyleRef->Set(TestButton, MakeButtonStyle(T.Card, T.CardHover, T.Panel, T.Panel, T.TextPrimary, T.Cyan.CopyWithNewOpacity(0.55f), T.Cyan));
+    StyleRef->Set(AnalyzeButton, MakeButtonStyle(T.Card, T.CardHover, T.Panel, T.Panel, T.TextPrimary, T.Violet.CopyWithNewOpacity(0.50f), T.Violet.CopyWithNewOpacity(0.90f)));
+    StyleRef->Set(BuildButton, MakeButtonStyle(T.Card, T.CardHover, T.Panel, T.Panel, T.TextPrimary, T.Amber.CopyWithNewOpacity(0.55f), T.Amber));
+    StyleRef->Set(TEXT("WanaWorks.Font.Regular"), WanaFont("Regular", 10));
+    StyleRef->Set(TEXT("WanaWorks.Font.Bold"), WanaFont("Bold", 10));
+    StyleRef->Set(TEXT("WanaWorks.Font.Mono"), WanaFont("Mono", 10));
     StyleRef->Set(InputTextBox, MakeInputTextBoxStyle(false));
     StyleRef->Set(InputMultilineTextBox, MakeInputTextBoxStyle(true));
     StyleRef->Set(ComboBox, MakeComboBoxStyle());
     StyleRef->Set(ComboRow, MakeComboRowStyle());
     StyleRef->Set(CheckBox, MakeCheckBoxStyle());
     StyleRef->Set(ScrollBar, MakeScrollBarStyle());
+    StyleRef->Set(ExpandableArea, MakeExpandableAreaStyle());
+    StyleRef->Set(Splitter, MakeSplitterStyle());
+    StyleRef->Set(ScrollBox, MakeScrollBoxStyle());
 
     FSlateStyleRegistry::RegisterSlateStyle(*WanaStyleSet);
 }
@@ -389,7 +527,19 @@ const FWanaDesignTokens& Tokens()
 
 FSlateFontInfo WanaFont(const ANSICHAR* Typeface, int32 Size)
 {
-    return FCoreStyle::GetDefaultFontStyle(Typeface, Size);
+    const FString Requested = Typeface ? FString(ANSI_TO_TCHAR(Typeface)) : FString(TEXT("Regular"));
+    const bool bMono = Requested.Contains(TEXT("Mono"), ESearchCase::IgnoreCase);
+    const bool bBold = Requested.Contains(TEXT("Bold"), ESearchCase::IgnoreCase);
+    const bool bMedium = Requested.Contains(TEXT("Medium"), ESearchCase::IgnoreCase) || Requested.Contains(TEXT("Semi"), ESearchCase::IgnoreCase);
+    const TSharedPtr<FCompositeFont>& Composite = bMono ? MonoCompositeFont : UICompositeFont;
+    const bool bLoaded = bMono ? bMonoFontLoaded : bUIFontLoaded;
+    if (!bLoaded || !Composite.IsValid())
+    {
+        return FCoreStyle::GetDefaultFontStyle(bMono ? "Mono" : (bBold ? "Bold" : "Regular"), Size);
+    }
+
+    const FName FaceName = bBold ? FName(TEXT("Bold")) : (bMedium ? FName(TEXT("Medium")) : FName(TEXT("Regular")));
+    return FSlateFontInfo(Composite.ToSharedRef(), Size, FaceName);
 }
 
 FSlateFontInfo HeadingFont()
@@ -484,6 +634,27 @@ const FComboBoxStyle& ComboBoxStyle() { return GetWidgetStyleOrFallback(ComboBox
 const FTableRowStyle& ComboRowStyle() { return GetWidgetStyleOrFallback(ComboRow, FTableRowStyle::GetDefault()); }
 const FCheckBoxStyle& CheckBoxStyle() { return GetWidgetStyleOrFallback(CheckBox, FCheckBoxStyle::GetDefault()); }
 const FScrollBarStyle& ScrollBarStyle() { return GetWidgetStyleOrFallback(ScrollBar, FScrollBarStyle::GetDefault()); }
+const FExpandableAreaStyle& ExpandableAreaStyle() { return GetWidgetStyleOrFallback(ExpandableArea, FExpandableAreaStyle::GetDefault()); }
+const FSplitterStyle& SplitterStyle() { return GetWidgetStyleOrFallback(Splitter, FSplitterStyle::GetDefault()); }
+const FScrollBoxStyle& ScrollBoxStyle() { return GetWidgetStyleOrFallback(ScrollBox, FScrollBoxStyle::GetDefault()); }
+
+namespace
+{
+const FSlateBrush* BrushOrWhite(const FName BrushName)
+{
+    if (const FSlateBrush* Brush = GetBrush(BrushName))
+    {
+        return Brush;
+    }
+
+    return FCoreStyle::Get().GetBrush(TEXT("WhiteBrush"));
+}
+}
+
+const FSlateBrush* RoundedTintBrush() { return BrushOrWhite(RoundedTint); }
+const FSlateBrush* RoundedFillBrush() { return BrushOrWhite(RoundedFill); }
+const FSlateBrush* RoundedChipBrush() { return BrushOrWhite(RoundedChip); }
+const FSlateBrush* FlatTintBrush() { return BrushOrWhite(FlatTint); }
 
 const FButtonStyle& WorkflowButtonStyle(const FString& WorkflowLabel)
 {
@@ -520,6 +691,7 @@ TSharedRef<SWidget> WanaStatusPill(
     const FWanaDesignTokens& T = Tokens();
 
     return SNew(SBorder)
+        .BorderImage(RoundedTintBrush())
         .Padding(Padding)
         .BorderBackgroundColor(bStrong ? AccentColor.CopyWithNewOpacity(0.34f) : AccentColor.CopyWithNewOpacity(0.16f))
         [
@@ -595,6 +767,7 @@ TSharedRef<SWidget> WanaCard(
     const float Padding = bProminent ? 24.0f : T.CardPadding;
 
     return SNew(SBorder)
+        .BorderImage(RoundedTintBrush())
         .Padding(0.0f)
         .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(bProminent ? 0.20f : 0.12f))
         [
@@ -605,6 +778,7 @@ TSharedRef<SWidget> WanaCard(
             .Padding(FMargin(4.0f, 7.0f, 0.0f, 0.0f))
             [
                 SNew(SBorder)
+                .BorderImage(RoundedFillBrush())
                 .Padding(0.0f)
                 .BorderBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, bProminent ? 0.34f : 0.24f))
             ]
@@ -613,6 +787,7 @@ TSharedRef<SWidget> WanaCard(
             .VAlign(VAlign_Top)
             [
                 SNew(SBorder)
+                .BorderImage(FlatTintBrush())
                 .Padding(0.0f)
                 .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(bProminent ? 0.28f : 0.16f))
                 [
@@ -625,6 +800,7 @@ TSharedRef<SWidget> WanaCard(
             .VAlign(VAlign_Top)
             [
                 SNew(SBorder)
+                .BorderImage(RoundedTintBrush())
                 .Padding(0.0f)
                 .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(bProminent ? 0.075f : 0.050f))
                 [
@@ -636,6 +812,7 @@ TSharedRef<SWidget> WanaCard(
             + SOverlay::Slot()
             [
                 SNew(SBorder)
+                .BorderImage(RoundedTintBrush())
                 .Padding(Padding)
                 .BorderBackgroundColor((bProminent ? T.SurfaceRaised : T.Surface).CopyWithNewOpacity(bProminent ? 0.985f : 0.945f))
                 [
@@ -667,6 +844,7 @@ TSharedRef<SWidget> WanaMetricBlock(
     const bool bHasLabel = !Label.IsEmpty();
 
     return SNew(SBorder)
+        .BorderImage(RoundedTintBrush())
         .Padding(0.0f)
         .Clipping(EWidgetClipping::ClipToBounds)
         .BorderBackgroundColor(bProminent ? AccentColor.CopyWithNewOpacity(0.17f) : T.SurfaceGlass.CopyWithNewOpacity(0.52f))
@@ -676,6 +854,7 @@ TSharedRef<SWidget> WanaMetricBlock(
             .AutoWidth()
             [
                 SNew(SBorder)
+                .BorderImage(FlatTintBrush())
                 .Padding(0.0f)
                 .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(bProminent ? 0.72f : 0.36f))
                 [
@@ -687,6 +866,7 @@ TSharedRef<SWidget> WanaMetricBlock(
             .FillWidth(1.0f)
             [
                 SNew(SBorder)
+                .BorderImage(RoundedTintBrush())
                 .Padding(FMargin(15.0f, bProminent ? 13.0f : 11.0f))
                 .BorderBackgroundColor(bProminent ? AccentColor.CopyWithNewOpacity(0.08f) : T.Surface.CopyWithNewOpacity(0.26f))
                 [
@@ -731,10 +911,12 @@ TSharedRef<SWidget> WanaHeroStage(
     const FWanaDesignTokens& T = Tokens();
 
     return SNew(SBorder)
+        .BorderImage(RoundedTintBrush())
         .Padding(0.0f)
         .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.30f))
         [
             SNew(SBorder)
+            .BorderImage(RoundedTintBrush())
             .Padding(13.0f)
             .BorderBackgroundColor(T.BackgroundDeep)
             [
@@ -745,6 +927,7 @@ TSharedRef<SWidget> WanaHeroStage(
                 .Padding(FMargin(8.0f, 12.0f, 0.0f, 0.0f))
                 [
                     SNew(SBorder)
+                    .BorderImage(RoundedFillBrush())
                     .Visibility(EVisibility::HitTestInvisible)
                     .Padding(0.0f)
                     .BorderBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.42f))
@@ -752,6 +935,7 @@ TSharedRef<SWidget> WanaHeroStage(
                 + SOverlay::Slot()
                 [
                     SNew(SBorder)
+                    .BorderImage(RoundedTintBrush())
                     .Padding(0.0f)
                     .BorderBackgroundColor(T.BackgroundMain)
                     [
@@ -763,6 +947,7 @@ TSharedRef<SWidget> WanaHeroStage(
                 .VAlign(VAlign_Fill)
                 [
                     SNew(SBorder)
+                    .BorderImage(FlatTintBrush())
                     .Visibility(EVisibility::HitTestInvisible)
                     .Padding(0.0f)
                     .BorderBackgroundColor(T.Blue.CopyWithNewOpacity(0.045f))
@@ -776,6 +961,7 @@ TSharedRef<SWidget> WanaHeroStage(
                 .VAlign(VAlign_Top)
                 [
                     SNew(SBorder)
+                    .BorderImage(FlatTintBrush())
                     .Visibility(EVisibility::HitTestInvisible)
                     .Padding(0.0f)
                     .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.14f))
@@ -789,6 +975,7 @@ TSharedRef<SWidget> WanaHeroStage(
                 .VAlign(VAlign_Fill)
                 [
                     SNew(SBorder)
+                    .BorderImage(FlatTintBrush())
                     .Visibility(EVisibility::HitTestInvisible)
                     .Padding(0.0f)
                     .BorderBackgroundColor(T.Cyan.CopyWithNewOpacity(0.034f))
@@ -802,6 +989,7 @@ TSharedRef<SWidget> WanaHeroStage(
                 .VAlign(VAlign_Fill)
                 [
                     SNew(SBorder)
+                    .BorderImage(FlatTintBrush())
                     .Visibility(EVisibility::HitTestInvisible)
                     .Padding(0.0f)
                     .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.042f))
@@ -815,6 +1003,7 @@ TSharedRef<SWidget> WanaHeroStage(
                 .VAlign(VAlign_Bottom)
                 [
                     SNew(SBorder)
+                    .BorderImage(FlatTintBrush())
                     .Visibility(EVisibility::HitTestInvisible)
                     .Padding(0.0f)
                     .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.115f))
@@ -828,6 +1017,7 @@ TSharedRef<SWidget> WanaHeroStage(
                 .VAlign(VAlign_Bottom)
                 [
                     SNew(SBorder)
+                    .BorderImage(FlatTintBrush())
                     .Visibility(EVisibility::HitTestInvisible)
                     .Padding(0.0f)
                     .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.54f))
@@ -878,6 +1068,7 @@ TSharedRef<SWidget> WanaActionTile(
         })
         [
             SNew(SBorder)
+            .BorderImage(RoundedTintBrush())
             .Padding(0.0f)
             .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.19f))
             [
@@ -888,6 +1079,7 @@ TSharedRef<SWidget> WanaActionTile(
                 .Padding(FMargin(3.0f, 5.0f, 0.0f, 0.0f))
                 [
                     SNew(SBorder)
+                    .BorderImage(RoundedFillBrush())
                     .Padding(0.0f)
                     .BorderBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.30f))
                 ]
@@ -896,6 +1088,7 @@ TSharedRef<SWidget> WanaActionTile(
                 .VAlign(VAlign_Top)
                 [
                     SNew(SBorder)
+                    .BorderImage(RoundedTintBrush())
                     .Padding(0.0f)
                     .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.095f))
                     [
@@ -907,6 +1100,7 @@ TSharedRef<SWidget> WanaActionTile(
                 + SOverlay::Slot()
                 [
                     SNew(SBorder)
+                    .BorderImage(RoundedTintBrush())
                     .Padding(18.0f)
                     .BorderBackgroundColor(T.SurfaceRaised.CopyWithNewOpacity(0.965f))
                     [
@@ -922,6 +1116,7 @@ TSharedRef<SWidget> WanaActionTile(
                             .Padding(0.0f, 0.0f, 14.0f, 0.0f)
                             [
                                 SNew(SBorder)
+                                .BorderImage(RoundedTintBrush())
                                 .Padding(9.0f)
                                 .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.24f))
                                 [
@@ -980,7 +1175,7 @@ TSharedRef<SWidget> WanaWorkflowCommand(
 
     return SNew(SButton)
         .ButtonStyle(&WorkflowButtonStyle(Title.ToString()))
-        .ContentPadding(FMargin(0.0f))
+        .ContentPadding(FMargin(12.0f, 9.0f))
         .ToolTipText(Description)
         .OnClicked_Lambda([OnPressed]()
         {
@@ -992,14 +1187,6 @@ TSharedRef<SWidget> WanaWorkflowCommand(
             return FReply::Handled();
         })
         [
-            SNew(SBorder)
-            .Padding(0.0f)
-            .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.36f))
-            [
-                SNew(SBorder)
-                .Padding(FMargin(12.0f, 9.0f))
-                .BorderBackgroundColor(T.SurfaceRaised.CopyWithNewOpacity(0.98f))
-                [
                     SNew(SHorizontalBox)
                     + SHorizontalBox::Slot()
                     .AutoWidth()
@@ -1007,6 +1194,7 @@ TSharedRef<SWidget> WanaWorkflowCommand(
                     .Padding(0.0f, 0.0f, 10.0f, 0.0f)
                     [
                         SNew(SBorder)
+                        .BorderImage(RoundedTintBrush())
                         .Padding(6.0f)
                         .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.22f))
                         [
@@ -1043,8 +1231,6 @@ TSharedRef<SWidget> WanaWorkflowCommand(
                     [
                         WanaStatusPill(FText::FromString(StepNumber), AccentColor, true, 7, FMargin(6.0f, 3.0f))
                     ]
-                ]
-            ]
         ];
 }
 
@@ -1074,6 +1260,7 @@ TSharedRef<SWidget> WanaWorkspaceRailItem(
         })
         [
             SNew(SBorder)
+            .BorderImage(RoundedTintBrush())
             .Padding(FMargin(11.0f, 9.0f))
             .BorderBackgroundColor_Lambda([IsActive, bAvailable, AccentColor, T]()
             {
@@ -1085,7 +1272,7 @@ TSharedRef<SWidget> WanaWorkspaceRailItem(
 
                 return bAvailable
                     ? T.SurfaceGlass.CopyWithNewOpacity(0.46f)
-                    : FLinearColor(0.018f, 0.026f, 0.058f, 0.70f);
+                    : T.BackgroundDeep.CopyWithNewOpacity(0.70f);
             })
             [
                 SNew(SVerticalBox)
@@ -1099,13 +1286,14 @@ TSharedRef<SWidget> WanaWorkspaceRailItem(
                         .Padding(0.0f, 1.0f, 10.0f, 0.0f)
                     [
                         SNew(SBorder)
+                        .BorderImage(RoundedTintBrush())
                         .Padding(6.0f)
                         .BorderBackgroundColor_Lambda([IsActive, bAvailable, AccentColor]()
                         {
                             const bool bActive = IsActive ? IsActive() : false;
                             return bActive
                                 ? AccentColor.CopyWithNewOpacity(0.36f)
-                                : (bAvailable ? AccentColor.CopyWithNewOpacity(0.16f) : FLinearColor(0.20f, 0.23f, 0.32f, 0.46f));
+                                : (bAvailable ? AccentColor.CopyWithNewOpacity(0.16f) : T.BorderSubtle.CopyWithNewOpacity(0.46f));
                         })
                         [
                             MakeIconWidget(IconBrushName, bAvailable ? T.TextPrimary : T.TextMuted, 17.0f)
@@ -1150,6 +1338,7 @@ TSharedRef<SWidget> WanaWorkspaceRailItem(
                 .HAlign(HAlign_Left)
                 [
                     SNew(SBorder)
+                    .BorderImage(RoundedTintBrush())
                     .Padding(FMargin(7.0f, 3.0f))
                     .BorderBackgroundColor_Lambda([IsActive, bAvailable, AccentColor]()
                     {
@@ -1161,7 +1350,7 @@ TSharedRef<SWidget> WanaWorkspaceRailItem(
 
                         return bAvailable
                             ? AccentColor.CopyWithNewOpacity(0.13f)
-                            : FLinearColor(0.20f, 0.23f, 0.32f, 0.28f);
+                            : T.BorderSubtle.CopyWithNewOpacity(0.28f);
                     })
                     [
                         SNew(STextBlock)
@@ -1170,7 +1359,7 @@ TSharedRef<SWidget> WanaWorkspaceRailItem(
                             return GetStateLabel ? GetStateLabel() : FText::GetEmpty();
                         })
                         .Font(WanaFont("Bold", 7))
-                        .ColorAndOpacity(bAvailable ? FLinearColor(0.84f, 0.90f, 1.0f, 1.0f) : T.TextMuted.CopyWithNewOpacity(0.82f))
+                        .ColorAndOpacity(bAvailable ? T.TextSecondary : T.TextMuted.CopyWithNewOpacity(0.82f))
                     ]
                 ]
             ]
@@ -1185,6 +1374,7 @@ TSharedRef<SWidget> WanaToast(
     const FWanaDesignTokens& T = Tokens();
 
     return SNew(SBorder)
+        .BorderImage(RoundedTintBrush())
         .Padding(FMargin(16.0f, 12.0f))
         .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.11f))
         [
