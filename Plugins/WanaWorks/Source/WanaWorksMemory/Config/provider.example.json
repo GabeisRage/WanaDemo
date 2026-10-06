@@ -1,0 +1,11 @@
+{
+  "provider": "grok",
+  "grok_model": "grok-4",
+  "openai_model": "gpt-4o-mini",
+  "max_context_chars": 8000,
+  "temperature": 0.7,
+  "max_output_tokens": 400,
+  "recent_turn_limit": 16,
+  "top_k_memories": 6,
+  "embeddings": "off"
+}
