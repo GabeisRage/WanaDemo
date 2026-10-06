@@ -9,6 +9,10 @@ class FWanaMemoryBackend;
 
 DECLARE_DYNAMIC_DELEGATE_TwoParams(FWanaMemoryReplyDelegate, bool, bSuccess, FString, Reply);
 
+/** CharacterId, PlayerId, WriteKind (turn, memory, relationship, identity). */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FWanaMemoryWrittenSignature, FString, CharacterId, FString, PlayerId, FString, WriteKind);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(FWanaMemoryWrittenNative, const FString&, const FString&, const FString&);
+
 USTRUCT(BlueprintType)
 struct WANAWORKSMEMORY_API FWanaRelationshipScores
 {
@@ -84,6 +88,15 @@ public:
 
     UFUNCTION(BlueprintPure, Category="WanaWorks|Memory")
     FString GetProviderSummary() const;
+
+    /** Blueprint listeners. Broadcast on the game thread after every successful write. */
+    UPROPERTY(BlueprintAssignable, Category="WanaWorks|Memory")
+    FWanaMemoryWrittenSignature OnMemoryWritten;
+
+    /** Native listeners, including the editor tab. Same writes as OnMemoryWritten. */
+    FWanaMemoryWrittenNative OnMemoryWrittenNative;
+
+    void BroadcastWrite(const FString& CharacterId, const FString& PlayerId, const FString& WriteKind);
 
 private:
     void ShutdownBackend();

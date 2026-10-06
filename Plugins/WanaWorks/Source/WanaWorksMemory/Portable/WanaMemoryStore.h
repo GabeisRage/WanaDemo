@@ -19,6 +19,10 @@ public:
     MemoryStore& operator=(const MemoryStore&) = delete;
 
     Status Open(const std::string& Path);
+    /* Read an existing database without creating it or running migrations.
+       SQL writes are rejected. Used by the editor while the game connection
+       may already have the file open. */
+    Status OpenView(const std::string& Path);
     void Close();
     bool IsOpen() const;
     int SchemaVersion() const;
@@ -38,6 +42,8 @@ public:
     Status ListIdentity(const std::string& CharacterId, std::vector<IdentityState>& OutStates);
 
     Status AddMemory(const SalientMemory& InMemory, int64_t& OutId);
+    Status ListMemories(const std::string& CharacterId, const std::string& PlayerId, int Limit, std::vector<SalientMemory>& OutMemories);
+    Status ListRelationships(std::vector<RelationshipRecord>& OutRecords);
     Status ListMemoryCandidates(const std::string& CharacterId, const std::string& PlayerId, int Limit, std::vector<SalientMemory>& OutMemories);
     Status TouchMemories(const std::vector<int64_t>& Ids, const std::string& UsedAt);
 

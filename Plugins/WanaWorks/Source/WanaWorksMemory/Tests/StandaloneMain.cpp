@@ -5,6 +5,7 @@
 #include "WanaMemoryJson.h"
 #include "WanaMemoryOrchestrator.h"
 #include "WanaMemoryPrompt.h"
+#include "WanaMemoryRoundtrip.h"
 #include "WanaMemorySchema.h"
 #include "WanaMemoryStore.h"
 #include "WanaMemoryUtil.h"
@@ -730,6 +731,12 @@ int main()
     TestLegacySnapshots();
     TestEmbeddings();
     TestConversationFlow();
+
+    std::string RoundtripReport;
+    const int RoundtripFailed = WanaMemory::RunMemoryRoundtripScenario(RoundtripReport);
+    std::fputs(RoundtripReport.c_str(), stdout);
+    EXPECT(RoundtripFailed == 0);
+
     std::printf("wana memory tests: %d passed, %d failed\n", gPassed, gFailed);
     return gFailed == 0 ? 0 : 1;
 }

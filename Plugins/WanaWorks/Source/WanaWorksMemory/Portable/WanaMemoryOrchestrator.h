@@ -11,6 +11,22 @@
 namespace WanaMemory
 {
 
+struct MemoryWriteNotice
+{
+    std::string CharacterId;
+    std::string PlayerId;
+    std::string Kind;
+};
+
+/* Fired after a successful studio-database write. Implementations must be
+   safe to call from the provider callback thread. */
+class IMemoryWriteListener
+{
+public:
+    virtual ~IMemoryWriteListener() = default;
+    virtual void OnMemoryWrite(const MemoryWriteNotice& Notice) = 0;
+};
+
 struct TalkRequest
 {
     std::string CharacterId;
@@ -22,6 +38,7 @@ struct TalkRequest
     int MaxContextChars = 8000;
     int RecentTurnLimit = 16;
     int TopKMemories = 6;
+    std::shared_ptr<IMemoryWriteListener> WriteListener;
 };
 
 struct TalkResult

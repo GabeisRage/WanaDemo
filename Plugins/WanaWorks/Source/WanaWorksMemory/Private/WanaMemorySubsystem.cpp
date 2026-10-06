@@ -151,12 +151,45 @@ public:
     FString LastStatus;
     bool bOpen = false;
     bool bKeyPresent = false;
+    std::shared_ptr<WanaMemory::IMemoryWriteListener> WriteListener;
+};
+
+class FWanaSubsystemWriteListener final : public WanaMemory::IMemoryWriteListener
+{
+public:
+    TWeakObjectPtr<UWanaMemorySubsystem> Owner;
+
+    void OnMemoryWrite(const WanaMemory::MemoryWriteNotice& Notice) override
+    {
+        const FString CharacterId = FromUtf8(Notice.CharacterId);
+        const FString PlayerId = FromUtf8(Notice.PlayerId);
+        const FString Kind = FromUtf8(Notice.Kind);
+        TWeakObjectPtr<UWanaMemorySubsystem> WeakOwner = Owner;
+        auto Fire = [WeakOwner, CharacterId, PlayerId, Kind]()
+        {
+            if (UWanaMemorySubsystem* Subsystem = WeakOwner.Get())
+            {
+                Subsystem->BroadcastWrite(CharacterId, PlayerId, Kind);
+            }
+        };
+        if (IsInGameThread())
+        {
+            Fire();
+        }
+        else
+        {
+            AsyncTask(ENamedThreads::GameThread, MoveTemp(Fire));
+        }
+    }
 };
 
 void UWanaMemorySubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
     Super::Initialize(Collection);
     Backend = new FWanaMemoryBackend();
+    std::shared_ptr<FWanaSubsystemWriteListener> Listener = std::make_shared<FWanaSubsystemWriteListener>();
+    Listener->Owner = this;
+    Backend->WriteListener = Listener;
     const FString Directory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("WanaWorks"), TEXT("Memory"));
     IFileManager::Get().MakeDirectory(*Directory, true);
     Backend->DatabasePath = FPaths::Combine(Directory, TEXT("wana_memory.db"));
@@ -323,6 +356,7 @@ void UWanaMemorySubsystem::TalkToCharacter(FString CharacterId, FString PlayerId
     Request.MaxContextChars = Backend->Settings.MaxContextChars;
     Request.RecentTurnLimit = Backend->Settings.RecentTurnLimit;
     Request.TopKMemories = Backend->Settings.TopKMemories;
+    Request.WriteListener = Backend->WriteListener;
 
     TWeakObjectPtr<UWanaMemorySubsystem> WeakThis(this);
     std::shared_ptr<WanaMemory::ILLMProvider> Provider = Backend->Provider;
@@ -380,6 +414,7 @@ bool UWanaMemorySubsystem::SetIdentityState(FString CharacterId, FString StateKi
         return false;
     }
     OutError.Reset();
+    BroadcastWrite(CharacterId, FString(), TEXT("identity"));
     return true;
 }
 
@@ -452,6 +487,7 @@ bool UWanaMemorySubsystem::SetRelationshipScores(FString CharacterId, FString Pl
         return false;
     }
     OutError.Reset();
+    BroadcastWrite(CharacterId, PlayerId, TEXT("relationship"));
     return true;
 }
 
@@ -483,6 +519,7 @@ bool UWanaMemorySubsystem::Remember(FString CharacterId, FString PlayerId, FStri
         return false;
     }
     OutError.Reset();
+    BroadcastWrite(CharacterId, PlayerId, TEXT("memory"));
     return true;
 }
 
@@ -606,6 +643,12 @@ FString UWanaMemorySubsystem::GetProviderSummary() const
         Backend->bKeyPresent ? TEXT("set") : TEXT("missing"),
         *FromUtf8(Backend->Settings.Embeddings),
         *Backend->DatabasePath);
+}
+
+void UWanaMemorySubsystem::BroadcastWrite(const FString& CharacterId, const FString& PlayerId, const FString& WriteKind)
+{
+    OnMemoryWrittenNative.Broadcast(CharacterId, PlayerId, WriteKind);
+    OnMemoryWritten.Broadcast(CharacterId, PlayerId, WriteKind);
 }
 
 void UWanaMemoryLibrary::TalkToCharacter(UObject* WorldContextObject, FString CharacterId, FString PlayerId, FString PlayerMessage, FWanaMemoryReplyDelegate OnReply)

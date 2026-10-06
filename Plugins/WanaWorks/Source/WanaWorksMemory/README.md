@@ -2,7 +2,7 @@
 
 Studio-owned memory for WanaWorks characters. Conversation turns, relationship scores, and WIT / WAY / WAI / WAMI identity live in a SQLite file under the project's `Saved/` directory. The language model is only a stateless text generator. Swapping xAI Grok for OpenAI ChatGPT does not move or copy that database.
 
-This is a separate runtime module. It does not change Core, WIT, WAY, WAI, UI, or Render. It is **not registered** in `WanaWorks.uplugin` yet. See [Enabling the module](#enabling-the-module).
+The runtime module and the editor tab are separate. Neither is registered in `WanaWorks.uplugin` yet. See [Enabling the modules](#enabling-the-modules). The only edit outside those modules is `UWanaSettings::OpenAIApiKey`, which is no longer written to shared config. WIT, WAY, WAI, UI, and Render are unchanged.
 
 ## Ownership
 
@@ -15,9 +15,11 @@ This is a separate runtime module. It does not change Core, WIT, WAY, WAI, UI, o
 
 A completion request does send the assembled prompt for that one call. The prompt is not written to a vendor memory store. The module never sends `store: true`, a vendor `user` id, or an embeddings request. Player and character ids are not used as vendor account keys.
 
-`UWanaSettings::OpenAIApiKey` is a `config=Editor`, `defaultconfig` property. Unreal writes that into `Config/DefaultEditor.ini`, which is easy to commit. **This module does not read that property.** Do not put provider keys there.
+`UWanaSettings::OpenAIApiKey` used to be a `config` property on a `defaultconfig` class, so Unreal wrote it into `Config/DefaultEditor.ini`, which is easy to commit. It is now `Transient`. `GetOpenAIApiKey()` reads `WANA_OPENAI_API_KEY`, then `OPENAI_API_KEY`, and nothing writes that value back to the ini. A leftover `OpenAIApiKey=` line in `DefaultEditor.ini` is ignored. **This module does not read that property.** Do not put provider keys there.
 
-On this branch the root `.gitignore` still contains unresolved conflict markers, so `Saved/` is not reliably ignored here. `master` commit `eb453e0` fixes that file. Do not `git add` `Saved/` or `provider.secrets.json`. This module does not edit `.gitignore`, so the fix on `master` can land on its own.
+`Scripts/check_config_secrets.py` fails if `Config/**/*.ini` contains `sk-` or `xai-`. `.github/workflows/config-secrets.yml` runs that check. Unreal's `SecurityToken` does not use those prefixes and is not flagged.
+
+The root `.gitignore` on this branch had unresolved conflict markers, so `Saved/` was not reliably ignored. It now matches `master` (`eb453e0`), which ignores `Saved/`, including `provider.secrets.json`. An extra ignore line was not added: a three-way merge of that line into `master` conflicted, and `Saved/` already covers the secrets file. Do not `git add` `Saved/` or `provider.secrets.json`.
 
 ## Call flow
 
@@ -31,6 +33,8 @@ On this branch the root `.gitignore` still contains unresolved conflict markers,
 6. **Produce.** The user turn is stored before the request. After a successful reply the module stores the assistant turn (tagged with the provider id), a salient memory, and any relationship change plus a history row.
 
 A failed request leaves the user turn in the transcript and does not invent an assistant line.
+
+Every successful write broadcasts `UWanaMemorySubsystem::OnMemoryWritten` (Blueprint) and `OnMemoryWrittenNative` (C++). Kinds are `turn`, `memory`, `relationship`, and `identity`. The user turn is broadcast before the provider request returns. The editor tab subscribes to the native delegate. During PIE it also re-reads the database twice a second, so a write still shows up if the tab bound late.
 
 The model is asked to end with:
 
@@ -105,21 +109,38 @@ Default models are `grok-4` and `gpt-4o-mini`. Override them in config when the 
 
 `Get Transcript`, `Get Relationship History Text`, and `Get Provider Summary` are for designers inspecting state. `Get Provider Summary` says whether a key is set. It does not print the key.
 
-## Enabling the module
+## Editor tab
 
-The Unreal 5.5 toolchain is not available in the environment that added this module, so `WanaWorks.uplugin` was left unchanged. A module listed there is compiled with the rest of the plugin. An untested compile error would break the existing build.
+`WanaWorksMemoryEditor` is a separate editor module. Shipping builds do not load it. Window > Tools, or Tools > WanaWorks Memory, opens a dockable tab:
 
-After a local compile succeeds, add this object to the `Modules` array in `Plugins/WanaWorks/WanaWorks.uplugin`:
+- **Timeline** for the selected character and player: turns and salient memories in time order, with timestamp, importance (memories only), and source (Player or AI).
+- **Relationships:** character nodes on the left, player nodes on the right, edges tinted and thickened from trust (cyan), affinity (gold), fear (violet), and respect (ivory). The selected edge lists score history.
+- **State:** WIT, WAY, WAI, and WAMI JSON for the selected character.
+
+Colors are sRGB hex values converted with `FLinearColor::FromSRGBColor`. Brushes live in this module only, so they do not collide with the Midnight theme work on `review/midnight-core-ui`.
+
+The tab reads `Saved/WanaWorks/Memory/wana_memory.db` through a query-only SQLite connection. It does not create the file. Live updates use the subsystem delegate, with a PIE poll as a fallback.
+
+## Enabling the modules
+
+The Unreal 5.5 toolchain is not available in the environment that added these modules, so `WanaWorks.uplugin` was left unchanged. A module listed there is compiled with the rest of the plugin. An untested compile error would break the existing build.
+
+After a local compile succeeds, add these objects to the `Modules` array in `Plugins/WanaWorks/WanaWorks.uplugin`:
 
 ```json
 {
   "Name": "WanaWorksMemory",
   "Type": "Runtime",
   "LoadingPhase": "Default"
+},
+{
+  "Name": "WanaWorksMemoryEditor",
+  "Type": "Editor",
+  "LoadingPhase": "Default"
 }
 ```
 
-No `.uproject` change is required. The engine `HTTP` module is linked by the build file. The engine SQLiteCore / SQLiteSupport plugins are not used. SQLite 3.53.4 is vendored as `ThirdParty/sqlite/sqlite3.c.inc` (public domain, SHA3-256 `67f423e9ebbbdc473cbc4772c872ee6b89f31fde4ed0279a5c25d5f65c043a16`). Its symbols are hidden on GCC/Clang so they are less likely to collide with SQLiteCore if that plugin is also loaded.
+The editor entry is `Type: Editor`, so a shipping game target does not compile the tab. No `.uproject` change is required. The engine `HTTP` module is linked by the runtime build file. The engine SQLiteCore / SQLiteSupport plugins are not used. SQLite 3.53.4 is vendored as `ThirdParty/sqlite/sqlite3.c.inc` (public domain, SHA3-256 `67f423e9ebbbdc473cbc4772c872ee6b89f31fde4ed0279a5c25d5f65c043a16`). Its symbols are hidden on GCC/Clang so they are less likely to collide with SQLiteCore if that plugin is also loaded.
 
 ## Tests
 
@@ -129,27 +150,30 @@ Core logic (store, migrations, retrieval, prompt budget, provider JSON, secret h
 make -C Plugins/WanaWorks/Source/WanaWorksMemory/Tests test
 ```
 
-That command uses `g++ -std=c++17 -Wall -Wextra -Werror -fno-exceptions -fno-rtti`, which is close to an Unreal runtime TU. Last run: **182 passed, 0 failed**.
+That command uses `g++ -std=c++17 -Wall -Wextra -Werror -fno-exceptions -fno-rtti`, which is close to an Unreal runtime TU. It includes `RunMemoryRoundtripScenario`: write memory, relationship scores, and WIT/WAY/WAI/WAMI, reopen the file, check retrieval and prompt injection, then swap a mock Grok provider for a mock OpenAI provider.
+
+The same function is the UE Automation test `WanaWorks.Memory.Roundtrip` (`Private/WanaMemoryAutomationTest.cpp`). Unreal was not available here, so that Automation entry was not executed. The standalone binary was. Last run: roundtrip `failed 0`, then `wana memory tests: 183 passed, 0 failed`.
 
 Not compiled and not run here:
 
-- Unreal Build Tool, the HTTP adapter, the game-instance subsystem, and the legacy component adapter
+- Unreal Build Tool, the HTTP adapter, the game-instance subsystem, the legacy component adapter, and the editor tab
 - A live call to api.x.ai or api.openai.com
 
 ## Layout
 
 ```text
-WanaWorksMemory.Build.cs          Unreal module rules. Not loaded until the uplugin entry exists.
+WanaWorksMemory.Build.cs          Runtime module. Not loaded until the uplugin entry exists.
+WanaWorksMemoryEditor/            Editor-only tab. Not loaded until its own uplugin entry exists.
 Portable/                         Standard C++. No Engine headers. This is what the tests compile.
 ThirdParty/sqlite/                SQLite amalgamation.
-Public/ Private/                  Unreal subsystem, HTTP provider, legacy adapter.
+Public/ Private/                  Unreal subsystem, HTTP provider, legacy adapter, query view.
 Config/provider.example.json      Provider selection only. No keys.
 Tests/                            Standalone runner.
 ```
 
 ## Risks
 
-- The Unreal sources have not been compiled. Likely follow-ups on a real 5.5 build are `MakeShared` template arguments, `SetTimeout`, or a reflected property name on the legacy adapter. None of that is in the current plugin build, because the module is unregistered.
+- The Unreal sources have not been compiled, including the editor tab. Likely follow-ups on a real 5.5 build are `MakeShared` template arguments, `SetTimeout`, `FTSTicker` delegate shape, `FSlateRoundedBoxBrush`, or a reflected property name on the legacy adapter. None of that is in the current plugin build, because neither module is registered.
 - The legacy load path writes private `UPROPERTY` arrays by name (`MemoryBank`, `Memories`, `RelationshipProfiles`). If those names change, load leaves the component alone and says so in the report.
 - Retrieved text is marked as data in the system prompt. That is not a guarantee against prompt injection.
 - The phrase heuristic is coarse and capped at ±0.08. An explicit model delta of zero suppresses it.

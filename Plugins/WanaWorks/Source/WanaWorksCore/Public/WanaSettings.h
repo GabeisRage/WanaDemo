@@ -18,8 +18,13 @@ public:
     UPROPERTY(config, EditAnywhere, Category="Sandbox")
     bool bEnableSandboxMode = true;
 
-    UPROPERTY(config, EditAnywhere, Category="AI")
+    /** Not saved. config properties on this class are written to Config/DefaultEditor.ini,
+        which is shared and can be committed. Read WANA_OPENAI_API_KEY or OPENAI_API_KEY
+        through GetOpenAIApiKey(). The memory module does not read this field. */
+    UPROPERTY(Transient)
     FString OpenAIApiKey = TEXT("");
+
+    static FString GetOpenAIApiKey();
 
     virtual FName GetCategoryName() const override { return FName("WanaWorks"); }
 };

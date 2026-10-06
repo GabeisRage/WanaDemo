@@ -518,6 +518,50 @@ Status MemoryStore::Open(const std::string& InPath)
     return Status::Ok();
 }
 
+Status MemoryStore::OpenView(const std::string& InPath)
+{
+    std::lock_guard<std::mutex> Lock(ImplPtr->Mutex);
+    if (ImplPtr->Db)
+    {
+        return Status::Fail("memory store is already open");
+    }
+    if (InPath.empty() || InPath == ":memory:")
+    {
+        return Status::Fail("a database file is required");
+    }
+
+    sqlite3* Db = nullptr;
+    const int Rc = sqlite3_open_v2(InPath.c_str(), &Db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nullptr);
+    if (Rc != SQLITE_OK)
+    {
+        const std::string Message = Db ? sqlite3_errmsg(Db) : "could not open sqlite";
+        if (Db)
+        {
+            sqlite3_close(Db);
+        }
+        return Status::Fail(Message);
+    }
+    sqlite3_busy_timeout(Db, 3000);
+    if (Status Locked = Exec(Db, "PRAGMA query_only=ON;"); !Locked.bOk)
+    {
+        sqlite3_close(Db);
+        return Locked;
+    }
+    ImplPtr->Db = Db;
+    ImplPtr->Path = InPath;
+    SqlStmt VersionStmt;
+    Status Prepared = VersionStmt.Prepare(Db, "PRAGMA user_version;");
+    if (Prepared.bOk)
+    {
+        Status StepStatus = Status::Ok();
+        if (VersionStmt.Step(StepStatus) == SQLITE_ROW)
+        {
+            ImplPtr->SchemaVersion = VersionStmt.ColumnInt(0);
+        }
+    }
+    return Status::Ok();
+}
+
 void MemoryStore::Close()
 {
     if (!ImplPtr)
@@ -1047,6 +1091,72 @@ Status MemoryStore::AddMemory(const SalientMemory& InMemory, int64_t& OutId)
     }
     OutId = static_cast<int64_t>(sqlite3_last_insert_rowid(ImplPtr->Db));
     return Status::Ok();
+}
+
+Status MemoryStore::ListMemories(const std::string& CharacterId, const std::string& PlayerId, int Limit, std::vector<SalientMemory>& OutMemories)
+{
+    std::lock_guard<std::mutex> Lock(ImplPtr->Mutex);
+    OutMemories.clear();
+    if (!ImplPtr->Db)
+    {
+        return Status::Fail("memory store is not open");
+    }
+    if (Status Pair = ValidatePair(CharacterId, PlayerId); !Pair.bOk)
+    {
+        return Pair;
+    }
+    if (Limit < 1)
+    {
+        Limit = 1;
+    }
+    if (Limit > 500)
+    {
+        Limit = 500;
+    }
+    static const char* kChronological =
+        "SELECT id, character_id, player_id, content, keywords, importance, embedding, embedding_dim, created_at, last_used_at, source "
+        "FROM salient_memories WHERE character_id = ? AND player_id = ? ORDER BY created_at ASC, id ASC LIMIT ?;";
+    return CollectMemories(ImplPtr->Db, kChronological, CharacterId, PlayerId, Limit, OutMemories);
+}
+
+Status MemoryStore::ListRelationships(std::vector<RelationshipRecord>& OutRecords)
+{
+    std::lock_guard<std::mutex> Lock(ImplPtr->Mutex);
+    OutRecords.clear();
+    if (!ImplPtr->Db)
+    {
+        return Status::Fail("memory store is not open");
+    }
+    SqlStmt Stmt;
+    Status Prepared = Stmt.Prepare(ImplPtr->Db,
+        "SELECT character_id, player_id, trust, affinity, fear, respect, updated_at "
+        "FROM relationship_scores ORDER BY character_id, player_id LIMIT 400;");
+    if (!Prepared.bOk)
+    {
+        return Prepared;
+    }
+    Status StepStatus = Status::Ok();
+    while (true)
+    {
+        const int Rc = Stmt.Step(StepStatus);
+        if (Rc == SQLITE_DONE)
+        {
+            return Status::Ok();
+        }
+        if (Rc != SQLITE_ROW)
+        {
+            return StepStatus;
+        }
+        RelationshipRecord Row;
+        Row.CharacterId = Stmt.ColumnText(0);
+        Row.PlayerId = Stmt.ColumnText(1);
+        Row.Scores.Trust = Stmt.ColumnDouble(2);
+        Row.Scores.Affinity = Stmt.ColumnDouble(3);
+        Row.Scores.Fear = Stmt.ColumnDouble(4);
+        Row.Scores.Respect = Stmt.ColumnDouble(5);
+        Row.UpdatedAt = Stmt.ColumnText(6);
+        OutRecords.push_back(std::move(Row));
+    }
 }
 
 Status MemoryStore::ListMemoryCandidates(const std::string& CharacterId, const std::string& PlayerId, int Limit, std::vector<SalientMemory>& OutMemories)

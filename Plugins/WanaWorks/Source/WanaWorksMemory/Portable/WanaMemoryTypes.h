@@ -51,6 +51,14 @@ struct RelationshipEvent
     std::string CreatedAt;
 };
 
+struct RelationshipRecord
+{
+    std::string CharacterId;
+    std::string PlayerId;
+    RelationshipScores Scores;
+    std::string UpdatedAt;
+};
+
 struct Turn
 {
     int64_t Id = 0;

@@ -30,6 +30,19 @@ void Finish(ResultCallback<TalkResult>& Done, TalkResult Result)
     }
 }
 
+void NotifyWrite(const TalkRequest& Request, const std::string& Kind)
+{
+    if (!Request.WriteListener)
+    {
+        return;
+    }
+    MemoryWriteNotice Notice;
+    Notice.CharacterId = Request.CharacterId;
+    Notice.PlayerId = Request.PlayerId;
+    Notice.Kind = Kind;
+    Request.WriteListener->OnMemoryWrite(Notice);
+}
+
 } // namespace
 
 void TalkAsync(
@@ -140,6 +153,7 @@ void TalkAsync(
         Finish(Done, std::move(Early));
         return;
     }
+    NotifyWrite(Request, "turn");
 
     LLMRequest LlmRequest;
     LlmRequest.Model = Request.Model;
@@ -187,6 +201,7 @@ void TalkAsync(
                 Finish(Done, std::move(Result));
                 return;
             }
+            NotifyWrite(Request, "turn");
 
             SalientMemory Memory;
             Memory.CharacterId = Request.CharacterId;
@@ -215,6 +230,7 @@ void TalkAsync(
             if (Status Stored = Store->AddMemory(Memory, MemoryId); Stored.bOk)
             {
                 Result.bMemoryWritten = true;
+                NotifyWrite(Request, "memory");
             }
             else
             {
@@ -244,6 +260,10 @@ void TalkAsync(
             {
                 Result.Scores = Updated;
                 Result.bRelationshipChanged = bChanged;
+                if (bChanged)
+                {
+                    NotifyWrite(Request, "relationship");
+                }
             }
             else if (Result.Warning.empty())
             {
