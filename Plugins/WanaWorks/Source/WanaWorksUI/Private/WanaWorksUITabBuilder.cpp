@@ -13,7 +13,6 @@
 #include "GameFramework/Actor.h"
 #include "PreviewScene.h"
 #include "SEditorViewport.h"
-#include "Styling/CoreStyle.h"
 #include "WanaWorksCommandRegistry.h"
 #include "WanaWorksUIStyle.h"
 #include "Widgets/Images/SImage.h"
@@ -121,6 +120,7 @@ bool IsLiveWorkspaceLabel(const FString& WorkspaceLabel)
 TSharedRef<SWidget> MakeStudioDivider(float Height = 1.0f, const FLinearColor& DividerColor = StudioDividerColor)
 {
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::FlatTintBrush())
         .Padding(0.0f)
         .BorderBackgroundColor(DividerColor)
         [
@@ -143,6 +143,7 @@ TSharedRef<SWidget> MakeStudioPill(
 TSharedRef<SWidget> MakeDynamicWorkspacePill(TFunction<FString(void)> GetSelectedWorkspaceLabel)
 {
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(FMargin(12.0f, 6.0f))
         .BorderBackgroundColor_Lambda([GetSelectedWorkspaceLabel]()
         {
@@ -151,7 +152,7 @@ TSharedRef<SWidget> MakeDynamicWorkspacePill(TFunction<FString(void)> GetSelecte
         })
         [
             SNew(STextBlock)
-            .ColorAndOpacity(FLinearColor(0.95f, 0.97f, 1.0f, 1.0f))
+            .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
             .Font(MakeStudioFont("Bold", 8))
             .ShadowColorAndOpacity(StudioShadowColor)
             .ShadowOffset(FVector2D(0.0f, 1.0f))
@@ -223,6 +224,7 @@ TSharedRef<SWidget> BuildStudioSummaryRowsWidget(
         .AutoHeight()
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(FMargin(14.0f, 12.0f))
             .BorderBackgroundColor(StudioGlassSurfaceColor.CopyWithNewOpacity(0.32f))
             [
@@ -913,10 +915,12 @@ public:
         ChildSlot
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(0.0f)
             .BorderBackgroundColor(WorkspaceAccentColor.CopyWithNewOpacity(0.22f))
             [
                 SNew(SBorder)
+                .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                 .Padding(22.0f)
                 .BorderBackgroundColor(PreviewPanelColor.CopyWithNewOpacity(0.998f))
                 [
@@ -962,11 +966,12 @@ public:
                         .Padding(12.0f, 0.0f, 12.0f, 0.0f)
                         [
                             SNew(SBorder)
+                            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                             .Padding(FMargin(12.0f, 6.0f))
                             .BorderBackgroundColor(WorkspaceAccentColor.CopyWithNewOpacity(0.24f))
                             [
                                 SNew(STextBlock)
-                                .ColorAndOpacity(FLinearColor(0.95f, 0.92f, 1.0f, 1.0f))
+                                .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
                                 .Font(MakeStudioFont("Bold", 8))
                                 .Text_Lambda([this]()
                                 {
@@ -995,7 +1000,7 @@ public:
                             MakeStudioPill(
                                 LOCTEXT("WanaWorksSandboxPreviewFocusButton", "Focus Subject"),
                                 WorkspaceAccentColor.CopyWithNewOpacity(0.15f),
-                                FLinearColor(0.80f, 0.89f, 1.0f, 1.0f),
+                                WanaWorksUIStyle::Tokens().TextSecondary,
                                 8,
                                 FMargin(14.0f, 7.0f))
                             ]
@@ -1110,6 +1115,7 @@ private:
             })
             [
                 SNew(SBorder)
+                .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                 .Padding(FMargin(0.0f))
                 .BorderBackgroundColor_Lambda([this, ViewLabel]()
                 {
@@ -1125,6 +1131,7 @@ private:
                     .MinDesiredWidth(78.0f)
                     [
                         SNew(SBorder)
+                        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                         .Padding(FMargin(17.0f, 9.0f))
                         .BorderBackgroundColor_Lambda([this, ViewLabel]()
                         {
@@ -1133,7 +1140,7 @@ private:
                                 && GetSelectedPreviewViewLabel().Equals(ViewLabel, ESearchCase::IgnoreCase);
                             return bIsActive
                                 ? AccentColor.CopyWithNewOpacity(0.18f)
-                                : FLinearColor(0.012f, 0.020f, 0.052f, 0.46f);
+                                : WanaWorksUIStyle::Tokens().BackgroundDeep.CopyWithNewOpacity(0.46f);
                         })
                         [
                             SNew(STextBlock)
@@ -1143,7 +1150,7 @@ private:
                                 const bool bIsActive = GetSelectedPreviewViewLabel
                                     && GetSelectedPreviewViewLabel().Equals(ViewLabel, ESearchCase::IgnoreCase);
                                 return bIsActive
-                                    ? FLinearColor(0.98f, 0.95f, 1.0f, 1.0f)
+                                    ? WanaWorksUIStyle::Tokens().TextPrimary
                                     : SecondaryTextColor.CopyWithNewOpacity(0.88f);
                             })
                             .Font(MakeStudioFont("Bold", 9))
@@ -1238,8 +1245,9 @@ private:
 
             const TSharedRef<SWidget> BottomOverlay =
                 SNew(SBorder)
+                .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                 .Padding(FMargin(20.0f, 15.0f))
-                .BorderBackgroundColor(FLinearColor(0.002f, 0.007f, 0.024f, 0.90f))
+                .BorderBackgroundColor(WanaWorksUIStyle::Tokens().BackgroundDeep.CopyWithNewOpacity(0.90f))
                 [
                     SNew(SHorizontalBox)
                     + SHorizontalBox::Slot()
@@ -1318,6 +1326,7 @@ private:
 
             const TSharedRef<SWidget> EmptyStageContent =
                 SNew(SBorder)
+                .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                 .Padding(46.0f)
                 .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.095f))
                 [
@@ -1377,10 +1386,12 @@ private:
             const FLinearColor SummaryAccentColor = GetWorkspaceAccentColor(GetSelectedWorkspaceLabel ? GetSelectedWorkspaceLabel() : FString(TEXT("AI")));
             SummaryBox->SetContent(
                 SNew(SBorder)
+                .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                 .Padding(0.0f)
                 .BorderBackgroundColor(SummaryAccentColor.CopyWithNewOpacity(0.075f))
                 [
                     SNew(SBorder)
+                    .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                     .Padding(14.0f)
                     .BorderBackgroundColor(StudioSoftSurfaceColor.CopyWithNewOpacity(0.78f))
                     [
@@ -1454,25 +1465,25 @@ FLinearColor GetStatusBadgeColor(const FString& StatusLabel)
 
     if (NormalizedStatus == TEXT("READY"))
     {
-        return FLinearColor(0.22f, 0.66f, 0.42f, 0.94f);
+        return WanaWorksUIStyle::Tokens().Emerald.CopyWithNewOpacity(0.94f);
     }
 
     if (NormalizedStatus == TEXT("LIVE"))
     {
-        return FLinearColor(0.16f, 0.62f, 0.78f, 0.94f);
+        return WanaWorksUIStyle::Tokens().Cyan.CopyWithNewOpacity(0.94f);
     }
 
     if (NormalizedStatus == TEXT("SAFE"))
     {
-        return FLinearColor(0.14f, 0.52f, 0.58f, 0.94f);
+        return WanaWorksUIStyle::Tokens().Emerald.CopyWithNewOpacity(0.94f);
     }
 
     if (NormalizedStatus == TEXT("WARNING"))
     {
-        return FLinearColor(0.80f, 0.42f, 0.18f, 0.94f);
+        return WanaWorksUIStyle::Tokens().Amber.CopyWithNewOpacity(0.94f);
     }
 
-    return FLinearColor(0.32f, 0.42f, 0.76f, 0.94f);
+    return WanaWorksUIStyle::Tokens().Violet.CopyWithNewOpacity(0.94f);
 }
 
 TSharedRef<SWidget> MakeStatusBadge(const FText& StatusText)
@@ -1480,10 +1491,12 @@ TSharedRef<SWidget> MakeStatusBadge(const FText& StatusText)
     const FString NormalizedStatus = NormalizeStatusLabel(StatusText.ToString());
 
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(1.0f)
         .BorderBackgroundColor(GetStatusBadgeColor(NormalizedStatus).CopyWithNewOpacity(0.44f))
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(FMargin(10.0f, 4.0f))
             .BorderBackgroundColor(GetStatusBadgeColor(NormalizedStatus).CopyWithNewOpacity(0.26f))
             [
@@ -1515,10 +1528,12 @@ TSharedRef<SWidget> MakeReadOnlyInfoPanel(const FText& Title, TFunction<FText(vo
         .AutoHeight()
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(1.0f)
             .BorderBackgroundColor(StudioOutlineColor.CopyWithNewOpacity(0.36f))
             [
                 SNew(SBorder)
+                .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                 .Padding(12.0f)
                 .BorderBackgroundColor(InfoPanelColor)
                 [
@@ -1543,13 +1558,9 @@ TSharedRef<SWidget> MakeFixedWidthButton(const FText& ButtonText, TFunction<void
         .WidthOverride(WidthOverride)
         .HeightOverride(38.0f)
         [
-            SNew(SBorder)
-            .Padding(1.0f)
-            .BorderBackgroundColor(StudioOutlineColor.CopyWithNewOpacity(0.42f))
-            [
-                SNew(SButton)
+            SNew(SButton)
                 .ButtonStyle(&WanaWorksUIStyle::SecondaryButtonStyle())
-                .ContentPadding(FMargin(0.0f))
+                .ContentPadding(FMargin(14.0f, 8.0f))
                 .HAlign(HAlign_Center)
                 .VAlign(VAlign_Center)
                 .OnClicked_Lambda([OnPressed]()
@@ -1562,19 +1573,13 @@ TSharedRef<SWidget> MakeFixedWidthButton(const FText& ButtonText, TFunction<void
                     return FReply::Handled();
                 })
                 [
-                    SNew(SBorder)
-                    .Padding(FMargin(14.0f, 10.0f))
-                    .BorderBackgroundColor(StudioMutedButtonColor)
-                    [
-                        SNew(STextBlock)
-                        .Font(MakeStudioFont("Bold", 9))
-                        .ColorAndOpacity(FLinearColor(0.95f, 0.97f, 1.0f, 1.0f))
-                        .ShadowColorAndOpacity(StudioShadowColor)
-                        .ShadowOffset(FVector2D(0.0f, 1.0f))
-                        .Text(ButtonText)
-                    ]
+                    SNew(STextBlock)
+                    .Font(MakeStudioFont("Bold", 9))
+                    .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
+                    .ShadowColorAndOpacity(StudioShadowColor)
+                    .ShadowOffset(FVector2D(0.0f, 1.0f))
+                    .Text(ButtonText)
                 ]
-            ]
         ];
 }
 
@@ -1605,10 +1610,12 @@ TSharedRef<SWidget> MakeStringPickerControl(
             .WidthOverride(WidthOverride)
             [
                 SNew(SBorder)
+                .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                 .Padding(1.0f)
                 .BorderBackgroundColor(StudioOutlineColor.CopyWithNewOpacity(0.44f))
                 [
                     SNew(SBorder)
+                    .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                     .Padding(FMargin(14.0f, 8.0f))
                     .BorderBackgroundColor(StudioMutedButtonColor)
                     [
@@ -1698,10 +1705,12 @@ TSharedRef<SWidget> MakeProjectBlueprintVisionControl(const FWanaWorksUITabBuild
         .Padding(0.0f, 0.0f, 0.0f, 12.0f)
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(1.0f)
             .BorderBackgroundColor(GetWorkspaceAccentColor(TEXT("Project Blueprint")).CopyWithNewOpacity(0.42f))
             [
                 SNew(SBorder)
+                .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                 .Padding(10.0f)
                 .BorderBackgroundColor(StudioMutedButtonColor)
                 [
@@ -1835,10 +1844,12 @@ TSharedRef<SWidget> MakeSandboxPreviewSection(const FWanaWorksUITabBuilderArgs& 
 TSharedRef<SWidget> MakeCharacterIntelligenceControlCard(const FWanaWorksUITabBuilderArgs& Args)
 {
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(1.0f)
         .BorderBackgroundColor(StudioAccentColor.CopyWithNewOpacity(0.28f))
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(14.0f)
             .BorderBackgroundColor(StudioPanelElevatedColor)
             [
@@ -1932,6 +1943,7 @@ TSharedRef<SWidget> MakeCharacterIntelligenceControlCard(const FWanaWorksUITabBu
                 .AutoHeight()
                 [
                     SNew(SBorder)
+                    .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                     .Padding(FMargin(12.0f, 10.0f))
                     .BorderBackgroundColor(StudioSoftSurfaceColor)
                     [
@@ -2106,15 +2118,18 @@ TSharedRef<SWidget> MakeCollapsibleWorkspaceDetailsSection(
     const TSharedRef<SWidget>& Content)
 {
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(1.0f)
         .BorderBackgroundColor(StudioOutlineColor)
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(14.0f)
-            .BorderBackgroundColor(FLinearColor(0.045f, 0.06f, 0.10f, 0.92f))
+            .BorderBackgroundColor(WanaWorksUIStyle::Tokens().Panel.CopyWithNewOpacity(0.92f))
             [
             SNew(SExpandableArea)
             .InitiallyCollapsed(true)
+            .Style(&WanaWorksUIStyle::ExpandableAreaStyle())
             .BorderImage(WanaWorksUIStyle::GetBrush(WanaWorksUIStyle::PanelBrushName()))
             .BodyBorderImage(WanaWorksUIStyle::GetBrush(WanaWorksUIStyle::WorkspaceBrushName()))
                 .HeaderPadding(FMargin(0.0f))
@@ -2125,7 +2140,7 @@ TSharedRef<SWidget> MakeCollapsibleWorkspaceDetailsSection(
                     .AutoHeight()
                     [
                         SNew(STextBlock)
-                        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+                        .Font(MakeStudioFont("Bold", 8))
                         .ColorAndOpacity(TertiaryTextColor)
                         .Text(Title)
                     ]
@@ -2135,7 +2150,7 @@ TSharedRef<SWidget> MakeCollapsibleWorkspaceDetailsSection(
                     [
                         SNew(STextBlock)
                         .AutoWrapText(true)
-                        .Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+                        .Font(MakeStudioFont("Regular", 9))
                         .ColorAndOpacity(SecondaryTextColor)
                         .Text(Description)
                     ]
@@ -2170,7 +2185,8 @@ TSharedRef<SWidget> MakeWorkflowWorkspaceSection(
         SectionHeaderFont,
         Title,
         SNew(SSplitter)
-        .PhysicalSplitterHandleSize(2.0f)
+        .Style(&WanaWorksUIStyle::SplitterStyle())
+        .PhysicalSplitterHandleSize(4.0f)
         + SSplitter::Slot()
         .Value(0.25f)
         [
@@ -2246,6 +2262,8 @@ TSharedRef<SWidget> MakeCharacterEnhancementSection(const FWanaWorksUITabBuilder
         .Padding(0.0f, 0.0f, 0.0f, 6.0f)
         [
             SNew(STextBlock)
+            .Font(MakeStudioFont("Bold", 8))
+            .ColorAndOpacity(TertiaryTextColor)
             .Text(LOCTEXT("WanaWorksCharacterEnhancementWorkflowLabel", "Setup Workflow"))
         ]
         + SVerticalBox::Slot()
@@ -2264,6 +2282,8 @@ TSharedRef<SWidget> MakeCharacterEnhancementSection(const FWanaWorksUITabBuilder
                 .OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
                 {
                     return SNew(STextBlock)
+                        .Font(MakeStudioFont("Regular", 9))
+                        .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
                         .Text(Item.IsValid() ? FText::FromString(*Item) : FText::GetEmpty());
                 })
                 .OnSelectionChanged_Lambda([OnEnhancementWorkflowOptionSelected = Args.OnEnhancementWorkflowOptionSelected](TSharedPtr<FString> SelectedItem, ESelectInfo::Type)
@@ -2275,6 +2295,8 @@ TSharedRef<SWidget> MakeCharacterEnhancementSection(const FWanaWorksUITabBuilder
                 })
                 [
                     SNew(STextBlock)
+                    .Font(MakeStudioFont("Bold", 10))
+                    .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
                     .Text_Lambda([GetSelectedEnhancementWorkflowOption = Args.GetSelectedEnhancementWorkflowOption]()
                     {
                         const TSharedPtr<FString> SelectedOption = GetSelectedEnhancementWorkflowOption ? GetSelectedEnhancementWorkflowOption() : nullptr;
@@ -2288,6 +2310,8 @@ TSharedRef<SWidget> MakeCharacterEnhancementSection(const FWanaWorksUITabBuilder
         .Padding(0.0f, 0.0f, 0.0f, 6.0f)
         [
             SNew(STextBlock)
+            .Font(MakeStudioFont("Bold", 8))
+            .ColorAndOpacity(TertiaryTextColor)
             .Text(LOCTEXT("WanaWorksCharacterEnhancementPresetLabel", "Starter Preset"))
         ]
         + SVerticalBox::Slot()
@@ -2305,6 +2329,8 @@ TSharedRef<SWidget> MakeCharacterEnhancementSection(const FWanaWorksUITabBuilder
                 .OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
                 {
                     return SNew(STextBlock)
+                        .Font(MakeStudioFont("Regular", 9))
+                        .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
                         .Text(Item.IsValid() ? FText::FromString(*Item) : FText::GetEmpty());
                 })
                 .OnSelectionChanged_Lambda([OnEnhancementPresetOptionSelected = Args.OnEnhancementPresetOptionSelected](TSharedPtr<FString> SelectedItem, ESelectInfo::Type)
@@ -2316,6 +2342,8 @@ TSharedRef<SWidget> MakeCharacterEnhancementSection(const FWanaWorksUITabBuilder
                 })
                 [
                     SNew(STextBlock)
+                    .Font(MakeStudioFont("Bold", 10))
+                    .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
                     .Text_Lambda([GetSelectedEnhancementPresetOption = Args.GetSelectedEnhancementPresetOption]()
                     {
                         const TSharedPtr<FString> SelectedOption = GetSelectedEnhancementPresetOption ? GetSelectedEnhancementPresetOption() : nullptr;
@@ -2519,6 +2547,8 @@ TSharedRef<SWidget> MakePresetsSection(const FWanaWorksUITabBuilderArgs& Args, c
         .Padding(0.0f, 0.0f, 0.0f, 6.0f)
         [
             SNew(STextBlock)
+            .Font(MakeStudioFont("Bold", 8))
+            .ColorAndOpacity(TertiaryTextColor)
             .Text(LOCTEXT("WanaWorksPresetDropdownLabel", "Preset"))
         ]
         + SVerticalBox::Slot()
@@ -2536,6 +2566,8 @@ TSharedRef<SWidget> MakePresetsSection(const FWanaWorksUITabBuilderArgs& Args, c
                 .OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
                 {
                     return SNew(STextBlock)
+                        .Font(MakeStudioFont("Regular", 9))
+                        .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
                         .Text(Item.IsValid() ? FText::FromString(*Item) : FText::GetEmpty());
                 })
                 .OnSelectionChanged_Lambda([OnWorkflowPresetOptionSelected = Args.OnWorkflowPresetOptionSelected](TSharedPtr<FString> SelectedItem, ESelectInfo::Type)
@@ -2547,6 +2579,8 @@ TSharedRef<SWidget> MakePresetsSection(const FWanaWorksUITabBuilderArgs& Args, c
                 })
                 [
                     SNew(STextBlock)
+                    .Font(MakeStudioFont("Bold", 10))
+                    .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
                     .Text_Lambda([GetSelectedWorkflowPresetOption = Args.GetSelectedWorkflowPresetOption]()
                     {
                         const TSharedPtr<FString> SelectedOption = GetSelectedWorkflowPresetOption ? GetSelectedWorkflowPresetOption() : nullptr;
@@ -2933,10 +2967,12 @@ TSharedRef<SWidget> MakeSection(
     ];
 
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(1.0f)
         .BorderBackgroundColor(StudioOutlineColor.CopyWithNewOpacity(bProminent ? 0.58f : 0.40f))
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(bProminent ? FMargin(20.0f, 18.0f) : FMargin(16.0f, 14.0f))
             .BorderBackgroundColor(bProminent ? StudioPanelRaisedColor : StudioPanelColor)
             [
@@ -2979,10 +3015,14 @@ TSharedRef<SWidget> MakeWaySection(const FWanaWorksUITabBuilderArgs& Args, const
         .Padding(0.0f, 0.0f, 0.0f, 10.0f)
         [
             SNew(SBorder)
+            .BorderBackgroundColor(WanaWorksUIStyle::Tokens().Panel)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(10.0f)
             [
                 SNew(STextBlock)
                 .AutoWrapText(true)
+                .Font(MakeStudioFont("Regular", 9))
+                .ColorAndOpacity(SecondaryTextColor)
                 .Text_Lambda([GetRelationshipSummaryText = Args.GetRelationshipSummaryText]()
                 {
                     return GetRelationshipSummaryText ? GetRelationshipSummaryText() : FText::GetEmpty();
@@ -2998,6 +3038,8 @@ TSharedRef<SWidget> MakeWaySection(const FWanaWorksUITabBuilderArgs& Args, const
             .Padding(0.0f, 0.0f, 0.0f, 6.0f)
             [
                 SNew(STextBlock)
+                .Font(MakeStudioFont("Bold", 8))
+                .ColorAndOpacity(TertiaryTextColor)
                 .Text(LOCTEXT("WanaWorksRelationshipStateLabel", "Relationship State For Target"))
             ]
             + SVerticalBox::Slot()
@@ -3012,6 +3054,8 @@ TSharedRef<SWidget> MakeWaySection(const FWanaWorksUITabBuilderArgs& Args, const
                 .OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
                 {
                     return SNew(STextBlock)
+                        .Font(MakeStudioFont("Regular", 9))
+                        .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
                         .Text(Item.IsValid() ? FText::FromString(*Item) : FText::GetEmpty());
                 })
                 .OnSelectionChanged_Lambda([OnRelationshipStateOptionSelected = Args.OnRelationshipStateOptionSelected](TSharedPtr<FString> SelectedItem, ESelectInfo::Type)
@@ -3023,6 +3067,8 @@ TSharedRef<SWidget> MakeWaySection(const FWanaWorksUITabBuilderArgs& Args, const
                 })
                 [
                     SNew(STextBlock)
+                    .Font(MakeStudioFont("Bold", 10))
+                    .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
                     .Text_Lambda([GetSelectedRelationshipStateOption = Args.GetSelectedRelationshipStateOption]()
                     {
                         const TSharedPtr<FString> SelectedOption = GetSelectedRelationshipStateOption ? GetSelectedRelationshipStateOption() : nullptr;
@@ -3078,10 +3124,14 @@ TSharedRef<SWidget> MakeIdentitySection(const FWanaWorksUITabBuilderArgs& Args, 
         .Padding(0.0f, 0.0f, 0.0f, 10.0f)
         [
             SNew(SBorder)
+            .BorderBackgroundColor(WanaWorksUIStyle::Tokens().Panel)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(10.0f)
             [
                 SNew(STextBlock)
                 .AutoWrapText(true)
+                .Font(MakeStudioFont("Regular", 9))
+                .ColorAndOpacity(SecondaryTextColor)
                 .Text_Lambda([GetIdentitySummaryText = Args.GetIdentitySummaryText]()
                 {
                     return GetIdentitySummaryText ? GetIdentitySummaryText() : FText::GetEmpty();
@@ -3097,6 +3147,8 @@ TSharedRef<SWidget> MakeIdentitySection(const FWanaWorksUITabBuilderArgs& Args, 
             .Padding(0.0f, 0.0f, 0.0f, 6.0f)
             [
                 SNew(STextBlock)
+                .Font(MakeStudioFont("Bold", 8))
+                .ColorAndOpacity(TertiaryTextColor)
                 .Text(LOCTEXT("WanaWorksFactionTagLabel", "Faction Tag"))
             ]
             + SVerticalBox::Slot()
@@ -3105,6 +3157,7 @@ TSharedRef<SWidget> MakeIdentitySection(const FWanaWorksUITabBuilderArgs& Args, 
             [
                 SNew(SEditableTextBox)
                 .Style(&WanaWorksUIStyle::InputTextBoxStyle())
+                .Font(WanaWorksUIStyle::WanaFont("Mono", 10))
                 .HintText(LOCTEXT("WanaWorksFactionTagHint", "Enter faction tag"))
                 .Text_Lambda([GetIdentityFactionTagText = Args.GetIdentityFactionTagText]()
                 {
@@ -3123,6 +3176,8 @@ TSharedRef<SWidget> MakeIdentitySection(const FWanaWorksUITabBuilderArgs& Args, 
             .Padding(0.0f, 0.0f, 0.0f, 6.0f)
             [
                 SNew(STextBlock)
+                .Font(MakeStudioFont("Bold", 8))
+                .ColorAndOpacity(TertiaryTextColor)
                 .Text(LOCTEXT("WanaWorksIdentitySeedLabel", "Default Relationship Seed"))
             ]
             + SVerticalBox::Slot()
@@ -3137,6 +3192,8 @@ TSharedRef<SWidget> MakeIdentitySection(const FWanaWorksUITabBuilderArgs& Args, 
                 .OnGenerateWidget_Lambda([](TSharedPtr<FString> Item)
                 {
                     return SNew(STextBlock)
+                        .Font(MakeStudioFont("Regular", 9))
+                        .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
                         .Text(Item.IsValid() ? FText::FromString(*Item) : FText::GetEmpty());
                 })
                 .OnSelectionChanged_Lambda([OnIdentitySeedStateOptionSelected = Args.OnIdentitySeedStateOptionSelected](TSharedPtr<FString> SelectedItem, ESelectInfo::Type)
@@ -3148,6 +3205,8 @@ TSharedRef<SWidget> MakeIdentitySection(const FWanaWorksUITabBuilderArgs& Args, 
                 })
                 [
                     SNew(STextBlock)
+                    .Font(MakeStudioFont("Bold", 10))
+                    .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
                     .Text_Lambda([GetSelectedIdentitySeedStateOption = Args.GetSelectedIdentitySeedStateOption]()
                     {
                         const TSharedPtr<FString> SelectedOption = GetSelectedIdentitySeedStateOption ? GetSelectedIdentitySeedStateOption() : nullptr;
@@ -3199,11 +3258,13 @@ TSharedRef<SWidget> MakeSubjectPathSection(
     bool bInitiallyCollapsed = true)
 {
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(12.0f)
-        .BorderBackgroundColor(FLinearColor(0.06f, 0.09f, 0.13f, 0.84f))
+        .BorderBackgroundColor(WanaWorksUIStyle::Tokens().Card.CopyWithNewOpacity(0.84f))
         [
             SNew(SExpandableArea)
             .InitiallyCollapsed(bInitiallyCollapsed)
+            .Style(&WanaWorksUIStyle::ExpandableAreaStyle())
             .BorderImage(WanaWorksUIStyle::GetBrush(WanaWorksUIStyle::PanelBrushName()))
             .BodyBorderImage(WanaWorksUIStyle::GetBrush(WanaWorksUIStyle::WorkspaceBrushName()))
             .HeaderPadding(FMargin(0.0f))
@@ -3214,7 +3275,7 @@ TSharedRef<SWidget> MakeSubjectPathSection(
                 .AutoHeight()
                 [
                     SNew(STextBlock)
-                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
+                    .Font(MakeStudioFont("Bold", 12))
                     .Text(Title)
                 ]
                 + SVerticalBox::Slot()
@@ -3223,7 +3284,7 @@ TSharedRef<SWidget> MakeSubjectPathSection(
                 [
                     SNew(STextBlock)
                     .AutoWrapText(true)
-                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+                    .Font(MakeStudioFont("Regular", 9))
                     .ColorAndOpacity(SecondaryTextColor)
                     .Text(Description)
                 ]
@@ -3231,6 +3292,7 @@ TSharedRef<SWidget> MakeSubjectPathSection(
             .BodyContent()
             [
                 SNew(SBorder)
+                .BorderImage(WanaWorksUIStyle::FlatTintBrush())
                 .Padding(FMargin(0.0f, 12.0f, 0.0f, 0.0f))
                 .BorderBackgroundColor(FLinearColor::Transparent)
                 [
@@ -3702,6 +3764,7 @@ TSharedRef<SWidget> MakeAdvancedCommandSection(const FWanaWorksUITabBuilderArgs&
         [
             SNew(SEditableTextBox)
             .Style(&WanaWorksUIStyle::InputTextBoxStyle())
+            .Font(WanaWorksUIStyle::WanaFont("Mono", 10))
             .HintText(LOCTEXT("WanaWorksCommandHint", "Enter command"))
             .Text_Lambda([GetCommandText = Args.GetCommandText]()
             {
@@ -3727,7 +3790,6 @@ TSharedRef<SWidget> MakeAdvancedCommandSection(const FWanaWorksUITabBuilderArgs&
                 .ButtonStyle(&WanaWorksUIStyle::PrimaryButtonStyle())
                 .HAlign(HAlign_Center)
                 .VAlign(VAlign_Center)
-                .Text(LOCTEXT("WanaWorksRunButton", "Run"))
                 .OnClicked_Lambda([OnRunCommand = Args.OnRunCommand]()
                 {
                     if (OnRunCommand)
@@ -3737,6 +3799,12 @@ TSharedRef<SWidget> MakeAdvancedCommandSection(const FWanaWorksUITabBuilderArgs&
 
                     return FReply::Handled();
                 })
+                [
+                    SNew(STextBlock)
+                    .Font(MakeStudioFont("Bold", 9))
+                    .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
+                    .Text(LOCTEXT("WanaWorksRunButton", "Run"))
+                ]
             ]
         ]
         + SHorizontalBox::Slot()
@@ -3750,7 +3818,6 @@ TSharedRef<SWidget> MakeAdvancedCommandSection(const FWanaWorksUITabBuilderArgs&
                 .ButtonStyle(&WanaWorksUIStyle::GhostButtonStyle())
                 .HAlign(HAlign_Center)
                 .VAlign(VAlign_Center)
-                .Text(LOCTEXT("WanaWorksClearLogButton", "Clear Log"))
                 .OnClicked_Lambda([OnClearLog = Args.OnClearLog]()
                 {
                     if (OnClearLog)
@@ -3760,6 +3827,12 @@ TSharedRef<SWidget> MakeAdvancedCommandSection(const FWanaWorksUITabBuilderArgs&
 
                     return FReply::Handled();
                 })
+                [
+                    SNew(STextBlock)
+                    .Font(MakeStudioFont("Bold", 9))
+                    .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
+                    .Text(LOCTEXT("WanaWorksClearLogButton", "Clear Log"))
+                ]
             ]
         ]);
 }
@@ -3770,14 +3843,16 @@ TSharedRef<SWidget> MakeOutputSection(const FWanaWorksUITabBuilderArgs& Args, co
         SectionHeaderFont,
         LOCTEXT("WanaWorksOutputSection", "Logs & Output"),
         SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(10.0f)
-        .BorderBackgroundColor(FLinearColor(0.05f, 0.08f, 0.11f, 0.85f))
+        .BorderBackgroundColor(WanaWorksUIStyle::Tokens().Panel.CopyWithNewOpacity(0.85f))
         [
             SNew(SBox)
             .MinDesiredHeight(180.0f)
             [
             SNew(SMultiLineEditableTextBox)
             .Style(&WanaWorksUIStyle::InputMultilineTextBoxStyle())
+            .Font(WanaWorksUIStyle::WanaFont("Mono", 10))
             .IsReadOnly(true)
                 .Text_Lambda([GetLogText = Args.GetLogText]()
                 {
@@ -3888,7 +3963,7 @@ FLinearColor GetWorkspaceAccentColor(const FString& WorkspaceLabel)
 {
     if (WorkspaceLabel.Equals(TEXT("Project Blueprint"), ESearchCase::IgnoreCase))
     {
-        return FLinearColor(0.91f, 0.37f, 0.48f, 1.0f);
+        return WanaWorksUIStyle::Tokens().Violet;
     }
 
     if (WorkspaceLabel.Equals(TEXT("AI"), ESearchCase::IgnoreCase))
@@ -3903,15 +3978,15 @@ FLinearColor GetWorkspaceAccentColor(const FString& WorkspaceLabel)
 
     if (WorkspaceLabel.Equals(TEXT("Level Design"), ESearchCase::IgnoreCase))
     {
-        return FLinearColor(0.22f, 0.82f, 0.78f, 1.0f);
+        return WanaWorksUIStyle::Tokens().Cyan;
     }
 
     if (WorkspaceLabel.Equals(TEXT("Project Health"), ESearchCase::IgnoreCase))
     {
-        return FLinearColor(0.32f, 0.80f, 0.44f, 1.0f);
+        return WanaWorksUIStyle::Tokens().Emerald;
     }
 
-    return FLinearColor(0.48f, 0.62f, 0.92f, 1.0f);
+    return WanaWorksUIStyle::Tokens().Blue;
 }
 
 bool IsWorkspaceActive(const FWanaWorksUITabBuilderArgs& Args, const FString& WorkspaceLabel)
@@ -3927,10 +4002,12 @@ TSharedRef<SWidget> MakeStudioHeroStage(const FWanaWorksUITabBuilderArgs& Args)
         : TEXT("AI");
 
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(0.0f)
         .BorderBackgroundColor(GetWorkspaceAccentColor(WorkspaceLabel).CopyWithNewOpacity(0.26f))
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(14.0f)
             .BorderBackgroundColor(StudioStageChromeColor)
             [
@@ -3940,6 +4017,7 @@ TSharedRef<SWidget> MakeStudioHeroStage(const FWanaWorksUITabBuilderArgs& Args)
                 .VAlign(VAlign_Fill)
                 [
                     SNew(SBorder)
+                    .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                     .Padding(1.0f)
                     .BorderBackgroundColor(StudioStageWashColor.CopyWithNewOpacity(0.98f))
                     [
@@ -3957,6 +4035,7 @@ TSharedRef<SWidget> MakeStudioHeroStage(const FWanaWorksUITabBuilderArgs& Args)
                 .VAlign(VAlign_Bottom)
                 [
                     SNew(SBorder)
+                    .BorderImage(WanaWorksUIStyle::FlatTintBrush())
                     .Visibility(EVisibility::HitTestInvisible)
                     .Padding(0.0f)
                     .BorderBackgroundColor(CinematicStageRing.CopyWithNewOpacity(0.18f))
@@ -3970,6 +4049,7 @@ TSharedRef<SWidget> MakeStudioHeroStage(const FWanaWorksUITabBuilderArgs& Args)
                 .VAlign(VAlign_Bottom)
                 [
                     SNew(SBorder)
+                    .BorderImage(WanaWorksUIStyle::FlatTintBrush())
                     .Visibility(EVisibility::HitTestInvisible)
                     .Padding(0.0f)
                     .BorderBackgroundColor(CinematicStageRing)
@@ -4070,11 +4150,12 @@ TSharedRef<SWidget> MakeStudioNavigationRail(const FWanaWorksUITabBuilderArgs& A
     const WanaWorksUIStyle::FWanaDesignTokens& DT = WanaWorksUIStyle::Tokens();
 
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(0.0f)
         .BorderBackgroundColor(CinematicBorder)
         [
             SNew(SBorder)
-            .BorderImage(WanaWorksUIStyle::GetBrush(WanaWorksUIStyle::NavigationBrushName()))
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(FMargin(0.0f, 0.0f, 1.0f, 0.0f))
             .BorderBackgroundColor(CinematicShell)
             [
@@ -4084,6 +4165,7 @@ TSharedRef<SWidget> MakeStudioNavigationRail(const FWanaWorksUITabBuilderArgs& A
                 .Padding(0.0f, 0.0f, 0.0f, 0.0f)
                 [
                     SNew(SBorder)
+                    .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                     .Padding(FMargin(20.0f, 24.0f, 20.0f, 16.0f))
                     .BorderBackgroundColor(CinematicShell)
                     [
@@ -4098,6 +4180,7 @@ TSharedRef<SWidget> MakeStudioNavigationRail(const FWanaWorksUITabBuilderArgs& A
                             .Padding(0.0f, 0.0f, 10.0f, 0.0f)
                             [
                                 SNew(SBorder)
+                                .BorderImage(WanaWorksUIStyle::RoundedChipBrush())
                                 .Padding(FMargin(8.0f, 6.0f))
                                 .BorderBackgroundColor(CinematicAccentPurple.CopyWithNewOpacity(0.20f))
                                 [
@@ -4157,6 +4240,7 @@ TSharedRef<SWidget> MakeStudioNavigationRail(const FWanaWorksUITabBuilderArgs& A
                 .Padding(8.0f, 0.0f, 8.0f, 0.0f)
                 [
                     SNew(SScrollBox)
+                    .Style(&WanaWorksUIStyle::ScrollBoxStyle())
                     .ScrollBarStyle(&WanaWorksUIStyle::ScrollBarStyle())
                     + SScrollBox::Slot()
                     [
@@ -4187,6 +4271,7 @@ TSharedRef<SWidget> MakeStudioNavigationRail(const FWanaWorksUITabBuilderArgs& A
                 .AutoHeight()
                 [
                     SNew(SBorder)
+                    .BorderImage(WanaWorksUIStyle::FlatTintBrush())
                     .Padding(0.0f)
                     .BorderBackgroundColor(CinematicBorder)
                     [
@@ -4198,6 +4283,7 @@ TSharedRef<SWidget> MakeStudioNavigationRail(const FWanaWorksUITabBuilderArgs& A
                 .AutoHeight()
                 [
                     SNew(SBorder)
+                    .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                     .Padding(FMargin(16.0f, 14.0f, 16.0f, 14.0f))
                     .BorderBackgroundColor(CinematicSurfaceRaised)
                     [
@@ -4208,6 +4294,7 @@ TSharedRef<SWidget> MakeStudioNavigationRail(const FWanaWorksUITabBuilderArgs& A
                         .Padding(0.0f, 0.0f, 10.0f, 0.0f)
                         [
                             SNew(SBorder)
+                            .BorderImage(WanaWorksUIStyle::RoundedChipBrush())
                             .Padding(FMargin(10.0f, 8.0f))
                             .BorderBackgroundColor(CinematicAccentPurple.CopyWithNewOpacity(0.30f))
                             [
@@ -4298,7 +4385,8 @@ TSharedRef<SWidget> BuildFutureWorkspacePlaceholder(
         .AutoHeight()
         [
             SNew(SSplitter)
-            .PhysicalSplitterHandleSize(2.0f)
+            .Style(&WanaWorksUIStyle::SplitterStyle())
+            .PhysicalSplitterHandleSize(4.0f)
             + SSplitter::Slot()
             .Value(0.28f)
             [
@@ -4325,7 +4413,7 @@ TSharedRef<SWidget> BuildFutureWorkspacePlaceholder(
                     LOCTEXT("WanaWorksStudioFuturePlatformTitle", "Platform Status"),
                     LOCTEXT("WanaWorksStudioFuturePlatformEyebrow", "LIVE SHELL"),
                     Args.GetSavedSubjectProgressText,
-                    FLinearColor(0.19f, 0.46f, 0.74f, 1.0f),
+                    WanaWorksUIStyle::Tokens().Cyan,
                     5,
                     220.0f)
             ]
@@ -4400,7 +4488,7 @@ TSharedRef<SWidget> MakeWorkspaceStageShell(
             MakeStudioPill(
                 ChipLabel,
                 AccentColor.CopyWithNewOpacity(0.15f),
-                FLinearColor(0.95f, 0.97f, 1.0f, 1.0f),
+                WanaWorksUIStyle::Tokens().TextPrimary,
                 8,
                 FMargin(12.0f, 6.0f))
         ];
@@ -4449,7 +4537,8 @@ TSharedRef<SWidget> BuildCharacterIntelligenceWorkspaceBody(const FWanaWorksUITa
         .Padding(0.0f, 0.0f, 0.0f, 12.0f)
         [
             SNew(SSplitter)
-            .PhysicalSplitterHandleSize(2.0f)
+            .Style(&WanaWorksUIStyle::SplitterStyle())
+            .PhysicalSplitterHandleSize(4.0f)
             + SSplitter::Slot()
             .Value(0.20f)
             [
@@ -4491,7 +4580,7 @@ TSharedRef<SWidget> BuildCharacterIntelligenceWorkspaceBody(const FWanaWorksUITa
                             LOCTEXT("WanaWorksStudioAIStackCardTitle", "Detected AI Stack"),
                             LOCTEXT("WanaWorksStudioAIStackCardEyebrow", "CONTROLLER / BT / BLACKBOARD"),
                             Args.GetSubjectStackSummaryText,
-                            FLinearColor(0.18f, 0.60f, 0.67f, 1.0f),
+                            WanaWorksUIStyle::Tokens().Cyan,
                             7,
                             188.0f)
                     ]
@@ -4580,7 +4669,7 @@ TSharedRef<SWidget> BuildCharacterIntelligenceWorkspaceBody(const FWanaWorksUITa
                             LOCTEXT("WanaWorksStudioAIEnvironmentStatusTitle", "Environment Awareness"),
                             LOCTEXT("WanaWorksStudioAIEnvironmentStatusEyebrow", "WIT SEMANTIC SUPPORT"),
                         Args.GetWITEnvironmentReadinessText,
-                        FLinearColor(0.24f, 0.74f, 0.78f, 1.0f),
+                        WanaWorksUIStyle::Tokens().Cyan,
                         8,
                         210.0f)
                 ]
@@ -4609,7 +4698,8 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
         .Padding(0.0f, 0.0f, 0.0f, 12.0f)
         [
             SNew(SSplitter)
-            .PhysicalSplitterHandleSize(2.0f)
+            .Style(&WanaWorksUIStyle::SplitterStyle())
+            .PhysicalSplitterHandleSize(4.0f)
             + SSplitter::Slot()
             .Value(0.20f)
             [
@@ -4672,7 +4762,6 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                                 .HAlign(HAlign_Center)
                                 .VAlign(VAlign_Center)
                                 .ToolTipText(LOCTEXT("WanaWorksStudioRetargetButtonTooltip", "Auto-characterize both skeletons and auto-map retarget chains. Original meshes are never modified."))
-                                .Text(LOCTEXT("WanaWorksStudioRetargetButton", "Auto-Retarget"))
                                 .OnClicked_Lambda([OnExecuteAutoRetarget = Args.OnExecuteAutoRetarget]()
                                 {
                                     if (OnExecuteAutoRetarget)
@@ -4682,6 +4771,12 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
 
                                     return FReply::Handled();
                                 })
+                                [
+                                    SNew(STextBlock)
+                                    .Font(MakeStudioFont("Bold", 9))
+                                    .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
+                                    .Text(LOCTEXT("WanaWorksStudioRetargetButton", "Auto-Retarget"))
+                                ]
                             ]
                         ]
                     ]
@@ -4705,7 +4800,7 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                             LOCTEXT("WanaWorksStudioCharacterStackTitle", "Character Asset Stack"),
                             LOCTEXT("WanaWorksStudioCharacterStackEyebrow", "MESH / SKELETON / COMPONENTS"),
                             Args.GetSubjectStackSummaryText,
-                            FLinearColor(0.18f, 0.56f, 0.72f, 1.0f),
+                            WanaWorksUIStyle::Tokens().Cyan,
                             7,
                             188.0f)
                     ]
@@ -4787,7 +4882,7 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                         LOCTEXT("WanaWorksStudioCharacterCameraControlTitle", "Camera / Control Setup"),
                         LOCTEXT("WanaWorksStudioCharacterCameraControlEyebrow", "PLAYABILITY CONTEXT"),
                         Args.GetCharacterBuildingControlSummaryText,
-                        FLinearColor(0.36f, 0.50f, 0.86f, 1.0f),
+                        WanaWorksUIStyle::Tokens().Blue,
                         4,
                         210.0f)
                 ]
@@ -4822,7 +4917,7 @@ TSharedRef<SWidget> BuildCharacterBuildingWorkspaceBody(const FWanaWorksUITabBui
                         LOCTEXT("WanaWorksStudioRetargetReadinessTitle", "Auto-Retarget Readiness"),
                         LOCTEXT("WanaWorksStudioRetargetReadinessEyebrow", "IK RIG / RETARGETER"),
                         Args.GetAutoRetargetSummaryText,
-                        FLinearColor(0.62f, 0.38f, 0.86f, 1.0f),
+                        WanaWorksUIStyle::Tokens().Violet,
                         9,
                         210.0f)
                 ]
@@ -4838,7 +4933,8 @@ TSharedRef<SWidget> BuildLevelDesignWorkspaceBody(const FWanaWorksUITabBuilderAr
         .Padding(0.0f, 0.0f, 0.0f, 12.0f)
         [
             SNew(SSplitter)
-            .PhysicalSplitterHandleSize(2.0f)
+            .Style(&WanaWorksUIStyle::SplitterStyle())
+            .PhysicalSplitterHandleSize(4.0f)
             + SSplitter::Slot()
             .Value(0.23f)
             [
@@ -4969,7 +5065,8 @@ TSharedRef<SWidget> BuildProjectBlueprintWorkspaceBody(const FWanaWorksUITabBuil
         .Padding(0.0f, 0.0f, 0.0f, 12.0f)
         [
             SNew(SSplitter)
-            .PhysicalSplitterHandleSize(2.0f)
+            .Style(&WanaWorksUIStyle::SplitterStyle())
+            .PhysicalSplitterHandleSize(4.0f)
             + SSplitter::Slot()
             .Value(0.27f)
             [
@@ -5071,7 +5168,7 @@ TSharedRef<SWidget> BuildProjectBlueprintWorkspaceBody(const FWanaWorksUITabBuil
                         LOCTEXT("WanaWorksStudioBlueprintGapsTitle", "Project Gap Analysis"),
                         LOCTEXT("WanaWorksStudioBlueprintGapsEyebrow", "EVIDENCE / UNKNOWN / LIMITED"),
                         Args.GetProjectBlueprintGapsText,
-                        FLinearColor(0.24f, 0.74f, 0.78f, 1.0f),
+                        WanaWorksUIStyle::Tokens().Cyan,
                         9,
                         220.0f)
                 ]
@@ -5117,11 +5214,12 @@ TSharedRef<SWidget> MakeLiveWorkspaceReadoutMetric(
     const WanaWorksUIStyle::FWanaDesignTokens& T = WanaWorksUIStyle::Tokens();
 
     return SNew(SBorder)
-        .BorderImage(WanaWorksUIStyle::GetBrush(WanaWorksUIStyle::NavigationBrushName()))
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(0.0f)
         .BorderBackgroundColor(AccentColor.CopyWithNewOpacity(0.28f))
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(FMargin(12.0f, 10.0f))
             .BorderBackgroundColor(T.SurfaceRaised.CopyWithNewOpacity(0.985f))
             [
@@ -5194,7 +5292,8 @@ TSharedRef<SWidget> BuildProjectHealthWorkspaceBody(const FWanaWorksUITabBuilder
         .Padding(0.0f, 0.0f, 0.0f, 12.0f)
         [
             SNew(SSplitter)
-            .PhysicalSplitterHandleSize(2.0f)
+            .Style(&WanaWorksUIStyle::SplitterStyle())
+            .PhysicalSplitterHandleSize(4.0f)
             + SSplitter::Slot()
             .Value(0.22f)
             [
@@ -5391,10 +5490,12 @@ FString GetSelectedWorkspaceLabelOrDefault(TFunction<FString(void)> GetSelectedW
 TSharedRef<SWidget> MakeTopSearchSurface()
 {
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(1.0f)
         .BorderBackgroundColor(StudioAccentBlueColor.CopyWithNewOpacity(0.30f))
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(FMargin(16.0f, 11.0f))
             .BorderBackgroundColor(StudioGlassSurfaceColor.CopyWithNewOpacity(0.76f))
             [
@@ -5425,11 +5526,12 @@ TSharedRef<SWidget> MakeTopSearchSurface()
                 .VAlign(VAlign_Center)
                 [
                     SNew(SBorder)
+                    .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                     .Padding(FMargin(7.0f, 3.0f))
-                    .BorderBackgroundColor(FLinearColor(0.012f, 0.020f, 0.052f, 0.96f))
+                    .BorderBackgroundColor(WanaWorksUIStyle::Tokens().BackgroundDeep.CopyWithNewOpacity(0.96f))
                     [
                         SNew(STextBlock)
-                        .Font(MakeStudioFont("Bold", 7))
+                        .Font(WanaWorksUIStyle::WanaFont("Mono", 8))
                         .ColorAndOpacity(TertiaryTextColor.CopyWithNewOpacity(0.86f))
                         .Text(LOCTEXT("WanaWorksTopSearchShortcut", "CTRL K"))
                     ]
@@ -5441,6 +5543,7 @@ TSharedRef<SWidget> MakeTopSearchSurface()
 TSharedRef<SWidget> MakeTopWorkspaceHeader(const FWanaWorksUITabBuilderArgs& Args)
 {
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(1.0f)
         .BorderBackgroundColor_Lambda([GetSelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel]()
         {
@@ -5448,6 +5551,7 @@ TSharedRef<SWidget> MakeTopWorkspaceHeader(const FWanaWorksUITabBuilderArgs& Arg
         })
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(FMargin(16.0f, 10.0f))
             .BorderBackgroundColor(StudioSoftSurfaceColor.CopyWithNewOpacity(0.90f))
             [
@@ -5458,6 +5562,7 @@ TSharedRef<SWidget> MakeTopWorkspaceHeader(const FWanaWorksUITabBuilderArgs& Arg
                 .Padding(0.0f, 2.0f, 13.0f, 2.0f)
                 [
                     SNew(SBorder)
+                    .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                     .Padding(0.0f)
                     .BorderBackgroundColor_Lambda([GetSelectedWorkspaceLabel = Args.GetSelectedWorkspaceLabel]()
                     {
@@ -5519,12 +5624,14 @@ TSharedRef<SWidget> MakeTopWorkspaceHeader(const FWanaWorksUITabBuilderArgs& Arg
 TSharedRef<SWidget> MakeTopCommandCenter(const FWanaWorksUITabBuilderArgs& Args)
 {
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(1.0f)
         .BorderBackgroundColor(StudioAccentColor.CopyWithNewOpacity(0.34f))
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(FMargin(15.0f, 11.0f))
-            .BorderBackgroundColor(FLinearColor(0.018f, 0.026f, 0.066f, 0.98f))
+            .BorderBackgroundColor(WanaWorksUIStyle::Tokens().BackgroundMain.CopyWithNewOpacity(0.98f))
             [
                 SNew(SVerticalBox)
                 + SVerticalBox::Slot()
@@ -5558,10 +5665,12 @@ TSharedRef<SWidget> MakeTopCommandCenter(const FWanaWorksUITabBuilderArgs& Args)
 TSharedRef<SWidget> MakeTopStatusModule(const FWanaWorksUITabBuilderArgs& Args)
 {
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(1.0f)
         .BorderBackgroundColor(StudioSuccessColor.CopyWithNewOpacity(0.32f))
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(FMargin(14.0f, 10.0f))
             .BorderBackgroundColor(WanaWorksUIStyle::Tokens().Panel)
             [
@@ -5572,6 +5681,7 @@ TSharedRef<SWidget> MakeTopStatusModule(const FWanaWorksUITabBuilderArgs& Args)
                 .Padding(0.0f, 0.0f, 10.0f, 0.0f)
                 [
                     SNew(SBorder)
+                    .BorderImage(WanaWorksUIStyle::RoundedChipBrush())
                     .Padding(0.0f)
                     .BorderBackgroundColor(StudioSuccessColor.CopyWithNewOpacity(0.92f))
                     [
@@ -5600,7 +5710,7 @@ TSharedRef<SWidget> MakeTopStatusModule(const FWanaWorksUITabBuilderArgs& Args)
                         SNew(STextBlock)
                         .AutoWrapText(true)
                         .Font(MakeStudioFont("Bold", 9))
-                        .ColorAndOpacity(FLinearColor(0.92f, 1.0f, 0.96f, 1.0f))
+                        .ColorAndOpacity(WanaWorksUIStyle::Tokens().TextPrimary)
                         .ShadowColorAndOpacity(StudioShadowColor)
                         .ShadowOffset(FVector2D(0.0f, 1.0f))
                         .Text_Lambda([GetStatusText = Args.GetStatusText]()
@@ -5616,12 +5726,12 @@ TSharedRef<SWidget> MakeTopStatusModule(const FWanaWorksUITabBuilderArgs& Args)
 TSharedRef<SWidget> MakeStudioTopChrome(const FWanaWorksUITabBuilderArgs& Args)
 {
     return SNew(SBorder)
-        .BorderImage(WanaWorksUIStyle::GetBrush(WanaWorksUIStyle::TopBarBrushName()))
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(FMargin(0.0f, 0.0f, 0.0f, 1.0f))
         .BorderBackgroundColor(CinematicBorder)
         [
             SNew(SBorder)
-            .BorderImage(WanaWorksUIStyle::GetBrush(WanaWorksUIStyle::TopBarBrushName()))
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(FMargin(18.0f, 14.0f))
             .BorderBackgroundColor(CinematicShell)
             [
@@ -5707,10 +5817,12 @@ TSharedRef<SWidget> MakePinnedWorkspaceWorkflowBar(const FWanaWorksUITabBuilderA
     const WanaWorksUIStyle::FWanaDesignTokens& T = WanaWorksUIStyle::Tokens();
 
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(0.0f)
         .BorderBackgroundColor(T.Info.CopyWithNewOpacity(0.22f))
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(FMargin(12.0f, 10.0f))
             .BorderBackgroundColor(T.Surface.CopyWithNewOpacity(0.98f))
             [
@@ -5781,10 +5893,12 @@ TSharedRef<SWidget> MakePinnedWorkspaceWorkflowBar(const FWanaWorksUITabBuilderA
 TSharedRef<SWidget> MakeCinematicBottomStatusBar(const FWanaWorksUITabBuilderArgs& Args)
 {
     return SNew(SBorder)
+        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
         .Padding(FMargin(0.0f, 1.0f, 0.0f, 0.0f))
         .BorderBackgroundColor(CinematicBorder)
         [
             SNew(SBorder)
+            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
             .Padding(FMargin(18.0f, 9.0f))
             .BorderBackgroundColor(CinematicShell)
             [
@@ -5857,9 +5971,9 @@ namespace WanaWorksUITabBuilder
 TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
 {
     return SNew(SBorder)
-        .BorderImage(WanaWorksUIStyle::GetBrush(WanaWorksUIStyle::AppBackgroundBrushName()))
+        .BorderImage(WanaWorksUIStyle::FlatTintBrush())
         .Padding(0.0f)
-        .BorderBackgroundColor(CinematicShell)
+        .BorderBackgroundColor(WanaWorksUIStyle::Tokens().AppBackground)
         [
             SNew(SVerticalBox)
             + SVerticalBox::Slot()
@@ -5889,12 +6003,12 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
                     .Padding(16.0f, 16.0f, 16.0f, 16.0f)
                     [
                         SNew(SBorder)
-                        .BorderImage(WanaWorksUIStyle::GetBrush(WanaWorksUIStyle::WorkspaceBrushName()))
+                        .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                         .Padding(1.0f)
                         .BorderBackgroundColor(CinematicBorder)
                         [
                             SNew(SBorder)
-                            .BorderImage(WanaWorksUIStyle::GetBrush(WanaWorksUIStyle::WorkspaceBrushName()))
+                            .BorderImage(WanaWorksUIStyle::RoundedTintBrush())
                             .Padding(0.0f)
                             .BorderBackgroundColor(CinematicSurface)
                             [
@@ -5931,6 +6045,7 @@ TSharedRef<SWidget> BuildTabContent(const FWanaWorksUITabBuilderArgs& Args)
                                 .Padding(18.0f, 14.0f, 18.0f, 18.0f)
                                 [
                                     SNew(SScrollBox)
+                                    .Style(&WanaWorksUIStyle::ScrollBoxStyle())
                                     .ScrollBarStyle(&WanaWorksUIStyle::ScrollBarStyle())
                                     + SScrollBox::Slot()
                                     [

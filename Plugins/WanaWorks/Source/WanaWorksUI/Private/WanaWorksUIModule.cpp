@@ -5229,12 +5229,20 @@ void FWanaWorksUIModule::StartupModule()
     LoadSavedWorkflowPresets();
     LoadSavedSubjectProgress();
 
+    static TSharedPtr<FWorkspaceItem> WanaWorksCategory;
+    if (!WanaWorksCategory.IsValid())
+    {
+        WanaWorksCategory = WorkspaceMenu::GetMenuStructure().GetStructureRoot()->AddGroup(
+            LOCTEXT("WanaWorksMenuCategory", "WanaWorks"),
+            FSlateIcon(WanaWorksUIStyle::GetStyleSetName(), WanaWorksUIStyle::GetLauncherIconName()));
+    }
+
     FGlobalTabmanager::Get()->RegisterNomadTabSpawner(
         WanaWorksTabName,
         FOnSpawnTab::CreateRaw(this, &FWanaWorksUIModule::SpawnWanaWorksTab))
         .SetDisplayName(LOCTEXT("WanaWorksTabTitle", "WanaWorks Studio"))
-        .SetTooltipText(LOCTEXT("WanaWorksTabTooltip", "Open WanaWorks Studio."))
-        .SetGroup(WorkspaceMenu::GetMenuStructure().GetDeveloperToolsMiscCategory())
+        .SetTooltipText(LOCTEXT("WanaWorksTabTooltip", "Open the WanaWorks Studio workspace."))
+        .SetGroup(WanaWorksCategory.ToSharedRef())
         .SetIcon(FSlateIcon(WanaWorksUIStyle::GetStyleSetName(), WanaWorksUIStyle::GetLauncherIconName()))
         .SetMenuType(ETabSpawnerMenuType::Enabled);
 
@@ -5291,7 +5299,7 @@ void FWanaWorksUIModule::RegisterEditorLauncherMenus()
             FName(TEXT("WanaWorksStudioToolbarLauncher")),
             OpenStudioAction,
             LOCTEXT("WanaWorksStudioToolbarLauncherLabel", "WanaWorks"),
-            LOCTEXT("WanaWorksStudioToolbarLauncherTooltip", "Open or focus WanaWorks Studio."),
+            LOCTEXT("WanaWorksStudioToolbarLauncherTooltip", "Open the WanaWorks Studio workspace."),
             LauncherIcon));
     }
 
@@ -5301,18 +5309,7 @@ void FWanaWorksUIModule::RegisterEditorLauncherMenus()
         ToolsSection.AddMenuEntry(
             FName(TEXT("WanaWorksStudioToolsLauncher")),
             LOCTEXT("WanaWorksStudioToolsLauncherLabel", "WanaWorks Studio"),
-            LOCTEXT("WanaWorksStudioToolsLauncherTooltip", "Open or focus WanaWorks Studio."),
-            LauncherIcon,
-            OpenStudioAction);
-    }
-
-    if (UToolMenu* WindowMenu = UToolMenus::Get()->ExtendMenu(TEXT("LevelEditor.MainMenu.Window")))
-    {
-        FToolMenuSection& WindowSection = WindowMenu->FindOrAddSection(TEXT("WanaWorks"));
-        WindowSection.AddMenuEntry(
-            FName(TEXT("WanaWorksStudioWindowLauncher")),
-            LOCTEXT("WanaWorksStudioWindowLauncherLabel", "WanaWorks Studio"),
-            LOCTEXT("WanaWorksStudioWindowLauncherTooltip", "Open or focus WanaWorks Studio."),
+            LOCTEXT("WanaWorksStudioToolsLauncherTooltip", "Open the WanaWorks Studio workspace."),
             LauncherIcon,
             OpenStudioAction);
     }

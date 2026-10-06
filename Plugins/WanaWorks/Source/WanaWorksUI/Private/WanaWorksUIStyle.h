@@ -14,41 +14,50 @@ FName GetLauncherIconName();
 FName GetWorkspaceIconName(const FString& WorkspaceLabel);
 FName GetWorkflowIconName(const FString& WorkflowLabel);
 
+// sRGB hex bytes -> linear FLinearColor. Slate treats FLinearColor components as linear,
+// so authoring 0-1 "hex fractions" directly washes the Midnight Core navy out to steel blue.
+inline FLinearColor WanaSRGB(uint8 R, uint8 G, uint8 B, uint8 A = 255)
+{
+    return FLinearColor::FromSRGBColor(FColor(R, G, B, A));
+}
+
 struct FWanaDesignTokens
 {
-    FLinearColor BackgroundDeep = FLinearColor(0.012f, 0.039f, 0.071f, 1.0f);
-    FLinearColor BackgroundMain = FLinearColor(0.020f, 0.059f, 0.102f, 1.0f);
-    FLinearColor Navigation = FLinearColor(0.016f, 0.071f, 0.122f, 1.0f);
-    FLinearColor TopBar = FLinearColor(0.024f, 0.078f, 0.133f, 1.0f);
-    FLinearColor Workspace = FLinearColor(0.027f, 0.090f, 0.153f, 1.0f);
-    FLinearColor Panel = FLinearColor(0.035f, 0.110f, 0.184f, 1.0f);
-    FLinearColor Card = FLinearColor(0.043f, 0.133f, 0.216f, 1.0f);
-    FLinearColor CardRaised = FLinearColor(0.055f, 0.161f, 0.259f, 1.0f);
-    FLinearColor CardHover = FLinearColor(0.071f, 0.196f, 0.306f, 1.0f);
-    FLinearColor Input = FLinearColor(0.016f, 0.067f, 0.114f, 1.0f);
-    FLinearColor Divider = FLinearColor(0.075f, 0.200f, 0.286f, 1.0f);
-    FLinearColor BorderSubtle = FLinearColor(0.102f, 0.247f, 0.349f, 1.0f);
-    FLinearColor BorderStrong = FLinearColor(0.153f, 0.396f, 0.537f, 1.0f);
-    FLinearColor AppBackground = FLinearColor(0.012f, 0.039f, 0.071f, 1.0f);
-    FLinearColor Surface = FLinearColor(0.043f, 0.133f, 0.216f, 0.98f);
-    FLinearColor SurfaceRaised = FLinearColor(0.055f, 0.161f, 0.259f, 0.992f);
-    FLinearColor SurfaceGlass = FLinearColor(0.071f, 0.196f, 0.306f, 0.50f);
-    FLinearColor TextPrimary = FLinearColor(0.937f, 0.969f, 0.988f, 1.0f);
-    FLinearColor TextSecondary = FLinearColor(0.675f, 0.765f, 0.827f, 1.0f);
-    FLinearColor TextMuted = FLinearColor(0.412f, 0.529f, 0.612f, 1.0f);
-    FLinearColor TextDisabled = FLinearColor(0.271f, 0.357f, 0.424f, 1.0f);
+    // Midnight Core anchors, stored linear: #070B18 / #0B1020 / #151D38.
+    FLinearColor BackgroundDeep = WanaSRGB(0x07, 0x0B, 0x18);
+    FLinearColor BackgroundMain = WanaSRGB(0x0B, 0x10, 0x20);
+    FLinearColor Navigation = WanaSRGB(0x0B, 0x10, 0x20);
+    FLinearColor TopBar = WanaSRGB(0x0B, 0x10, 0x20);
+    FLinearColor Workspace = WanaSRGB(0x0A, 0x0E, 0x1C);
+    FLinearColor Panel = WanaSRGB(0x10, 0x16, 0x2C);
+    FLinearColor Card = WanaSRGB(0x15, 0x1D, 0x38);
+    FLinearColor CardRaised = WanaSRGB(0x1B, 0x24, 0x44);
+    FLinearColor CardHover = WanaSRGB(0x24, 0x2E, 0x54);
+    FLinearColor Input = WanaSRGB(0x07, 0x0B, 0x18);
+    FLinearColor Divider = WanaSRGB(0x2A, 0x36, 0x5C);
+    FLinearColor BorderSubtle = WanaSRGB(0x32, 0x3E, 0x68);
+    FLinearColor BorderStrong = WanaSRGB(0x4A, 0x5A, 0x88);
+    FLinearColor AppBackground = WanaSRGB(0x07, 0x0B, 0x18);
+    FLinearColor Surface = WanaSRGB(0x15, 0x1D, 0x38, 250);
+    FLinearColor SurfaceRaised = WanaSRGB(0x1B, 0x24, 0x44, 253);
+    FLinearColor SurfaceGlass = WanaSRGB(0x15, 0x1D, 0x38, 128);
+    FLinearColor TextPrimary = WanaSRGB(0xF3, 0xF1, 0xEC);
+    FLinearColor TextSecondary = WanaSRGB(0xC7, 0xCB, 0xD4);
+    FLinearColor TextMuted = WanaSRGB(0x9A, 0xA0, 0xAC);
+    FLinearColor TextDisabled = WanaSRGB(0x6E, 0x74, 0x82);
     FLinearColor Shadow = FLinearColor(0.0f, 0.0f, 0.0f, 0.72f);
-    FLinearColor Blue = FLinearColor(0.094f, 0.537f, 1.000f, 1.0f);
-    FLinearColor Cyan = FLinearColor(0.000f, 0.863f, 0.886f, 1.0f);
-    FLinearColor Violet = FLinearColor(0.616f, 0.345f, 1.000f, 1.0f);
-    FLinearColor Emerald = FLinearColor(0.114f, 0.839f, 0.537f, 1.0f);
-    FLinearColor Amber = FLinearColor(0.957f, 0.682f, 0.216f, 1.0f);
-    FLinearColor Red = FLinearColor(0.933f, 0.275f, 0.306f, 1.0f);
-    FLinearColor Success = FLinearColor(0.114f, 0.839f, 0.537f, 1.0f);
-    FLinearColor Warning = FLinearColor(0.957f, 0.682f, 0.216f, 1.0f);
-    FLinearColor Info = FLinearColor(0.094f, 0.537f, 1.000f, 1.0f);
-    FLinearColor Critical = FLinearColor(0.933f, 0.275f, 0.306f, 1.0f);
-    FLinearColor ElectricBlue = FLinearColor(0.094f, 0.537f, 1.000f, 1.0f);
+    // Blue is the supporting bridge between cyan and violet so Enhance/Build stay distinct.
+    FLinearColor Blue = WanaSRGB(0x7A, 0xA2, 0xFF);
+    FLinearColor Cyan = WanaSRGB(0x6A, 0xD7, 0xFF);
+    FLinearColor Violet = WanaSRGB(0x8C, 0x7C, 0xFF);
+    FLinearColor Emerald = WanaSRGB(0x3D, 0xDC, 0x97);
+    FLinearColor Amber = WanaSRGB(0xF1, 0xC9, 0x6B);
+    FLinearColor Red = WanaSRGB(0xFF, 0x6B, 0x7A);
+    FLinearColor Success = WanaSRGB(0x3D, 0xDC, 0x97);
+    FLinearColor Warning = WanaSRGB(0xF1, 0xC9, 0x6B);
+    FLinearColor Info = WanaSRGB(0x6A, 0xD7, 0xFF);
+    FLinearColor Critical = WanaSRGB(0xFF, 0x6B, 0x7A);
+    FLinearColor ElectricBlue = WanaSRGB(0x6A, 0xD7, 0xFF);
     float CardPadding = 18.0f;
     float DensePadding = 12.0f;
 };
@@ -103,6 +112,14 @@ const FComboBoxStyle& ComboBoxStyle();
 const FTableRowStyle& ComboRowStyle();
 const FCheckBoxStyle& CheckBoxStyle();
 const FScrollBarStyle& ScrollBarStyle();
+const FExpandableAreaStyle& ExpandableAreaStyle();
+const FSplitterStyle& SplitterStyle();
+const FScrollBoxStyle& ScrollBoxStyle();
+
+const FSlateBrush* RoundedTintBrush();
+const FSlateBrush* RoundedFillBrush();
+const FSlateBrush* RoundedChipBrush();
+const FSlateBrush* FlatTintBrush();
 
 TSharedRef<SWidget> WanaStatusPill(
     const FText& Label,
